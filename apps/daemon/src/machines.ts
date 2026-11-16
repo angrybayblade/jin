@@ -72,7 +72,8 @@ const STEPS: { id: StepId; label: string }[] = [
 ];
 const LOG_LINES = 300;
 const REPO = resolve(import.meta.dir, "../../..");
-const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"';
+// Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
+const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
 
 export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
 
@@ -185,6 +186,7 @@ RestartSec=2
 WantedBy=default.target
 EOF
   systemctl --user daemon-reload
+  pkill -f "$MAIN" 2>/dev/null || true # one started without systemd would hold the port
   systemctl --user enable jin-daemon >/dev/null 2>&1 || true
   systemctl --user restart jin-daemon
   echo "running as a systemd user service (jin-daemon)"
