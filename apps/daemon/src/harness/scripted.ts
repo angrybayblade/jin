@@ -25,6 +25,13 @@ export class ScriptedHarness implements Harness {
     for (const step of steps) {
       run.signal.throwIfAborted();
       if ("text" in step) {
+        // Stream it word by word first, like the real harness, then record the message.
+        if (process.env.JIN_SCRIPTED_STREAM_MS) {
+          for (const word of step.text.split(/(?<=\s)/)) {
+            run.stream?.("message.delta", { text: word });
+            await Bun.sleep(Number(process.env.JIN_SCRIPTED_STREAM_MS));
+          }
+        }
         run.emit("message", { text: step.text });
         continue;
       }
