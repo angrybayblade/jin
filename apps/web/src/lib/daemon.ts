@@ -32,6 +32,8 @@ export interface Task {
   /** jin's display title, when renamed in jin. */
   title: string | null;
   archived: boolean;
+  /** The task this one was spawned from (jin-task spawn). */
+  parent?: string | null;
 }
 
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";

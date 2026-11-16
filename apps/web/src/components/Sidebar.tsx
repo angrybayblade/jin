@@ -144,7 +144,19 @@ export function Sidebar({
     { label: "New chat", icon: MessageSquarePlus, run: () => router.push(`${href}?chat=new`) },
   ];
 
-  const taskRow = (t: Task) => {
+  /** Tasks in order, each sub-task right under its parent (jin-task spawn), one level in. */
+  const nested = (list: Task[]): { task: Task; depth: number }[] => {
+    const ids = new Set(list.map((t) => t.id));
+    const out: { task: Task; depth: number }[] = [];
+    const walk = (t: Task, depth: number) => {
+      out.push({ task: t, depth });
+      for (const c of list.filter((x) => x.parent === t.id)) walk(c, Math.min(depth + 1, 3));
+    };
+    for (const t of list) if (!t.parent || !ids.has(t.parent)) walk(t, 0);
+    return out;
+  };
+
+  const taskRow = (t: Task, depth = 0) => {
     // Claude Code's status (from its hooks), else the latest SDK session's.
     const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
     const s = latest((x) => x.taskId === t.id);
@@ -154,7 +166,14 @@ export function Sidebar({
     const open = prs.filter((p) => p.taskId === t.id && p.state === "OPEN");
     const needsYou = open.filter((p) => p.checks === "failing" || p.review === "CHANGES_REQUESTED");
     return (
-      <Link key={t.id} href={`/t/${encodeURIComponent(t.id)}`} className={`nav-item task ${path === `/t/${t.id}` ? "active" : ""} ${t.archived ? "is-archived" : ""}`} title={title} {...contextMenu(() => taskMenu(t))}>
+      <Link
+        key={t.id}
+        href={`/t/${encodeURIComponent(t.id)}`}
+        className={`nav-item task ${path === `/t/${t.id}` ? "active" : ""} ${t.archived ? "is-archived" : ""} ${depth ? "is-subtask" : ""}`}
+        style={depth ? { paddingLeft: 8 + depth * 14 } : undefined}
+        title={t.parent ? `${title} · sub-task of ${t.parent}` : title}
+        {...contextMenu(() => taskMenu(t))}
+      >
         {mark ? <StatusMark state={mark} /> : <span className="status-dot" aria-hidden="true" />}
         <span className="nav-label">
           <span className="mono">{t.id}</span>{" "}
@@ -242,14 +261,14 @@ export function Sidebar({
           ) : elsewhere.length === 0 ? (
             <p className="sidebar-empty">Ask jin to start one, or press +.</p>
           ) : null)}
-        {live.filter((t) => !jobs.some((j) => j.taskId === t.id && j.state === "running")).map(taskRow)}
+        {nested(live.filter((t) => !jobs.some((j) => j.taskId === t.id && j.state === "running"))).map(({ task, depth }) => taskRow(task, depth))}
         {archived.length > 0 && (
           <>
             <button type="button" className="nav-archived-toggle" onClick={() => setShowArchived((v) => !v)} aria-expanded={showArchived}>
               {showArchived ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               <span className="nav-label">Archived ({archived.length})</span>
             </button>
-            {showArchived && archived.map(taskRow)}
+            {showArchived && archived.map((t) => taskRow(t))}
           </>
         )}
 
