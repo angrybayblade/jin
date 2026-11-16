@@ -102,6 +102,17 @@ const MIGRATIONS: string[] = [
   );
   create index terminals_task on terminals (task_id, created_at);
   `,
+  // Jin's own view of things it does not own: a display title and archive flag for any
+  // workspace task, and archive flags for chats and terminal tabs.
+  `
+  create table task_meta (
+    task_id text primary key,
+    title text,
+    archived_at text
+  );
+  alter table sessions add column archived_at text;
+  alter table terminals add column archived_at text;
+  `,
 ];
 
 export function openDb(home: string): Database {
