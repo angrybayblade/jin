@@ -2,7 +2,13 @@
 import { Streamdown, type Components } from "streamdown";
 
 // Zero's markdown setup: jin's typography and named scroll regions instead of utility styles.
+// Streamdown's defaults rely on Tailwind classes (bold is a font-semibold span), which jin
+// does not load, so inline formatting maps back to plain elements styled in globals.css.
 const components: Components = {
+  strong: ({ children }) => <strong>{children}</strong>,
+  em: ({ children }) => <em>{children}</em>,
+  del: ({ children }) => <del>{children}</del>,
+  code: ({ children, className }) => <code className={className}>{children}</code>,
   a: ({ children, href }) => (
     <a className="link-chip" href={href} target="_blank" rel="noreferrer">
       {children}
