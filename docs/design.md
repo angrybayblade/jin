@@ -180,7 +180,14 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   More than one jin can use a machine (`webOrigins`). jin finds a workspace already on a
   machine through its `cws` link (`~/.local/bin/cws` → `<workspace>/bin/cws`) or the usual
   folders, and offers it before installing one.
-- **One orchestrator**: your Mac's jin is the one you talk to; each machine's daemon owns its
+- **Home (hub)**: any machine can be jin's always-on home. Your Mac's line to it also carries a
+  reverse port (`-R`), over which the Mac attaches itself (`POST /api/machines/attach`), so the
+  hub reaches the Mac without dialling into it. With a home, chats, desks, the feed and approvals
+  come from the hub; task pages follow their machine; the Mac collects notices only from the
+  hub; the hub runs the always-on timers (feed every 10 minutes, PR sync) and reaches the other
+  machines with its own key (`POST /api/machines/key`, added once to exe.dev). "Move" copies the
+  Mac's chats and feed there and has the hub connect to the Mac's other machines.
+- **One orchestrator**: your Mac's jin (or, with a home, the hub) is the one you talk to; each machine's daemon owns its
   own tasks, sessions and approvals. jin's chat lists machines, lists tasks and catches you up
   across all of them, and starts tasks or Claude Code sessions on a chosen machine through its
   tunnel.
@@ -202,7 +209,7 @@ archive) · `task_prs` · `sessions` (kind: jin, a desk, or task) · `events` ·
 
 ## Status and next
 
-Built: everything above. The acceptance suite (`bun run acceptance`) passes 21/21 next to a
+Built: everything above. The acceptance suite (`bun run acceptance`) passes 22/22 next to a
 running dev server; unit tests with `bun run test`.
 
 Before a release candidate: nothing open. Each desk says whether its connection is there
