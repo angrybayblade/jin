@@ -18,7 +18,7 @@ body {
 body {
   background: var(--canvas);
   color: var(--ink);
-  font: var(--weight-meta) var(--type-secondary) / 1.5 var(--font-ui);
+  font: var(--weight-meta) var(--d-text) / 1.5 var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 a {
@@ -92,7 +92,7 @@ button {
 /* ------------------------------------------------------------------ shell */
 .app-shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-w, var(--d-sidebar-w)) minmax(0, 1fr);
   height: 100dvh;
   overflow: hidden;
 }
@@ -100,7 +100,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 14px 12px 12px;
+  padding: 10px 8px 8px;
   border-right: 1px solid var(--line);
   background: var(--canvas);
 }
@@ -114,7 +114,7 @@ button {
   text-decoration: none;
 }
 .workspace-brand > span:not(.thermal-mark) {
-  font-size: 24px;
+  font-size: var(--d-brand);
   font-weight: var(--weight-primary);
   letter-spacing: -0.05em;
 }
@@ -136,8 +136,8 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 32px;
-  padding: 4px 8px;
+  min-height: var(--d-nav-h);
+  padding: 2px 8px;
   border-radius: var(--radius-control);
   color: var(--secondary);
   text-decoration: none;
@@ -181,6 +181,64 @@ button {
   color: var(--muted);
   font-size: var(--type-meta);
 }
+.app-shell {
+  position: relative;
+}
+html[data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+html[data-sidebar="collapsed"] :is(.nav-label, .nav-section, .sidebar-empty, .sidebar-where, .workspace-brand > span:not(.thermal-mark)) {
+  display: none;
+}
+html[data-sidebar="collapsed"] .nav-item {
+  justify-content: center;
+  padding: 2px 0;
+  position: relative;
+}
+html[data-sidebar="collapsed"] .nav-count {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  min-width: 14px;
+  padding: 0 3px;
+  font-size: 10px;
+}
+html[data-sidebar="collapsed"] .workspace-brand {
+  justify-content: center;
+}
+html[data-sidebar="collapsed"] .sidebar-bottom {
+  justify-content: center;
+  padding-left: 0;
+}
+html[data-sidebar="collapsed"] .sidebar-controls {
+  flex-direction: column;
+}
+html[data-sidebar="collapsed"] .sidebar-resizer {
+  display: none;
+}
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-w, var(--d-sidebar-w)) - 3px);
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.sidebar-resizer:hover {
+  background: linear-gradient(to right, transparent 2px, var(--line-strong) 2px, var(--line-strong) 3px, transparent 3px);
+}
+.sidebar-controls {
+  display: flex;
+  gap: 2px;
+}
+.sidebar-where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sidebar-bottom {
   display: flex;
   align-items: center;
@@ -199,15 +257,95 @@ button {
   min-height: 0;
   display: flex;
 }
+/* Two panes with a draggable divider; the split and the right pane's visibility are per page. */
 .panes {
+  --split: var(--split-default, 66%);
   flex: 1;
   min-width: 0;
   min-height: 0;
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(380px, 1fr) minmax(300px, 380px);
+  grid-template-columns: minmax(0, var(--split)) 5px minmax(0, 1fr);
 }
-.panes.with-workspace {
-  grid-template-columns: minmax(360px, 42%) minmax(0, 1fr);
+[data-panes="home"] {
+  --split: var(--split-home, var(--split-default));
+}
+[data-panes="desk"] {
+  --split: var(--split-desk, var(--split-default));
+}
+[data-panes="task"] {
+  --split: var(--split-task, var(--split-default));
+}
+html[data-aside-home="hidden"] [data-panes="home"],
+html[data-aside-desk="hidden"] [data-panes="desk"],
+html[data-aside-task="hidden"] [data-panes="task"] {
+  grid-template-columns: minmax(0, 1fr) 0 0;
+}
+.pane-slot {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.pane-slot > * {
+  flex: 1;
+  min-width: 0;
+}
+.splitter {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 3;
+}
+.splitter-line {
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  transition: background var(--motion-fast);
+}
+.splitter:hover .splitter-line,
+.panes.is-dragging .splitter-line {
+  background: var(--line-strong);
+}
+.panes.is-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+.panes.is-dragging iframe,
+.panes.is-dragging .xterm,
+.panes.is-dragging .monaco-editor {
+  pointer-events: none;
+}
+.aside-toggle {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--split) - 13px);
+  transform: translateY(-50%);
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.panes:hover .aside-toggle,
+.aside-toggle:focus-visible {
+  opacity: 1;
+}
+.aside-toggle:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+html[data-aside-home="hidden"] [data-panes="home"] .aside-toggle,
+html[data-aside-desk="hidden"] [data-panes="desk"] .aside-toggle,
+html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
+  left: auto;
+  right: 6px;
+  opacity: 1;
 }
 .daemon-down {
   height: 100dvh;
@@ -218,8 +356,8 @@ button {
   color: var(--secondary);
 }
 .pane-header {
-  height: 48px;
-  min-height: 48px;
+  height: var(--d-header-h);
+  min-height: var(--d-header-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -249,14 +387,14 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: var(--d-control-h);
   padding: 0 var(--space-3);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--ink);
   font-weight: var(--weight-secondary);
-  font-size: 13px;
+  font-size: var(--d-text);
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
@@ -314,7 +452,7 @@ button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 36px 32px;
+  padding: 28px var(--d-pad);
   margin: auto 0;
 }
 .welcome-overline {
@@ -325,7 +463,7 @@ button {
 }
 .chat-welcome h1 {
   margin: 0 0 16px;
-  font-size: 34px;
+  font-size: var(--d-welcome);
   font-weight: var(--weight-primary);
   line-height: 1.12;
   letter-spacing: -0.045em;
@@ -364,7 +502,7 @@ button {
   background: var(--hover);
 }
 .messages {
-  padding: var(--space-5);
+  padding: var(--d-pad);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -388,7 +526,7 @@ button {
 .message.user .message-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 15px;
+  font-size: var(--d-chat-text);
 }
 .tool-row {
   display: grid;
@@ -445,7 +583,7 @@ button {
   font-size: var(--type-meta);
 }
 .composer-area {
-  padding: var(--space-3) var(--space-5) var(--space-4);
+  padding: var(--space-2) var(--d-pad) var(--space-3);
   display: grid;
   gap: var(--space-2);
 }
@@ -469,7 +607,7 @@ button {
   resize: none;
   background: transparent;
   field-sizing: content;
-  font: 15px/1.6 var(--font-ui);
+  font: var(--d-chat-text)/1.6 var(--font-ui);
   color: var(--ink);
 }
 .composer textarea::placeholder {
@@ -518,7 +656,7 @@ button {
 
 /* Zero's markdown */
 .message-markdown {
-  font-size: 14px;
+  font-size: var(--d-md-text);
   line-height: 1.6;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -664,8 +802,8 @@ button {
 }
 .feed-row {
   display: grid;
-  gap: var(--space-1);
-  padding: var(--space-3) 0;
+  gap: 2px;
+  padding: var(--d-row-pad) 0;
   border-bottom: 1px solid var(--line);
 }
 .feed-main {
@@ -724,13 +862,13 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: var(--d-control-h);
   padding: 0 10px;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--secondary);
-  font-size: 13px;
+  font-size: var(--d-text);
   cursor: pointer;
 }
 .tab:hover {
@@ -774,7 +912,7 @@ button {
   align-items: center;
   gap: 5px;
   width: 100%;
-  height: 26px;
+  height: var(--d-tree-row);
   padding-right: 8px;
   border: 0;
   background: transparent;
@@ -815,8 +953,8 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 36px;
-  min-height: 36px;
+  height: var(--d-editor-bar);
+  min-height: var(--d-editor-bar);
   padding: 0 var(--space-3);
   border-bottom: 1px solid var(--line);
   font-size: var(--type-meta);
@@ -908,9 +1046,15 @@ button {
 /* ------------------------------------------------------------------ narrow */
 @media (max-width: 1100px) {
   .panes,
-  .panes.with-workspace {
+  html[data-aside-home] .panes,
+  html[data-aside-desk] .panes,
+  html[data-aside-task] .panes {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 45%);
+    grid-template-rows: minmax(0, 1fr) 0 minmax(0, 45%);
+  }
+  .splitter,
+  .aside-toggle {
+    display: none;
   }
   .chat-panel {
     border-right: 0;
@@ -965,9 +1109,6 @@ button {
 }
 
 /* ------------------------------------------------------------------ Claude Code pane (dark TUI) */
-.panes.with-workspace {
-  grid-template-columns: minmax(520px, 56%) minmax(0, 1fr);
-}
 .claude-pane {
   display: flex;
   flex-direction: column;
@@ -1021,7 +1162,7 @@ button {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  min-height: 34px;
+  min-height: var(--d-tab-h);
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--line);
   background: var(--canvas);
