@@ -29,6 +29,10 @@ test("A20 Claude Code in a task is launched with the attach-your-PRs rule and ji
   expect(args).toContain("--append-system-prompt");
   expect(args).toContain("jin task PR-1");
   expect(args).toContain("jin-task attach-pr");
+  // It starts in the task's folder, can read the whole workspace, and knows how to spawn sub-tasks.
+  expect(args).toContain(`--add-dir\n${env.workspace}\n`);
+  expect(args).toContain("TASK.md");
+  expect(args).toContain("jin-task spawn");
   expect(statSync(join(env.home, "bin", "jin-task")).mode & 0o111).toBeGreaterThan(0);
 });
 
@@ -49,4 +53,21 @@ test("A20 `jin-task attach-pr` attaches a PR to the terminal's task", async () =
   const bad = Bun.spawnSync([join(env.home, "bin", "jin-task"), "attach-pr", "not-a-link"], { env: { ...process.env, JIN_HOME: env.home, JIN_TERMINAL_ID: terminalId } });
   expect(bad.exitCode).toBe(1);
   expect(bad.stderr.toString()).toContain("not a GitHub pull request link");
+});
+
+test("A20 `jin-task spawn` starts a sub-task under the terminal's task, asks first, and `jin-task subtasks` reports it", async () => {
+  // Claude Code asks the user before spawning (jin's PreToolUse answer).
+  const verdict = await d.json("/api/hooks/claude", { method: "POST", json: { event: "PreToolUse", terminalId, input: { tool_name: "Bash", tool_input: { command: 'jin-task spawn PR-1-a --repos platform --slug "split"' } } } });
+  expect(verdict).toMatchObject({ decision: "ask" });
+
+  const env2 = { ...process.env, JIN_HOME: env.home, JIN_TERMINAL_ID: terminalId };
+  const run = Bun.spawnSync([join(env.home, "bin", "jin-task"), "spawn", "PR-1-a", "--repos", "platform", "--slug", "split part", "--no-setup"], { env: env2 });
+  expect(run.stdout.toString()).toContain("sub-task PR-1-a of PR-1");
+  const child = await until(async () => (await d.json<any[]>("/api/tasks")).find((t) => t.id === "PR-1-a"), 15000, "sub-task created");
+  expect(child).toMatchObject({ parent: "PR-1", slug: "split part", repos: ["platform"] });
+  const list = Bun.spawnSync([join(env.home, "bin", "jin-task"), "subtasks"], { env: env2 }).stdout.toString();
+  expect(list).toContain("PR-1-a");
+
+  const bad = Bun.spawnSync([join(env.home, "bin", "jin-task"), "spawn", "PR-1-b"], { env: env2 });
+  expect(bad.exitCode).toBe(1);
 });
