@@ -47,6 +47,20 @@ export interface Session {
   lastEventAt: string | null;
 }
 
+export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited";
+
+export interface TerminalInfo {
+  id: string;
+  kind: "shell" | "claude";
+  taskId: string | null;
+  cwd: string;
+  title: string;
+  status: AgentStatus;
+  exitCode: number | null;
+  createdAt: string;
+  clients: number;
+}
+
 export interface FileEntry {
   name: string;
   path: string;

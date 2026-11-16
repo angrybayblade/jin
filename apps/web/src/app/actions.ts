@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { daemon, type ChatKind, type FileEntry, type RepoDiff, type Session } from "@/lib/daemon";
+import { daemon, type ChatKind, type FileEntry, type RepoDiff, type Session, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -58,9 +58,22 @@ export async function streamTicket(sessionId: string): Promise<string> {
   return ticket;
 }
 
-export async function terminalTicket(): Promise<string> {
-  const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: "/api/terminal" } });
+// ---------------------------------------------------------------- terminals (shell and Claude Code)
+
+export async function attachTicket(terminalId: string): Promise<string> {
+  const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: `/api/terminals/${terminalId}/attach` } });
   return ticket;
+}
+
+export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number }): Promise<TerminalInfo> {
+  const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json: opts });
+  revalidatePath("/", "layout");
+  return t;
+}
+
+export async function closeTerminal(id: string): Promise<void> {
+  await daemon(`/api/terminals/${encodeURIComponent(id)}`, { method: "DELETE" });
+  revalidatePath("/", "layout");
 }
 
 // ---------------------------------------------------------------- workspace pane
