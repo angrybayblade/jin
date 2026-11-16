@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
@@ -42,6 +43,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         mode={shell.status.mode}
       />
       <SidebarResizer />
+      <Palette tasks={shell.tasks} />
       <main className="work-area">{children}</main>
     </div>
   );

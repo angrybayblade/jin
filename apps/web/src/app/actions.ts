@@ -137,3 +137,13 @@ export async function startTaskJob(input: { id: string; type?: string; repos: st
 export async function getTaskJob(id: string): Promise<TaskJob> {
   return daemon<TaskJob>(`/api/task-jobs/${encodeURIComponent(id)}`);
 }
+
+// ---------------------------------------------------------------- finder
+
+export async function findFiles(taskId: string, q: string): Promise<{ path: string }[]> {
+  return daemon<{ path: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/find?q=${encodeURIComponent(q)}&limit=40`);
+}
+
+export async function searchFiles(taskId: string, q: string): Promise<{ path: string; line: number; text: string }[]> {
+  return daemon<{ path: string; line: number; text: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/grep?q=${encodeURIComponent(q)}&limit=120`);
+}
