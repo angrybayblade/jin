@@ -17,6 +17,7 @@ import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
 import { claudeHookRoutes, claudeLaunch, writeClaudeSettings } from "./claude-cli";
+import { Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
 import { Tickets } from "./tickets";
 
@@ -71,10 +72,14 @@ terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claud
 const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
 jobRoutes(app.router, jobs);
 sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs }));
+// Desktop notifications when a turn or a setup finishes, or something needs you.
+const notifier = new Notifier(config);
+notifyRoutes(app.router, notifier);
+const onClaudeStatus = watchForNotifications(notifier, { sessions, jobs, terminals });
 claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
   return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
-});
+}, onClaudeStatus);
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];
