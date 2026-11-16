@@ -1,0 +1,114 @@
+import { randomUUID } from "node:crypto";
+import type { TaskSpec } from "./adapters";
+import type { Feed } from "./feed";
+import { body, HttpError, json, type Router } from "./http";
+import type { Tasks } from "./tasks";
+import { openTerminal, type TerminalDeps } from "./terminals";
+
+/** A task being created in the background: the workspace's setup can take minutes. */
+export interface TaskJob {
+  id: string;
+  workspace: string;
+  taskId: string;
+  slug: string;
+  repos: string[];
+  setup: boolean;
+  state: "running" | "done" | "failed";
+  /** The workspace tooling's output, newest last (bounded). */
+  log: string[];
+  error: string | null;
+  /** The Claude Code tab opened once the task is ready, if a prompt was given. */
+  terminalId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+const LOG_LINES = 400;
+
+/**
+ * Creates tasks in the background so neither the UI nor jin's chat waits on `cws task new
+ * --setup`. Progress is the tooling's own output. Jobs live in memory: a daemon restart ends
+ * a running one (the workspace may be left with a partly set-up task, as after a ctrl-c).
+ */
+export class TaskJobs {
+  private jobs = new Map<string, TaskJob>();
+
+  constructor(private deps: TerminalDeps & { feed: Feed }) {}
+
+  get defaultWorkspace(): string | undefined {
+    return this.deps.workspaces[0]?.id;
+  }
+
+  private get tasks(): Tasks {
+    return this.deps.tasks;
+  }
+
+  list(): TaskJob[] {
+    return [...this.jobs.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  get(id: string): TaskJob {
+    const j = this.jobs.get(id);
+    if (!j) throw new HttpError(404, `unknown job ${id}`);
+    return j;
+  }
+
+  /** The newest job for a task id (its page shows progress until the task exists). */
+  forTask(taskId: string): TaskJob | undefined {
+    return this.list().find((j) => j.taskId === taskId);
+  }
+
+  async start(workspace: string, spec: TaskSpec, opts: { setup?: boolean; prompt?: string; feedItemId?: string } = {}): Promise<TaskJob> {
+    if (this.list().some((j) => j.taskId === spec.id && j.state === "running")) throw new HttpError(409, `task ${spec.id} is already being set up`);
+    await this.tasks.validate(workspace, spec);
+    const job: TaskJob = {
+      id: randomUUID(),
+      workspace,
+      taskId: spec.id,
+      slug: spec.slug,
+      repos: spec.repos,
+      setup: opts.setup !== false,
+      state: "running",
+      log: [],
+      error: null,
+      terminalId: null,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    };
+    this.jobs.set(job.id, job);
+    const say = (line: string) => {
+      job.log.push(line);
+      if (job.log.length > LOG_LINES) job.log.splice(0, job.log.length - LOG_LINES);
+    };
+    void (async () => {
+      try {
+        await this.tasks.start(workspace, spec, opts.feedItemId, { setup: job.setup, onOutput: say });
+        if (opts.feedItemId) this.deps.feed.setState(opts.feedItemId, "promoted", { taskId: spec.id });
+        if (opts.prompt?.trim()) {
+          job.terminalId = openTerminal(this.deps, { taskId: spec.id, kind: "claude", prompt: opts.prompt }).id;
+          say("Claude Code started with your prompt.");
+        }
+        job.state = "done";
+      } catch (err) {
+        job.state = "failed";
+        job.error = err instanceof Error ? err.message : String(err);
+        say(`failed: ${job.error}`);
+      } finally {
+        job.finishedAt = new Date().toISOString();
+      }
+    })();
+    return job;
+  }
+}
+
+export function jobRoutes(router: Router, jobs: TaskJobs) {
+  router
+    .on("GET", "/api/task-jobs", () => json(jobs.list()))
+    .on("GET", "/api/task-jobs/:id", (_req, p) => json(jobs.get(p.id!)))
+    .on("POST", "/api/task-jobs", async (req) => {
+      const b = await body<{ workspace?: string; id: string; type?: string; repos: string[]; slug: string; setup?: boolean; prompt?: string; feedItemId?: string }>(req);
+      const workspace = b.workspace ?? jobs.defaultWorkspace;
+      if (!workspace) throw new HttpError(400, "no workspace configured");
+      return json(await jobs.start(workspace, { id: b.id, type: b.type, repos: b.repos, slug: b.slug }, { setup: b.setup, prompt: b.prompt, feedItemId: b.feedItemId }), 202);
+    });
+}

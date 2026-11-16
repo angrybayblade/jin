@@ -8,6 +8,7 @@ import { now, openDb } from "./db";
 import { dropInheritedClaudeSession } from "./env";
 import { Feed, feedRoutes } from "./feed";
 import { fileRoutes } from "./files";
+import { jobRoutes, TaskJobs } from "./jobs";
 import { claudeHarness } from "./harness";
 import { Router } from "./http";
 import { join } from "node:path";
@@ -61,7 +62,9 @@ sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
 const claude = claudeLaunch(config, writeClaudeSettings(config));
 terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude });
-sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude }));
+const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
+jobRoutes(app.router, jobs);
+sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs }));
 claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
   return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
