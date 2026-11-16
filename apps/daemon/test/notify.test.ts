@@ -31,15 +31,22 @@ test("a finished turn notifies once, unless that chat is on screen", () => {
   expect(sent.map((s) => s.key)).toEqual(["k", "b", "c", "e", "f"]);
 });
 
-test("notifications can be turned off, and stay off on an always-on VM", () => {
+test("notifications can be turned off; a machine without a desktop keeps them for relay", () => {
   const sent: Notice[] = [];
   const n = new Notifier(config(), (x) => sent.push(x));
   expect(n.update({ enabled: false }).enabled).toBe(false);
   expect(new Notifier(config(), () => {}).settings.enabled).toBe(false); // saved
   expect(n.notify(notice({ key: "x" }))).toBe("off");
   n.update({ enabled: true });
-  expect(new Notifier(config("vm"), (x) => sent.push(x)).notify(notice({ key: "y" }))).toBe("not in local mode");
-  expect(sent).toHaveLength(0);
+  const vm = new Notifier(config("vm"), (x) => sent.push(x));
+  expect(vm.since(-1)).toEqual({ seq: 0, notices: [] });
+  expect(vm.notify(notice({ key: "y" }))).toBe("kept for relay");
+  expect(vm.notify(notice({ key: "y" }))).toBe("repeat");
+  expect(vm.notify(notice({ key: "z" }))).toBe("kept for relay");
+  expect(sent).toHaveLength(0); // nothing shown on the machine itself
+  expect(vm.since(0).notices.map((x) => [x.seq, x.key])).toEqual([[1, "y"], [2, "z"]]);
+  expect(vm.since(1).notices.map((x) => x.key)).toEqual(["z"]);
+  expect(vm.since(-1)).toEqual({ seq: 2, notices: [] }); // a fresh relay skips the backlog
 });
 
 test("previews are one plain line", () => {

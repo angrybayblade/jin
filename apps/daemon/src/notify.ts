@@ -52,6 +52,9 @@ export function plain(text: string, max = 160): string {
  */
 export class Notifier {
   presence: Presence | null = null;
+  /** Without a desktop (vm mode): notices kept for the jin that onboarded this machine to show. */
+  private outbox: (Notice & { seq: number })[] = [];
+  private seq = 0;
   private recent = new Map<string, number>();
   private file: string;
   private cached: NotificationSettings | null = null;
@@ -82,6 +85,11 @@ export class Notifier {
     return next;
   }
 
+  /** Notices kept since `after` (vm mode), and the latest seq; a relay starting fresh asks with after = -1 to skip the backlog. */
+  since(after: number): { seq: number; notices: (Notice & { seq: number })[] } {
+    return { seq: this.seq, notices: after < 0 ? [] : this.outbox.filter((x) => x.seq > after) };
+  }
+
   /** Whether the person is looking at this right now. */
   onScreen(n: Notice, at = Date.now()): boolean {
     const p = this.presence;
@@ -93,12 +101,16 @@ export class Notifier {
 
   /** Returns why a notice was not sent, or null when it was. */
   notify(n: Notice, at = Date.now()): string | null {
-    if (this.config.mode !== "local") return "not in local mode";
     if (!this.settings.enabled) return "off";
     if (this.onScreen(n, at)) return "on screen";
     const last = this.recent.get(n.key);
     if (last && at - last < REPEAT_MS) return "repeat";
     this.recent.set(n.key, at);
+    if (this.config.mode !== "local") {
+      this.outbox.push({ ...n, seq: ++this.seq });
+      if (this.outbox.length > 100) this.outbox.splice(0, this.outbox.length - 100);
+      return "kept for relay";
+    }
     try {
       this.deliver(n, this.settings);
     } catch {
@@ -141,6 +153,8 @@ export function deliverNative(n: Notice, s: NotificationSettings, webOrigin: str
 export function notifyRoutes(router: Router, notifier: Notifier) {
   router
     .on("GET", "/api/notifications", () => json(notifier.settings))
+    // The jin that onboarded this machine collects what it could not show (vm mode).
+    .on("GET", "/api/notifications/outbox", (_req, _p, url) => json(notifier.since(Number(url.searchParams.get("after") ?? -1))))
     .on("PATCH", "/api/notifications", async (req) => json(notifier.update(await body<Partial<NotificationSettings>>(req))))
     .on("POST", "/api/notifications/test", () => {
       notifier.presence = null; // a test always shows
