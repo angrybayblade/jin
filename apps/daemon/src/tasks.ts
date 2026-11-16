@@ -88,7 +88,20 @@ export class Tasks {
     return [...provided, ...recorded].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  async start(workspace: string, spec: TaskSpec, sourceItem?: string): Promise<Task> {
+  async start(workspace: string, spec: TaskSpec, sourceItem?: string, opts: { setup?: boolean; onOutput?: (line: string) => void } = {}): Promise<Task> {
+    await this.validate(workspace, spec);
+    let dirs;
+    try {
+      dirs = await this.adapter(workspace).startTask(spec, opts);
+    } catch (err) {
+      if (err instanceof AdapterError) throw new HttpError(502, err.message);
+      throw err;
+    }
+    return this.record(workspace, spec, dirs, sourceItem);
+  }
+
+  /** Checks a new task before anything runs: id, slug, repos known to the workspace, not taken. */
+  async validate(workspace: string, spec: TaskSpec): Promise<void> {
     const adapter = this.adapter(workspace);
     if (!ID.test(spec.id ?? "")) throw new HttpError(400, "task id must be letters, digits, '.', '_' or '-'");
     if (!spec.slug?.trim()) throw new HttpError(400, "slug is required");
@@ -98,14 +111,9 @@ export class Tasks {
     if (unknown.length) throw new HttpError(400, `unknown repos in ${workspace}: ${unknown.join(", ")}`);
     const existing = this.db.query("select state from tasks where id = ?").get(spec.id) as { state: string } | null;
     if ((existing && existing.state !== "removed") || adapter.listTasks().some((t) => t.id === spec.id)) throw new HttpError(409, `task ${spec.id} already exists`);
+  }
 
-    let dirs;
-    try {
-      dirs = await adapter.startTask(spec);
-    } catch (err) {
-      if (err instanceof AdapterError) throw new HttpError(502, err.message);
-      throw err;
-    }
+  private record(workspace: string, spec: TaskSpec, dirs: { root: string; dirs: Record<string, string> }, sourceItem?: string): Task {
     this.db
       .query(
         `insert into tasks (id, workspace, type, slug, repos, dirs, state, source_item, created_at)
