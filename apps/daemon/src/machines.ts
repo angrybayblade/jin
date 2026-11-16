@@ -796,8 +796,8 @@ echo "JIN-ROOT $ROOT"
         }, { quiet: /^JIN-ROOT / });
         if (code !== 0) throw new Error("setting up the workspace failed; see the log");
         this.update(id, { workspace: out.match(/^JIN-ROOT (.+)$/m)?.[1]?.trim() ?? null });
-        step.state = "done";
         await this.detectWorkspaces(id).catch(() => {});
+        step.state = "done";
       } catch (err) {
         step.state = "failed";
         step.error = err instanceof Error ? err.message : String(err);
