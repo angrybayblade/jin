@@ -113,7 +113,7 @@ void main() {
 }
 `;
 
-function createRenderer(canvas: HTMLCanvasElement, variant: MarkVariant) {
+export function createRenderer(canvas: HTMLCanvasElement, variant: MarkVariant) {
   const gl = canvas.getContext("webgl", { alpha: true, antialias: true, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: "low-power" });
   if (!gl) return null;
   const shaders: WebGLShader[] = [];
