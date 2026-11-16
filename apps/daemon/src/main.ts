@@ -12,6 +12,7 @@ import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
 import { machineRoutes, Machines } from "./machines";
 import { LocalSetup, setupRoutes } from "./setup";
+import { Desks, deskRoutes } from "./desks";
 import { claudeHarness } from "./harness";
 import { Router } from "./http";
 import { join } from "node:path";
@@ -115,6 +116,10 @@ const setup = new LocalSetup(config, app.workspaces, (w) => {
   upsertWorkspace.run(w.id, w.adapter, w.root, now());
 });
 setupRoutes(app.router, setup);
+// Whether each desk's connection (gh, Claude's connectors) is there.
+const desks = new Desks(config, app.workspaces);
+deskRoutes(app.router, desks);
+setTimeout(() => void desks.status().catch(() => {}), 8_000); // warm, so a desk page does not wait
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];
