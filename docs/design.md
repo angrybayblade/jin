@@ -165,7 +165,10 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   keeps an SSH tunnel to it. Sign-ins run there and hand you their link and code; the
   workspace can be installed there or pointed at. The machine switcher (sidebar footer) points
   the whole app at that machine's daemon through the tunnel; jin copies no credentials across.
-  A machine running an older jin is flagged; "Update jin there" brings it level.
+  A machine running an older jin is flagged; "Update jin there" brings it level. The sidebar
+  lists every connected machine's tasks under its name (opening one switches to it), and a
+  machine's notifications (it has no desktop: it keeps them) are collected and shown here.
+  More than one jin can use a machine (`webOrigins`).
 
 ## Look and feel
 
@@ -184,15 +187,13 @@ archive) · `task_prs` · `sessions` (kind: jin, a desk, or task) · `events` ·
 
 ## Status and next
 
-Built: everything above. The acceptance suite (`bun run acceptance`) passes 20/20 next to a
+Built: everything above. The acceptance suite (`bun run acceptance`) passes 21/21 next to a
 running dev server; unit tests with `bun run test`.
 
 Before a release candidate:
 
-1. **Remote machines in daily use**: local and remote tasks in one sidebar; notifications
-   from a machine reaching your Mac; an end-to-end test against a stand-in host.
-2. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
-3. **Desktop**: Cmd+W/T/1-9 for jin's tabs, a Dock badge when an agent waits, signing.
+1. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
+2. **Desktop**: Cmd+W/T/1-9 for jin's tabs, a Dock badge when an agent waits, signing.
 
 Later: feed (snoozed items coming back, Linear, a ranking pass); a plain-git workspace
 adapter; scheduled briefs and PR watches on an always-on machine.
