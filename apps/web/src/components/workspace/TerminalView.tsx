@@ -113,6 +113,9 @@ export function TerminalView({
         theme: THEMES[themeRef.current],
         allowProposedApi: true,
         scrollback: 10000,
+        // About what macOS terminals do per wheel notch; ⌥ for long Claude Code output.
+        scrollSensitivity: 3,
+        fastScrollSensitivity: 10,
         macOptionIsMeta: true,
         drawBoldTextInBrightColors: false,
       });
