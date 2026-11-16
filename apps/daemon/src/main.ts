@@ -63,6 +63,10 @@ const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.wor
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
 const claude = claudeLaunch(config, writeClaudeSettings(config));
+// A removed task's terminals close with it.
+tasks.onRemoved((taskId) => {
+  for (const t of [...terminals.list({ taskId }), ...terminals.list({ taskId, archived: true })]) terminals.close(t.id);
+});
 terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude });
 const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
 jobRoutes(app.router, jobs);
