@@ -47,6 +47,9 @@ test("A22 a machine becomes jin's home: this jin attaches to it, is reached back
   const record = () => JSON.parse(readFileSync(join(env.home, "machines/hub.json"), "utf8"));
   const hub = (path: string, init: RequestInit = {}) =>
     fetch(`http://127.0.0.1:${record().localPort}${path}`, { ...init, headers: { authorization: `Bearer ${record().token}`, "content-type": "application/json" } }).then((r) => r.json());
+  // It returns only once this jin is attached there: the app never switches to a home it cannot reach.
+  const atOnce = (await hub("/api/machines")) as { id: string; attached?: boolean; connected: boolean }[];
+  expect(atOnce.some((m) => m.attached)).toBe(true);
   const attached = await until(async () => {
     const list = (await hub("/api/machines").catch(() => [])) as { id: string; attached?: boolean; connected: boolean }[];
     return list.find((m) => m.attached && m.connected);
