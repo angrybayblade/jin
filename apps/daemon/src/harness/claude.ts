@@ -1,4 +1,4 @@
-import { query, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import type { Harness, HarnessRun } from "./types";
 
 /**
@@ -31,16 +31,38 @@ export class ClaudeHarness implements Harness {
     };
 
     let sessionId = run.resume ?? "";
+    // Jin's own tools, served in-process; their calls go through the same gate.
+    const mcpServers = run.tools?.length
+      ? {
+          jin: createSdkMcpServer({
+            name: "jin",
+            tools: run.tools.map((t) =>
+              tool(t.name, t.description, t.input, async (args) => {
+                try {
+                  const result = await t.run(args as Record<string, unknown>);
+                  return { content: [{ type: "text" as const, text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] };
+                } catch (err) {
+                  return { isError: true, content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }] };
+                }
+              }),
+            ),
+          }),
+        }
+      : undefined;
     const session = query({
       prompt: run.prompt,
       options: {
         cwd: run.cwd,
         env: { ...process.env, ...run.env } as Record<string, string>,
         resume: run.resume,
+        model: run.model,
         abortController: controller,
         permissionMode: "default",
-        // The workspace's own CLAUDE.md, skills and settings apply, as in Claude Code.
-        settingSources: ["project"],
+        systemPrompt: run.instructions ? { type: "preset", preset: "claude_code", append: run.instructions } : { type: "preset", preset: "claude_code" },
+        mcpServers,
+        // User settings bring the user's MCP servers (Slack, Linear, Notion...); project
+        // settings bring the workspace's CLAUDE.md and skills, as in Claude Code.
+        settingSources: ["user", "project"],
         includePartialMessages: false,
         hooks: { PreToolUse: [{ hooks: [preToolUse], onFailure: "block", timeout: 24 * 60 * 60 }] },
         canUseTool: async (tool, input, options) => {

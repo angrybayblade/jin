@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Harness, HarnessRun } from "./types";
 
-type Step = { tool: string; input: Record<string, unknown> } | { text: string };
+type Step = { tool: string; input: Record<string, unknown> } | { text: string } | { jinTool: string; input: Record<string, unknown> };
 
 /**
  * A deterministic stand-in for Claude, selected with JIN_HARNESS=scripted (tests only).
@@ -26,6 +26,13 @@ export class ScriptedHarness implements Harness {
       run.signal.throwIfAborted();
       if ("text" in step) {
         run.emit("message", { text: step.text });
+        continue;
+      }
+      if ("jinTool" in step) {
+        // Jin's tools are named mcp__jin__<name> to the agent, like any MCP tool.
+        const verdict = await run.gate(`mcp__jin__${step.jinTool}`, step.input, run.signal);
+        const t = run.tools?.find((x) => x.name === step.jinTool);
+        if (verdict.allow && t) run.emit("tool.result", { tool: `mcp__jin__${step.jinTool}`, input: step.input, output: await t.run(step.input) });
         continue;
       }
       const verdict = await run.gate(step.tool, step.input, run.signal);

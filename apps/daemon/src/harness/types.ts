@@ -1,5 +1,15 @@
+import type { z } from "zod";
+
 /** What the session manager answers when an agent wants to use a tool. */
 export type ToolGate = (tool: string, input: Record<string, unknown>, signal: AbortSignal) => Promise<{ allow: true } | { allow: false; reason: string }>;
+
+/** A tool jin itself provides to an agent (served in-process as the `jin` MCP server). */
+export interface JinTool {
+  name: string;
+  description: string;
+  input: z.ZodRawShape;
+  run(args: Record<string, unknown>): Promise<unknown>;
+}
 
 export interface HarnessRun {
   prompt: string;
@@ -8,6 +18,12 @@ export interface HarnessRun {
   env: Record<string, string>;
   /** The harness's own session id to continue, when resuming. */
   resume?: string;
+  /** Model id; the harness default when unset. */
+  model?: string;
+  /** Appended to the agent's system prompt: what this chat is for. */
+  instructions?: string;
+  /** Jin's own tools for this chat (jin's chat gets orchestration tools; others none). */
+  tools?: JinTool[];
   /** Every tool call goes through this gate before it runs. */
   gate: ToolGate;
   /** Record a session event (persisted and streamed by the session manager). */
