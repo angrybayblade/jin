@@ -192,9 +192,9 @@ archive) · `task_prs` · `sessions` (kind: jin, a desk, or task) · `events` ·
 Built: everything above. The acceptance suite (`bun run acceptance`) passes 21/21 next to a
 running dev server; unit tests with `bun run test`.
 
-Before a release candidate:
-
-1. **Desks**: say on each desk whether its connector is connected.
+Before a release candidate: nothing open. Each desk says whether its connection is there
+(`/api/desks`); the app re-renders when the daemons' change stamp (`/api/stamp`) moves, not on
+a timer.
 
 Later: feed (snoozed items coming back, Linear, a ranking pass); a plain-git workspace
 adapter; scheduled briefs and PR watches on an always-on machine.
