@@ -88,6 +88,9 @@ export function evaluate(tool: string, input: Record<string, unknown>, rules: Po
     }
     return ask ?? { decision: "allow", reason: "no rule matched" };
   }
+  // Jin's own tools act on this machine only: the feed, tasks, and starting agents whose
+  // own tool calls are gated in turn.
+  if (tool.startsWith("mcp__jin__")) return { decision: "allow", reason: "jin's own tool" };
   if (OUTWARD_TOOL.test(tool)) return { decision: "ask", reason: `${tool} sends or changes something outside this machine` };
   return { decision: "allow", reason: "no rule matched" };
 }

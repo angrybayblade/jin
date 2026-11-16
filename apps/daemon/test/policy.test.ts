@@ -61,6 +61,11 @@ describe("allow", () => {
     (command) => expect(bash(command)).toBe("allow"),
   );
 
+  test("jin's own tools", () => {
+    expect(evaluate("mcp__jin__update_feed", {}).decision).toBe("allow");
+    expect(evaluate("mcp__jin__start_task", {}).decision).toBe("allow");
+  });
+
   test("reading tools", () => {
     expect(evaluate("Read", { file_path: "x" }).decision).toBe("allow");
     expect(evaluate("mcp__slack__read_channel", {}).decision).toBe("allow");
