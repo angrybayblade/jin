@@ -1,12 +1,13 @@
 "use client";
 import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
-import { ChevronDown, ChevronRight, File, Folder, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ClipboardCopy, File, Folder, X, XCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listFiles, readFile, writeFile } from "@/app/actions";
 import type { FileEntry } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { useResolvedTheme } from "@/lib/theme";
+import { contextMenu, type MenuItem } from "../ContextMenu";
 
 const LANG: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
@@ -189,10 +190,10 @@ export function FileEditor({ taskId }: { taskId: string }) {
   }, [active, taskId]);
 
   const confirmClose = useArmedConfirm();
-  const close = (p: string) => {
+  const close = (p: string, confirmed = false) => {
     const doc = docsRef.current[p];
     // Unsaved changes: the first click asks, the second closes and drops them.
-    if (doc && doc.content !== doc.saved && !confirmClose.ask(p)) return;
+    if (!confirmed && doc && doc.content !== doc.saved && !confirmClose.ask(p)) return;
     setTabs((t) => {
       const next = t.filter((x) => x !== p);
       if (activeRef.current === p) setActive(next[Math.max(0, t.indexOf(p) - 1)] ?? null);
@@ -203,6 +204,27 @@ export function FileEditor({ taskId }: { taskId: string }) {
       return rest;
     });
   };
+
+  const dirty = (p: string) => {
+    const d = docsRef.current[p];
+    return Boolean(d && d.content !== d.saved);
+  };
+  const fileMenu = (p: string): MenuItem[] => [
+    { header: base(p) },
+    { label: "Close", icon: X, ...(dirty(p) ? { danger: true, confirm: "Close without saving?" } : {}), run: () => close(p, true) },
+    {
+      label: "Close others",
+      icon: XCircle,
+      disabled: tabs.length < 2,
+      ...(tabs.some((o) => o !== p && dirty(o)) ? { danger: true, confirm: "Close others, dropping unsaved changes?" } : {}),
+      run: () => {
+        for (const o of tabs) if (o !== p) close(o, true);
+      },
+    },
+    { label: "Close all", icon: XCircle, ...(tabs.some(dirty) ? { danger: true, confirm: "Close all, dropping unsaved changes?" } : {}), run: () => tabs.forEach((o) => close(o, true)) },
+    { divider: true },
+    { label: "Copy path", icon: ClipboardCopy, hint: "in the task", run: () => void navigator.clipboard?.writeText(p) },
+  ];
 
   const save = useCallback(async () => {
     const p = activeRef.current;
@@ -248,7 +270,7 @@ export function FileEditor({ taskId }: { taskId: string }) {
               const d = docs[p];
               const dirty = d && d.content !== d.saved;
               return (
-                <div key={p} role="tab" aria-selected={p === active} className={`file-tab ${p === active ? "is-active" : ""}`} title={p} onClick={() => setActive(p)} onAuxClick={(e) => e.button === 1 && close(p)}>
+                <div key={p} role="tab" aria-selected={p === active} className={`file-tab ${p === active ? "is-active" : ""}`} title={p} onClick={() => setActive(p)} onAuxClick={(e) => e.button === 1 && close(p)} {...contextMenu(() => fileMenu(p))}>
                   <span className="file-tab-name">{base(p)}</span>
                   {dirty && <span className="dirty-dot" aria-label="unsaved" />}
                   <button
