@@ -61,9 +61,7 @@ function toItems(events: SessionEvent[]): Item[] {
       case "session.failed":
         items.push({ type: "note", seq: e.seq, tone: "error", text: p.error });
         break;
-      case "result":
-        if (p.costUsd != null) items.push({ type: "note", seq: e.seq, tone: "meta", text: `$${Number(p.costUsd).toFixed(3)}${p.turns ? ` · ${p.turns} turns` : ""}` });
-        break;
+      // The SDK's per-turn cost is a list-price estimate, not what a Claude subscription bills: not shown.
     }
   }
   // Tools still open when the session stopped did finish (results without ids are not matched).
