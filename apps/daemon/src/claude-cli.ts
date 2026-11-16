@@ -4,9 +4,11 @@ import type { WorkspaceAdapter } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, json, type Router } from "./http";
 import { evaluate } from "./policy";
+import { createdPrs } from "./prs";
 import type { AgentStatus, ClaudeLaunch, Terminals } from "./terminals";
 
 const HOOK = join(import.meta.dir, "hooks", "claude-hook.ts");
+const JIN_TASK = join(import.meta.dir, "hooks", "jin-task.ts");
 const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"] as const;
 
 /**
@@ -23,12 +25,33 @@ export function writeClaudeSettings(config: Config): string {
   return file;
 }
 
-export function claudeLaunch(config: Config, settingsFile: string): ClaudeLaunch {
+/** jin's must-follow rules for Claude Code running in a task (appended to its system prompt). */
+export function taskRules(taskId: string): string {
+  return [
+    `You are running inside jin task ${taskId}; jin is the user's orchestrator and tracks this task's pull requests.`,
+    "MUST-FOLLOW RULE: whenever you create a pull request for this work (with `gh pr create`, a GitHub tool, or any other way), immediately attach it to the task by running:",
+    "  jin-task attach-pr <pull request URL>",
+    "and check that it printed \"attached to the task\". Do the same when you push to, or take over, an existing pull request for this task.",
+    "`jin-task prs` lists what is attached. Never skip this step, and tell the user if attaching fails.",
+  ].join("\n");
+}
+
+/** Where `jin-task` lives: a small launcher on PATH for the terminals jin starts. */
+export function writeJinTaskCommand(config: Config): string {
+  const dir = join(config.home, "bin");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "jin-task");
+  writeFileSync(file, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(JIN_TASK)} "$@"\n`, { mode: 0o755 });
+  return dir;
+}
+
+export function claudeLaunch(config: Config, settingsFile: string, binDir?: string): ClaudeLaunch {
   return {
     // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
-    args: () => ["--settings", settingsFile, "--model", config.model],
+    args: (ctx) => ["--settings", settingsFile, "--model", config.model, ...(ctx?.taskId ? ["--append-system-prompt", taskRules(ctx.taskId)] : [])],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,
+      ...(binDir ? { PATH: `${binDir}:${process.env.PATH ?? ""}` } : {}),
       ...(w?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: w.profile.claudeConfigDir } : {}),
     }),
   };
@@ -42,6 +65,8 @@ export function claudeHookRoutes(
   workspaceOf: (terminalId: string | null) => string | undefined,
   /** After each hook: the tab's status before and after (notifications use it). */
   onStatus?: (terminalId: string, before: AgentStatus, after: AgentStatus, event: string, input: Record<string, any>) => void,
+  /** A tool call created pull requests (attached to the terminal's task). */
+  onPrsCreated?: (terminalId: string, urls: string[]) => void,
 ) {
   router.on("POST", "/api/hooks/claude", async (req) => {
     const { event, terminalId, input } = await body<{ event: string; terminalId: string | null; input: Record<string, any> }>(req);
@@ -55,6 +80,10 @@ export function claudeHookRoutes(
       if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse") terminals.setStatus(terminalId, "working");
       else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting");
       else if (event === "Stop" || event === "SessionStart") terminals.setStatus(terminalId, "idle");
+    }
+    if (event === "PostToolUse" && terminalId && onPrsCreated) {
+      const urls = createdPrs(String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>, input.tool_response);
+      if (urls.length) onPrsCreated(terminalId, urls);
     }
     if (event !== "PreToolUse") {
       report();

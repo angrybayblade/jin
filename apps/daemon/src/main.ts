@@ -16,7 +16,8 @@ import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
-import { claudeHookRoutes, claudeLaunch, writeClaudeSettings } from "./claude-cli";
+import { claudeHookRoutes, claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude-cli";
+import { prRoutes, TaskPRs } from "./prs";
 import { Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
 import { Tickets } from "./tickets";
@@ -63,7 +64,7 @@ bobbyRoutes(app.router);
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
-const claude = claudeLaunch(config, writeClaudeSettings(config));
+const claude = claudeLaunch(config, writeClaudeSettings(config), writeJinTaskCommand(config));
 // A removed task's terminals close with it.
 tasks.onRemoved((taskId) => {
   for (const t of [...terminals.list({ taskId }), ...terminals.list({ taskId, archived: true })]) terminals.close(t.id);
@@ -79,7 +80,17 @@ const onClaudeStatus = watchForNotifications(notifier, { sessions, jobs, termina
 claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
   return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
-}, onClaudeStatus);
+}, onClaudeStatus, (terminalId, urls) => {
+  // Claude Code created a PR in a task: attach it, whatever it does next.
+  const taskId = terminals.get(terminalId).taskId;
+  if (taskId) for (const url of urls) void prs.attach(taskId, url, "hook").catch(() => {});
+});
+
+// Pull requests attached to tasks; open ones are refreshed from GitHub every few minutes.
+const prs = new TaskPRs(db);
+prRoutes(app.router, prs, tasks, terminals);
+tasks.onRemoved((taskId) => prs.removeTask(taskId));
+const prTimer = setInterval(() => void prs.refreshOpen(), 5 * 60_000);
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];
@@ -137,6 +148,7 @@ chmodSync(info, 0o600);
 console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, model ${config.model})`);
 
 function shutdown() {
+  clearInterval(prTimer);
   terminals.stopAll();
   server.stop(true);
   db.close();
