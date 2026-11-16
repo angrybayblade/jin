@@ -1,5 +1,5 @@
 "use client";
-import { ArrowUp, Check, ChevronRight, Square, X } from "lucide-react";
+import { ArrowUp, ChevronRight, FilePen, Search, ShieldAlert, Square, SquareTerminal, Wrench } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
@@ -10,10 +10,11 @@ import { Markdown } from "./Markdown";
 import { StatusMark, ThermalMark } from "./ThermalMark";
 
 type Item =
-  | { type: "user"; seq: number; text: string }
+  | { type: "user"; seq: number; text: string; at: string }
   | { type: "agent"; seq: number; text: string }
   | { type: "tool"; seq: number; tool: string; input: Record<string, any>; status: "running" | "done" | "denied" | "waiting"; reason?: string }
-  | { type: "note"; seq: number; tone: "error" | "meta"; text: string };
+  | { type: "note"; seq: number; tone: "error" | "meta"; text: string }
+  | { type: "end"; seq: number; at: string };
 
 /** Turn the event log into chat items: messages, one row per tool call, and notes. */
 function toItems(events: SessionEvent[]): Item[] {
@@ -24,7 +25,7 @@ function toItems(events: SessionEvent[]): Item[] {
     const p = e.payload;
     switch (e.kind) {
       case "prompt":
-        items.push({ type: "user", seq: e.seq, text: p.text });
+        items.push({ type: "user", seq: e.seq, text: p.text, at: e.at });
         break;
       case "message":
         items.push({ type: "agent", seq: e.seq, text: p.text });
@@ -61,6 +62,10 @@ function toItems(events: SessionEvent[]): Item[] {
       }
       case "session.failed":
         items.push({ type: "note", seq: e.seq, tone: "error", text: p.error });
+        items.push({ type: "end", seq: e.seq + 0.5, at: e.at });
+        break;
+      case "session.idle":
+        items.push({ type: "end", seq: e.seq, at: e.at });
         break;
       // The SDK's per-turn cost is a list-price estimate, not what a Claude subscription bills: not shown.
     }
@@ -80,21 +85,176 @@ function stateFrom(events: SessionEvent[], initial: SessionState): SessionState 
   return state;
 }
 
-function toolLine(t: Extract<Item, { type: "tool" }>): string {
+type Tool = Extract<Item, { type: "tool" }>;
+type Step = Extract<Item, { type: "agent" }> | Extract<Item, { type: "note" }> | { type: "tools"; seq: number; tools: Tool[] };
+
+/** One exchange: the prompt, the work in between, and the answer it ended with. */
+interface Turn {
+  user: Extract<Item, { type: "user" }> | null;
+  steps: Step[];
+  answer: Extract<Item, { type: "agent" }> | null;
+  error: Extract<Item, { type: "note" }> | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+/** Group items into turns. A finished turn's last message is its answer; the rest is its work. */
+function toTurns(items: Item[]): Turn[] {
+  const turns: Turn[] = [];
+  let turn: Turn | null = null;
+  const open = () => (turn ??= (turns.push({ user: null, steps: [], answer: null, error: null, startedAt: null, endedAt: null }), turns.at(-1)!));
+  for (const it of items) {
+    if (it.type === "user") {
+      turn = { user: it, steps: [], answer: null, error: null, startedAt: it.at, endedAt: null };
+      turns.push(turn);
+      continue;
+    }
+    const t = open();
+    if (it.type === "end") {
+      t.endedAt = it.at;
+      // The answer is the closing message; an error is shown outside the fold.
+      const last = t.steps.at(-1);
+      if (last?.type === "note" && last.tone === "error") t.error = t.steps.pop() as Turn["error"];
+      const final = t.steps.at(-1);
+      if (final?.type === "agent") t.answer = t.steps.pop() as Turn["answer"];
+      turn = null;
+    } else if (it.type === "tool") {
+      const last = t.steps.at(-1);
+      if (last?.type === "tools") last.tools.push(it);
+      else t.steps.push({ type: "tools", seq: it.seq, tools: [it] });
+    } else {
+      t.steps.push(it);
+    }
+  }
+  return turns;
+}
+
+const READS = new Set(["Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"]);
+const EDITS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function groupLabel(tools: Tool[]): string {
+  const n = tools.length;
+  if (tools.every((t) => t.tool === "Bash")) return `Ran ${plural(n, "command")}`;
+  if (tools.every((t) => READS.has(t.tool))) return `Explored ${plural(n, "item")}`;
+  if (tools.every((t) => EDITS.has(t.tool))) return `Edited ${plural(n, "file")}`;
+  if (tools.every((t) => t.tool.startsWith("mcp__jin__"))) return `Used jin ${plural(n, "time")}`;
+  return `Used ${plural(n, "tool")}`;
+}
+
+function toolLine(t: Tool): string {
   if (typeof t.input.command === "string") return t.input.command;
   if (typeof t.input.file_path === "string") return `${t.tool} ${t.input.file_path}`;
   if (typeof t.input.pattern === "string") return `${t.tool} ${t.input.pattern}`;
   return t.tool.replace(/^mcp__/, "").replace(/__/g, " · ");
 }
 
-function ToolRow({ t }: { t: Extract<Item, { type: "tool" }> }) {
-  const icon = t.status === "done" ? <Check size={14} /> : t.status === "denied" ? <X size={14} /> : <ThermalMark size={14} state={t.status === "waiting" ? "waiting" : "working"} variant="command" />;
+function ToolIcon({ t }: { t: Tool }) {
+  if (t.status === "denied") return <ShieldAlert size={13} />;
+  if (t.status === "running" || t.status === "waiting") return <ThermalMark size={13} state={t.status === "waiting" ? "waiting" : "working"} variant="command" />;
+  return t.tool === "Bash" ? <SquareTerminal size={13} /> : EDITS.has(t.tool) ? <FilePen size={13} /> : READS.has(t.tool) ? <Search size={13} /> : <Wrench size={13} />;
+}
+
+/**
+ * A run of tool calls as one quiet line ("Ran 3 commands"), expandable to the calls.
+ * Denied and waiting calls always show: they are the ones that need you.
+ */
+function ToolGroup({ tools }: { tools: Tool[] }) {
+  const [open, setOpen] = useState(false);
+  const loud = tools.filter((t) => t.status === "denied" || t.status === "waiting");
+  const quiet = tools.filter((t) => t.status === "done" || t.status === "running");
+  const live = quiet.some((t) => t.status === "running");
   return (
-    <div className={`tool-row is-${t.status}`}>
-      <span className="tool-icon">{icon}</span>
-      <code className="tool-line">{toolLine(t)}</code>
-      {t.status === "denied" && t.reason && <span className="tool-reason">{t.reason}</span>}
-      {t.status === "waiting" && <span className="tool-reason">waiting for your approval</span>}
+    <div className="tool-group">
+      {quiet.length > 0 && (
+        <button type="button" className={`step-line ${live ? "is-live" : ""}`} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {live ? <ThermalMark size={13} state="working" variant="command" /> : <ToolIcon t={quiet[0]!} />}
+          <span className="step-label">{live ? toolLine(quiet.findLast((t) => t.status === "running")!) : groupLabel(quiet)}</span>
+          <ChevronRight size={12} className={`step-chevron ${open ? "is-open" : ""}`} />
+        </button>
+      )}
+      {open && (
+        <div className="tool-calls">
+          {quiet.map((t) => (
+            <div key={t.seq} className="tool-call">
+              <ToolIcon t={t} />
+              <code>{toolLine(t)}</code>
+            </div>
+          ))}
+        </div>
+      )}
+      {loud.map((t) => (
+        <div key={t.seq} className={`step-line is-${t.status}`} title={toolLine(t)}>
+          <ToolIcon t={t} />
+          <span className="step-label">
+            {t.status === "denied" ? `Declined by jin: ${toolLine(t)}` : `Waiting for your approval: ${toolLine(t)}`}
+            {t.status === "denied" && t.reason ? ` — ${t.reason}` : ""}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const duration = (from: string, to: string | number) => {
+  const s = Math.max(0, Math.round(((typeof to === "number" ? to : Date.parse(to)) - Date.parse(from)) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+};
+
+/** A turn: the prompt, its work folded under "Worked for …" once done, and the answer. */
+function TurnView({ turn, live, streaming, waiting }: { turn: Turn; live: boolean; streaming: string; waiting: boolean }) {
+  const [open, setOpen] = useState<boolean | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  const expanded = open ?? live; // working turns show their steps; finished ones fold them
+  const hasWork = turn.steps.length > 0 || live;
+  const needsYou = turn.steps.some((s) => s.type === "tools" && s.tools.some((t) => t.status === "waiting" || t.status === "denied"));
+  return (
+    <div className="turn">
+      {turn.user && <div className="message user">{turn.user.text}</div>}
+      {hasWork && (
+        <button type="button" className="work-toggle" onClick={() => setOpen(!expanded)} aria-expanded={expanded}>
+          {live && <ThermalMark size={14} state={waiting ? "waiting" : "working"} />}
+          <span>
+            {live ? (waiting ? "Waiting for your approval" : "Working") : "Worked"}
+            {turn.startedAt ? ` for ${duration(turn.startedAt, turn.endedAt ?? now)}` : ""}
+          </span>
+          {needsYou && !expanded && <ShieldAlert size={12} className="work-flag" />}
+          <ChevronRight size={13} className={`step-chevron ${expanded ? "is-open" : ""}`} />
+        </button>
+      )}
+      {expanded && turn.steps.length > 0 && (
+        <div className="work">
+          {turn.steps.map((st) =>
+            st.type === "tools" ? (
+              <ToolGroup key={st.seq} tools={st.tools} />
+            ) : st.type === "agent" ? (
+              <div key={st.seq} className="step-text">
+                <Markdown content={st.text} />
+              </div>
+            ) : (
+              <div key={st.seq} className={`chat-note is-${st.tone}`}>
+                {st.text}
+              </div>
+            ),
+          )}
+        </div>
+      )}
+      {live && streaming && (
+        <div className="message assistant is-streaming" aria-live="polite">
+          <Markdown content={streaming} streaming />
+        </div>
+      )}
+      {turn.answer && (
+        <div className="message assistant">
+          <Markdown content={turn.answer.text} />
+        </div>
+      )}
+      {turn.error && <div className="chat-note is-error">{turn.error.text}</div>}
     </div>
   );
 }
@@ -130,6 +290,7 @@ export function Chat(props: ChatProps) {
 
   const state = stateFrom(events, props.session?.state ?? "idle");
   const items = useMemo(() => toItems(events), [events]);
+  const turns = useMemo(() => toTurns(items), [items]);
   const working = state === "running" || state === "waiting_approval";
 
   // Live events over a websocket to the daemon, opened with a one-time ticket.
@@ -245,45 +406,10 @@ export function Chat(props: ChatProps) {
           </div>
         ) : (
           <div className="messages">
-            {items.map((it) =>
-              it.type === "user" ? (
-                <div key={it.seq} className="message user">
-                  <div className="message-meta">
-                    <strong>You</strong>
-                  </div>
-                  <div className="message-body">{it.text}</div>
-                </div>
-              ) : it.type === "agent" ? (
-                <div key={it.seq} className="message assistant">
-                  <div className="message-meta">
-                    <ThermalMark size={16} variant="blob" animated={false} />
-                    <strong>{props.kind === "task" ? "Agent" : "jin"}</strong>
-                  </div>
-                  <Markdown content={it.text} />
-                </div>
-              ) : it.type === "tool" ? (
-                <ToolRow key={it.seq} t={it} />
-              ) : (
-                <div key={it.seq} className={`chat-note is-${it.tone}`}>
-                  {it.text}
-                </div>
-              ),
-            )}
-            {streaming && (
-              <div className="message assistant is-streaming" aria-live="polite">
-                <div className="message-meta">
-                  <ThermalMark size={16} variant="blob" state="working" />
-                  <strong>{props.kind === "task" ? "Agent" : "jin"}</strong>
-                </div>
-                <Markdown content={streaming} streaming />
-              </div>
-            )}
-            {working && !streaming && (
-              <div className="working-row" role="status">
-                <ThermalMark size={18} state={state === "waiting_approval" ? "waiting" : "working"} />
-                <span>{state === "waiting_approval" ? "Waiting for your approval" : "Working…"}</span>
-              </div>
-            )}
+            {turns.map((t, i) => {
+              const last = i === turns.length - 1;
+              return <TurnView key={t.user?.seq ?? `t${i}`} turn={t} live={last && working && !t.endedAt} streaming={last ? streaming : ""} waiting={state === "waiting_approval"} />;
+            })}
           </div>
         )}
       </div>
