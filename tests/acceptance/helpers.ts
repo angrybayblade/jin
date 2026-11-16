@@ -126,6 +126,8 @@ export async function startDaemon(env: Env, extra: Record<string, string> = {}):
       PATH: `${env.bin}:${process.env.PATH}`,
       JIN_HOME: env.home,
       JIN_PORT: "0",
+      // Notifications go to a file, never to this machine's desktop.
+      JIN_NOTIFY_LOG: join(env.home, "notifications.log"),
       JIN_HARNESS: "scripted",
       ...extra,
     },
