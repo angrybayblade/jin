@@ -71,6 +71,13 @@ export async function openTerminal(opts: { taskId?: string; kind: "shell" | "cla
   return t;
 }
 
+/** Start a tab's process again (after a daemon restart, Claude Code resumes its conversation). */
+export async function startTerminal(id: string): Promise<TerminalInfo> {
+  const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}/start`, { method: "POST", json: {} });
+  revalidatePath("/", "layout");
+  return t;
+}
+
 export async function closeTerminal(id: string): Promise<void> {
   await daemon(`/api/terminals/${encodeURIComponent(id)}`, { method: "DELETE" });
   revalidatePath("/", "layout");

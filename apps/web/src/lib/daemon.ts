@@ -47,7 +47,7 @@ export interface Session {
   lastEventAt: string | null;
 }
 
-export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited";
+export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited" | "interrupted";
 
 export interface TerminalInfo {
   id: string;
@@ -57,6 +57,7 @@ export interface TerminalInfo {
   title: string;
   status: AgentStatus;
   exitCode: number | null;
+  claudeSessionId: string | null;
   createdAt: string;
   clients: number;
 }
