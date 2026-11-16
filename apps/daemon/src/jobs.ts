@@ -33,7 +33,14 @@ const LOG_LINES = 400;
 export class TaskJobs {
   private jobs = new Map<string, TaskJob>();
 
+  private finished: ((job: TaskJob) => void)[] = [];
+
   constructor(private deps: TerminalDeps & { feed: Feed }) {}
+
+  /** A setup finished (done or failed). */
+  onFinish(fn: (job: TaskJob) => void) {
+    this.finished.push(fn);
+  }
 
   get defaultWorkspace(): string | undefined {
     return this.deps.workspaces[0]?.id;
@@ -95,6 +102,13 @@ export class TaskJobs {
         say(`failed: ${job.error}`);
       } finally {
         job.finishedAt = new Date().toISOString();
+        for (const fn of this.finished) {
+          try {
+            fn(job);
+          } catch {
+            // notifications never fail a setup
+          }
+        }
       }
     })();
     return job;

@@ -88,6 +88,12 @@ export interface SessionDeps {
 
 export class Sessions {
   private subscribers = new Map<string, Set<StreamSocket>>();
+  private listeners: ((e: SessionEvent) => void)[] = [];
+
+  /** Every recorded event, as it happens (notifications listen here). */
+  onEvent(fn: (e: SessionEvent) => void) {
+    this.listeners.push(fn);
+  }
   private waiters = new Map<string, (approved: boolean) => void>();
   private running = new Map<string, AbortController>();
   private db: Database;
@@ -164,6 +170,13 @@ export class Sessions {
       .get(sessionId, kind, JSON.stringify(payload), at) as { seq: number };
     const event: SessionEvent = { seq: row.seq, sessionId, kind, payload, at };
     for (const ws of this.subscribers.get(sessionId) ?? []) ws.send(JSON.stringify(event));
+    for (const fn of this.listeners) {
+      try {
+        fn(event);
+      } catch {
+        // a listener's failure never breaks the session
+      }
+    }
     return event;
   }
 
