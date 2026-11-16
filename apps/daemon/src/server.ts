@@ -12,6 +12,8 @@ export interface App {
   workspaces: WorkspaceConfig[];
   router: Router;
   tickets: Tickets;
+  /** This jin's commit (a checkout's HEAD, or the VERSION a machine was given). */
+  version?: () => string | null;
   /** Timers registered by the scheduler; always 0 in local mode. */
   jobs(): number;
 }
@@ -62,7 +64,7 @@ export async function handle(app: App, req: Request, url: URL): Promise<Response
 export function coreRoutes(app: App) {
   app.router
     .on("GET", "/api/status", () =>
-      json({ mode: app.config.mode, jobs: app.jobs(), workspaces: app.workspaces.map((w) => w.id) }),
+      json({ mode: app.config.mode, jobs: app.jobs(), workspaces: app.workspaces.map((w) => w.id), version: app.version?.() ?? null }),
     )
     .on("POST", "/api/tickets", async (req) => {
       const { path } = await body<{ path?: string }>(req);

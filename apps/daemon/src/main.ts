@@ -10,7 +10,7 @@ import { collectGithub, Feed, feedRoutes } from "./feed";
 import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
-import { machineId, machineRoutes, Machines } from "./machines";
+import { localVersion, machineId, machineRoutes, Machines } from "./machines";
 import { exportHistory, historyRoutes } from "./history";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
@@ -51,6 +51,7 @@ const app: App = {
   router: new Router(),
   tickets: new Tickets(),
   jobs: () => 0,
+  version: () => localVersion(),
 };
 coreRoutes(app);
 

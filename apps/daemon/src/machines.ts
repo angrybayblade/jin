@@ -86,7 +86,7 @@ const LOG_LINES = 300;
 
 let headCache: { at: number; sha: string | null } | null = null;
 /** This jin's commit (short), as onboarding records it on a machine; cached for a few seconds. */
-function localVersion(): string | null {
+export function localVersion(): string | null {
   if (headCache && Date.now() - headCache.at < 5000) return headCache.sha;
   const root = resolve(import.meta.dir, "../../..");
   const r = Bun.spawnSync(["git", "-C", root, "rev-parse", "--short", "HEAD"]);
@@ -649,6 +649,8 @@ export class Machines {
         t.backoff = 1000;
         // Each time the line to the home comes up, tell the hub how to reach this jin.
         if (m.home && !wasUp) void this.attachToHome(id).catch((err) => console.error(`attaching to ${m.label}: ${err}`));
+        // And learn which jin it runs now (it may have been deployed to since).
+        if (!wasUp && !m.attached) void this.refreshVersion(id);
         return;
       }
       if (t.state === "connecting") await Bun.sleep(300);
@@ -765,6 +767,14 @@ export class Machines {
     const p = Bun.spawnSync(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", label, "-f", join(dir, "id_ed25519")], { stdout: "ignore", stderr: "pipe" });
     if (p.exitCode !== 0) throw new HttpError(500, `ssh-keygen failed: ${p.stderr.toString().trim()}`);
     return { publicKey: readFileSync(join(dir, "id_ed25519.pub"), "utf8").trim(), created: true };
+  }
+
+  private async refreshVersion(id: string) {
+    const m = this.record(id);
+    const v = await fetch(`http://127.0.0.1:${m.localPort}/api/status`, { headers: { authorization: `Bearer ${m.token}` }, signal: AbortSignal.timeout(3000) })
+      .then((r) => (r.ok ? (r.json() as Promise<{ version?: string | null }>) : null))
+      .catch(() => null);
+    if (v?.version && v.version !== m.version) this.update(id, { version: v.version });
   }
 
   closeTunnel(id: string) {
