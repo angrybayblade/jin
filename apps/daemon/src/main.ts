@@ -104,6 +104,10 @@ setTimeout(() => void syncPrs(), 5_000);
 const machines = new Machines(config, app.workspaces);
 machineRoutes(app.router, machines);
 machines.resume();
+// What a machine's agents want you to know shows here, under its name; a click opens it there.
+machines.relayNotices((m, n) => {
+  notifier.notify({ ...n, key: `${m.id}:${n.key}`, subtitle: [m.label, n.subtitle].filter(Boolean).join(" · "), path: `/m/${m.id}${n.path}` });
+});
 // First-run setup for this machine; a workspace added there is live at once.
 const setup = new LocalSetup(config, app.workspaces, (w) => {
   app.workspaces.push(w);
