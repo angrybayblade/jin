@@ -28,5 +28,5 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
     daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`),
     daemon<TaskPR[]>(`/api/tasks/${encodeURIComponent(taskId)}/prs`).catch(() => [] as TaskPR[]),
   ]);
-  return <TaskView key={task.id} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} prs={prs} wsBase={daemonWsBase()} />;
+  return <TaskView key={task.id} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} prs={prs} wsBase={await daemonWsBase()} />;
 }

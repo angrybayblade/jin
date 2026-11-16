@@ -23,10 +23,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, NotificationSettings, Session, Task, TaskJob, TaskPR, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, Machine, NotificationSettings, Session, Task, TaskJob, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
+import { MachineSwitcher } from "./MachineSwitcher";
 import { RenameInput } from "./RenameInput";
 import { DensityToggle, HistoryButtons, SidebarToggle } from "./ShellControls";
 import { StatusMark } from "./ThermalMark";
@@ -61,6 +62,8 @@ export function Sidebar({
   mode,
   notifications,
   prs = [],
+  machines = [],
+  machine = "local",
 }: {
   tasks: Task[];
   sessions: Session[];
@@ -71,6 +74,8 @@ export function Sidebar({
   mode: string;
   notifications: NotificationSettings;
   prs?: TaskPR[];
+  machines?: Machine[];
+  machine?: string;
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -237,9 +242,7 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <span className="meta sidebar-where">
-          {workspace} · {mode === "vm" ? "always on" : "local"}
-        </span>
+        <MachineSwitcher machines={machines} current={machine} workspace={workspace} />
         <span className="sidebar-controls">
           {mode !== "vm" && <NotificationToggle initial={notifications} />}
           <DensityToggle />

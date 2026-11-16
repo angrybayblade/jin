@@ -1,6 +1,7 @@
 // Server-only access to the jin daemon. The token is read from $JIN_HOME/daemon.json
 // on the server; the browser never sees it and never talks to the daemon directly.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { cookies } from "next/headers";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -126,13 +127,41 @@ export interface Status {
 
 export class DaemonUnavailable extends Error {}
 
-/** The daemon's websocket base, for the browser (which connects with one-time tickets, never the token). */
-export function daemonWsBase(): string {
-  return connection().url.replace(/^http/, "ws");
+/** Which machine the app is showing: "local", or a remote machine's id (a cookie, set by the machine switcher). */
+export const MACHINE_COOKIE = "jin-machine";
+
+const jinHome = () => process.env.JIN_HOME ?? join(homedir(), ".jin");
+
+export async function currentMachine(): Promise<string> {
+  try {
+    const id = (await cookies()).get(MACHINE_COOKIE)?.value;
+    return id && /^[a-z0-9-]+$/.test(id) && existsSync(join(jinHome(), "machines", `${id}.json`)) ? id : "local";
+  } catch {
+    return "local"; // outside a request
+  }
 }
 
-function connection(): { url: string; token: string } {
-  const home = process.env.JIN_HOME ?? join(homedir(), ".jin");
+/** The daemon's websocket base, for the browser (which connects with one-time tickets, never the token). */
+export async function daemonWsBase(): Promise<string> {
+  return connection(await currentMachine()).url.replace(/^http/, "ws");
+}
+
+/**
+ * This machine's daemon from $JIN_HOME/daemon.json; a remote machine's through its SSH tunnel,
+ * from $JIN_HOME/machines/<id>.json (written by this machine's daemon when it onboarded it).
+ */
+function connection(machine: string): { url: string; token: string } {
+  const home = jinHome();
+  if (machine !== "local") {
+    try {
+      const m = JSON.parse(readFileSync(join(home, "machines", `${machine}.json`), "utf8")) as { label: string; localPort: number | null; token: string | null };
+      if (m.localPort && m.token) return { url: `http://127.0.0.1:${m.localPort}`, token: m.token };
+      throw new DaemonUnavailable(`${m.label} is not set up yet`);
+    } catch (err) {
+      if (err instanceof DaemonUnavailable) throw err;
+      throw new DaemonUnavailable(`the machine ${machine} is not known here`);
+    }
+  }
   try {
     const info = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8")) as { host: string; port: number; token: string };
     return { url: `http://${info.host}:${info.port}`, token: info.token };
@@ -141,8 +170,10 @@ function connection(): { url: string; token: string } {
   }
 }
 
-export async function daemon<T>(path: string, init: { method?: string; json?: unknown } = {}): Promise<T> {
-  const { url, token } = connection();
+/** A daemon call: to the machine the app is showing, or with `local`, always to this machine's own daemon. */
+export async function daemon<T>(path: string, init: { method?: string; json?: unknown; local?: boolean } = {}): Promise<T> {
+  const machine = init.local ? "local" : await currentMachine();
+  const { url, token } = connection(machine);
   let res: Response;
   try {
     res = await fetch(url + path, {
@@ -152,7 +183,7 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
       cache: "no-store",
     });
   } catch {
-    throw new DaemonUnavailable(`the jin daemon at ${url} is not answering`);
+    throw new DaemonUnavailable(machine === "local" ? `the jin daemon at ${url} is not answering` : `jin on ${machine} is not answering: its tunnel is down or the machine is off`);
   }
   if (!res.ok) {
     const detail = await res.text();
@@ -163,6 +194,43 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
     throw new Error(`${init.method ?? "GET"} ${path}: ${message}`);
   }
   return (await res.json()) as T;
+}
+
+export interface MachineStep {
+  id: string;
+  label: string;
+  state: "pending" | "running" | "done" | "failed" | "skipped";
+  log: string[];
+  error: string | null;
+}
+
+export interface MachineAuth {
+  tool: "gh" | "claude" | "doppler";
+  state: "unknown" | "signed-in" | "signed-out" | "missing" | "waiting" | "failed";
+  account: string | null;
+  url: string | null;
+  code: string | null;
+  needsCode: boolean;
+  error: string | null;
+}
+
+/** A remote machine, as this machine's daemon sees it (never its token). */
+export interface Machine {
+  id: string;
+  host: string;
+  label: string;
+  remotePort: number;
+  localPort: number | null;
+  createdAt: string;
+  version: string | null;
+  workspace: string | null;
+  system: string | null;
+  connected: boolean;
+  tunnel: "up" | "connecting" | "down" | "off";
+  busy: boolean;
+  steps: MachineStep[];
+  workspaceStep: MachineStep | null;
+  auth: MachineAuth[];
 }
 
 export interface NotificationSettings {

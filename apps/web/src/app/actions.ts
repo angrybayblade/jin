@@ -1,6 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { daemon, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { cookies } from "next/headers";
+import { daemon, MACHINE_COOKIE, type Machine, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -110,7 +111,7 @@ export async function getDiff(taskId: string): Promise<RepoDiff[]> {
 /** Open the PR's review in Bobby in your default browser, starting Bobby if it is not running. */
 export async function openInBobby(pr: string): Promise<{ url: string } | { error: string }> {
   try {
-    return await daemon<{ url: string }>("/api/bobby/open", { method: "POST", json: { pr, browser: true } });
+    return await daemon<{ url: string }>("/api/bobby/open", { method: "POST", json: { pr, browser: true }, local: true });
   } catch (err) {
     return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
   }
@@ -233,5 +234,88 @@ export async function detachTaskPr(taskId: string, url: string): Promise<void> {
 
 export async function refreshTaskPrs(taskId: string): Promise<void> {
   await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs/refresh`, { method: "POST" });
+  revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------- remote machines (this machine's daemon)
+
+const fail = (err: unknown) => ({ error: err instanceof Error ? err.message.replace(/^\w+ \S+: /, "") : String(err) });
+const machinePath = (id: string, rest = "") => `/api/machines/${encodeURIComponent(id)}${rest}`;
+
+export async function listMachines(): Promise<Machine[]> {
+  return daemon<Machine[]>("/api/machines", { local: true });
+}
+
+export async function getMachine(id: string): Promise<Machine> {
+  return daemon<Machine>(machinePath(id), { local: true });
+}
+
+/** Add a machine by the host you'd type after `ssh`; onboarding starts at once. */
+export async function addMachine(host: string, label?: string): Promise<Machine | { error: string }> {
+  try {
+    const m = await daemon<Machine>("/api/machines", { method: "POST", json: { host, label }, local: true });
+    revalidatePath("/", "layout");
+    return m;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Run onboarding again: also updates jin's daemon there to this jin's commit. */
+export async function rerunMachineSetup(id: string): Promise<void> {
+  await daemon(machinePath(id, "/setup"), { method: "POST", local: true });
+}
+
+export async function checkMachineAuth(id: string): Promise<void> {
+  await daemon(machinePath(id, "/auth"), { method: "POST", local: true });
+}
+
+export async function startMachineSignIn(id: string, tool: string): Promise<void> {
+  await daemon(machinePath(id, `/auth/${tool}`), { method: "POST", local: true });
+}
+
+export async function cancelMachineSignIn(id: string, tool: string): Promise<void> {
+  await daemon(machinePath(id, `/auth/${tool}`), { method: "DELETE", local: true });
+}
+
+export async function submitMachineSignInCode(id: string, tool: string, code: string): Promise<{ error: string } | null> {
+  try {
+    await daemon(machinePath(id, `/auth/${tool}/code`), { method: "POST", json: { code }, local: true });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function setMachineDopplerToken(id: string, token: string): Promise<{ error: string } | null> {
+  try {
+    await daemon(machinePath(id, "/doppler-token"), { method: "POST", json: { token }, local: true });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function setupMachineWorkspace(id: string, path?: string): Promise<{ error: string } | null> {
+  try {
+    await daemon(machinePath(id, "/workspace"), { method: "POST", json: { path: path || undefined }, local: true });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function removeMachine(id: string): Promise<void> {
+  await daemon(machinePath(id), { method: "DELETE", local: true });
+  const jar = await cookies();
+  if (jar.get(MACHINE_COOKIE)?.value === id) jar.delete(MACHINE_COOKIE);
+  revalidatePath("/", "layout");
+}
+
+/** Show another machine's jin ("local" for this one): tasks, terminals and chats all come from it. */
+export async function switchMachine(id: string): Promise<void> {
+  const jar = await cookies();
+  if (id === "local") jar.delete(MACHINE_COOKIE);
+  else jar.set(MACHINE_COOKIE, id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
   revalidatePath("/", "layout");
 }
