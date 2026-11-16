@@ -4,6 +4,7 @@ import type { WorkspaceConfig } from "./config";
 import { collectGithub, type Feed } from "./feed";
 import type { JinTool } from "./harness";
 import type { Sessions } from "./sessions";
+import type { TaskPRs } from "./prs";
 import type { Tasks } from "./tasks";
 import type { TaskJobs } from "./jobs";
 import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
@@ -52,8 +53,8 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs } = deps;
   return [
     {
       name: "jin_catch_up",
@@ -90,9 +91,17 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     },
     {
       name: "jin_list_tasks",
-      description: "The user's tasks and their state.",
+      description: "The user's tasks, their state, and the pull requests attached to each (state, review, checks).",
       input: {},
-      run: async () => tasks.list().map((t) => ({ id: t.id, workspace: t.workspace, slug: t.slug, repos: t.repos, state: t.state })),
+      run: async () =>
+        tasks.list().map((t) => ({
+          id: t.id,
+          workspace: t.workspace,
+          title: t.title ?? t.slug,
+          repos: t.repos,
+          state: t.state,
+          pullRequests: (prs?.list(t.id) ?? []).map((p) => ({ url: p.url, title: p.title, state: p.draft && p.state === "OPEN" ? "DRAFT" : p.state, review: p.review, checks: p.checks })),
+        })),
     },
     {
       name: "jin_start_task",
