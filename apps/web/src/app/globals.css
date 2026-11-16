@@ -1988,7 +1988,10 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
 }
 .task-label {
   display: flex;
-  align-items: baseline;
+  align-self: center;
+  align-items: center;
+  height: 26px;
+  line-height: 1;
   gap: 6px;
   min-width: 0;
   max-width: 40%;
