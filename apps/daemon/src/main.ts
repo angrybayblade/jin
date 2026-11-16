@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createAdapter } from "./adapters";
+import { bobbyRoutes } from "./bobby";
 import { jinTools } from "./chats";
 import { loadConfig, loadWorkspaces } from "./config";
 import { now, openDb } from "./db";
@@ -54,6 +55,7 @@ const feed = new Feed(db);
 taskRoutes(app.router, tasks, adapters);
 feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
+bobbyRoutes(app.router);
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
