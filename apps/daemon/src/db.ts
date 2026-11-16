@@ -113,6 +113,25 @@ const MIGRATIONS: string[] = [
   alter table sessions add column archived_at text;
   alter table terminals add column archived_at text;
   `,
+  // 5: pull requests attached to tasks (by Claude Code's hooks, its jin-task command, or by hand).
+  `
+  create table task_prs (
+    task_id text not null,
+    url text not null,
+    repo text not null,
+    number integer not null,
+    title text,
+    state text,
+    draft integer not null default 0,
+    review text,
+    checks text,
+    head text,
+    attached_by text not null,
+    attached_at text not null,
+    updated_at text,
+    primary key (task_id, url)
+  );
+  `,
 ];
 
 export function openDb(home: string): Database {
