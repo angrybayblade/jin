@@ -168,7 +168,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
@@ -293,6 +293,22 @@ export interface SetupState {
   auth: MachineAuth[];
   install: MachineStep | null;
   ready: boolean;
+}
+
+/** Live events through Composio, on the home. */
+export interface LiveStatus {
+  installed: boolean;
+  signedIn: boolean;
+  email: string | null;
+  org: string | null;
+  login: { url: string | null; state: "idle" | "waiting" | "done" | "failed"; error: string | null };
+  project: { id: string; name: string; orgId: string } | null;
+  userId: string;
+  accounts: { toolkit: string; id: string | null; status: string | null }[];
+  events: { kind: string; label: string; toolkit: string; on: boolean; triggers: number }[];
+  linearTeams: string[];
+  listener: { state: "off" | "starting" | "running" | "down"; since: string | null; error: string | null };
+  recent: { id: string; at: string; toolkit: string; trigger: string; title: string; summary: string; url: string | null; actor: string | null; forYou: boolean }[];
 }
 
 export interface NotificationSettings {

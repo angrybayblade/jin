@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, homeMachine, MACHINE_COOKIE, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, homeMachine, MACHINE_COOKIE, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -426,4 +426,64 @@ export async function moveToHome(id: string): Promise<{ history: { sessions: num
   } catch (err) {
     return fail(err);
   }
+}
+
+// ---------------------------------------------------------------- live events (Composio, on the home)
+
+export async function getLive(): Promise<LiveStatus> {
+  return daemon<LiveStatus>("/api/composio");
+}
+
+export async function liveLogin(): Promise<{ url: string } | { error: string }> {
+  try {
+    return await daemon<{ url: string }>("/api/composio/login", { method: "POST" });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function liveProjects(): Promise<{ orgId: string; org: string; projects: { id: string; name: string }[] }[] | { error: string }> {
+  try {
+    return await daemon("/api/composio/projects");
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function liveUseProject(orgId: string, projectId: string, name: string, userId?: string): Promise<{ error: string } | null> {
+  try {
+    await daemon("/api/composio/project", { method: "POST", json: { orgId, projectId, name, userId } });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function liveConnect(toolkit: string): Promise<{ url: string } | { error: string }> {
+  try {
+    return await daemon<{ url: string }>(`/api/composio/connect/${toolkit}`, { method: "POST" });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function liveSetEvent(kind: string, on: boolean, linearTeams?: string[]): Promise<{ error: string } | null> {
+  try {
+    await daemon(`/api/composio/events/${kind}`, { method: "POST", json: { on, linearTeams } });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function liveLinearTeams(): Promise<{ id: string; name: string; key: string | null }[] | { error: string }> {
+  try {
+    return await daemon("/api/composio/linear-teams");
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function liveListener(on: boolean): Promise<void> {
+  await daemon("/api/composio/listener", { method: "POST", json: { on } });
 }

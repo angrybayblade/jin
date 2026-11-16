@@ -2900,3 +2900,117 @@ p.machine-auth-body {
   margin: 0;
   padding: 0 var(--space-3) var(--space-2);
 }
+/* ---------------------------------------------------------------- live events */
+.live-projects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.live-switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  cursor: pointer;
+}
+.live-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: inherit;
+}
+.live-switch-track {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background 0.15s;
+}
+.live-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform 0.15s;
+}
+.live-switch input:checked + .live-switch-track {
+  background: var(--action);
+}
+.live-switch input:checked + .live-switch-track::after {
+  transform: translateX(12px);
+}
+.live-switch input:disabled + .live-switch-track {
+  opacity: 0.4;
+}
+.live-teams {
+  display: grid;
+  gap: var(--space-2);
+}
+.live-team-list {
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+.live-team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px var(--space-2);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+.live-team:hover {
+  background: var(--hover);
+}
+.live-team + .live-team {
+  border-top: 1px solid var(--line);
+}
+.live-teams > .button {
+  justify-self: start;
+}
+.live-empty {
+  margin: 0;
+  padding: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.live-events {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+.live-event {
+  display: grid;
+  grid-template-columns: 34px 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  font-size: var(--type-meta);
+}
+.live-event + .live-event {
+  border-top: 1px solid var(--line);
+}
+.live-event-when,
+.live-event-tool {
+  color: var(--muted);
+}
+.live-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-event.is-for-you .live-event-title {
+  color: var(--ink);
+  font-weight: var(--weight-primary);
+}
