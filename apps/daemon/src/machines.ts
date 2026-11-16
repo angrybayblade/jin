@@ -306,8 +306,8 @@ export const SIGN_IN: Record<AuthTool, string> = {
 };
 
 export type Proc = { stdin: { write(d: string | Uint8Array): unknown; end(): unknown; flush?(): unknown } | null; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill(): void };
-export type Spawn = (cmd: string[], opts?: { stdin?: "pipe" | "ignore" | Blob }) => Proc;
-export const defaultSpawn: Spawn = (cmd, opts = {}) => Bun.spawn(cmd, { stdin: opts.stdin ?? "ignore", stdout: "pipe", stderr: "pipe" }) as unknown as Proc;
+export type Spawn = (cmd: string[], opts?: { stdin?: "pipe" | "ignore" | Blob; cwd?: string }) => Proc;
+export const defaultSpawn: Spawn = (cmd, opts = {}) => Bun.spawn(cmd, { stdin: opts.stdin ?? "ignore", stdout: "pipe", stderr: "pipe", cwd: opts.cwd }) as unknown as Proc;
 
 export async function lines(stream: ReadableStream<Uint8Array>, onLine: (l: string) => void, onChunk?: (all: string) => void) {
   const decoder = new TextDecoder();

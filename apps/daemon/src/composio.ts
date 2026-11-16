@@ -432,7 +432,8 @@ export class Composio {
       return;
     }
     l.state = "starting";
-    const proc = this.spawn([this.bin, "dev", "listen", "--json", "--user-id", this.settings.userId]);
+    // In jin's folder: that is where the developer project is bound.
+    const proc = this.spawn([this.bin, "dev", "listen", "--json", "--user-id", this.settings.userId], { cwd: this.dir });
     l.proc = proc;
     l.since = new Date().toISOString();
     let errTail = "";
