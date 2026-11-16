@@ -147,3 +147,51 @@ export async function findFiles(taskId: string, q: string): Promise<{ path: stri
 export async function searchFiles(taskId: string, q: string): Promise<{ path: string; line: number; text: string }[]> {
   return daemon<{ path: string; line: number; text: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/grep?q=${encodeURIComponent(q)}&limit=120`);
 }
+
+// ---------------------------------------------------------------- context menus: rename, archive, remove
+
+export async function updateTask(id: string, patch: { title?: string | null; archived?: boolean }): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
+  revalidatePath("/", "layout");
+}
+
+/** Remove a task with the workspace's own tooling (cws task rm). */
+export async function removeTask(id: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.replace(/^DELETE \S+: /, "") : String(err) };
+  }
+}
+
+export async function revealTask(id: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(id)}/reveal`, { method: "POST" });
+}
+
+export async function updateSession(id: string, patch: { title?: string; archived?: boolean }): Promise<void> {
+  await daemon(`/api/sessions/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
+  revalidatePath("/", "layout");
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  await daemon(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  revalidatePath("/", "layout");
+}
+
+export async function updateTerminal(id: string, patch: { title?: string; archived?: boolean }): Promise<TerminalInfo> {
+  const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
+  revalidatePath("/", "layout");
+  return t;
+}
+
+export async function restartTerminal(id: string): Promise<TerminalInfo> {
+  const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}/restart`, { method: "POST", json: {} });
+  revalidatePath("/", "layout");
+  return t;
+}
+
+export async function archivedTerminals(taskId: string): Promise<TerminalInfo[]> {
+  return daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}&archived=1`);
+}

@@ -27,6 +27,10 @@ export interface Task {
   root: string;
   state: "ready" | "removed";
   createdAt: string;
+  branch?: string | null;
+  /** jin's display title, when renamed in jin. */
+  title: string | null;
+  archived: boolean;
 }
 
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
@@ -60,6 +64,7 @@ export interface TerminalInfo {
   claudeSessionId: string | null;
   createdAt: string;
   clients: number;
+  archived: boolean;
 }
 
 export interface Repo {
