@@ -1860,6 +1860,8 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
 .task-workspace {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -1965,31 +1967,58 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   flex: 1;
   min-height: 0;
 }
-.files-panel {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
+.files-panel.file-tree {
   height: 100%;
-  border-left: 1px solid var(--line);
-  background: var(--canvas);
-}
-.files-panel .file-tree {
-  flex: 1;
   min-height: 0;
   overflow: auto;
   border: 0;
-  width: auto;
-}
-.files-subtitle {
-  margin: 0;
-  padding: 6px 12px 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: var(--space-2) 0;
+  background: var(--canvas);
 }
 .task-tabs .status-mark {
   width: 12px;
   height: 12px;
   flex: none;
+}
+
+/* The task bar runs across the whole page; the label sits before the two icons at its end. */
+.task-workspace > .panes {
+  flex: 1;
+  min-height: 0;
+}
+.task-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 40%;
+  margin-left: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+  cursor: default;
+}
+.task-label strong {
+  flex: none;
+  font-weight: var(--weight-primary);
+}
+.task-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.task-bar > .pane-actions {
+  margin-left: 0;
+  gap: 2px;
+}
+.task-bar .button.icon-only,
+.sidebar-top .button.icon-only {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+}
+/* Even rhythm after the window buttons: toggle, back, forward. */
+.sidebar-top,
+.history-buttons {
+  gap: 4px;
 }
