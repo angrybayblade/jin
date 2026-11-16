@@ -30,6 +30,7 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
         "- When asked to catch up (or at the start of a conversation), call jin_catch_up and give a short brief: what is blocked on them first (approvals, failing checks on their PRs, review requests), then what changed, then what can wait. Number the items so the user can say 'take 2'.",
         "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
         "- jin_update_feed snoozes, dismisses or marks items done once the user decides.",
+        "- Work can live on other machines (dev VMs the user added): jin_list_machines lists them; jin_list_tasks and jin_catch_up cover every connected machine. To start a task or a Claude Code session on one, pass its id as `machine`; when the user does not say where and more than one machine has the workspace, ask. Links to another machine's task look like /m/<machine>/t/<task>.",
         "Be brief and concrete. Link PRs and issues by URL.",
       ].join("\n");
     case "slack":
@@ -52,10 +53,40 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
   }
 }
 
+/** A machine-aware view of jin's daemons: this one ("local") and each connected remote machine. */
+export interface MachineAccess {
+  list(): { id: string; label: string; connected: boolean; workspace: string | null; host: string }[];
+  call<T>(id: string, method: string, path: string, payload?: unknown): Promise<T>;
+}
+
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs, machines } = deps;
+  const remote = (id: string | undefined) => (id && id !== "local" ? id : null);
+  const connected = () => (machines?.list() ?? []).filter((m) => m.connected);
+  const link = (machine: string | null, taskId: string) => (machine ? `/m/${machine}/t/${taskId}` : `/t/${taskId}`);
+  const machineArg = z.string().optional().describe('a machine id from jin_list_machines; omit (or "local") for this machine');
+  /** Each connected machine's answer to `path`, tagged with the machine; one that fails is reported, not fatal. */
+  const everyMachine = async <T>(path: string) =>
+    Promise.all(
+      connected().map(async (m) => {
+        try {
+          return { machine: m.id, label: m.label, data: await machines!.call<T>(m.id, "GET", path) };
+        } catch (err) {
+          return { machine: m.id, label: m.label, error: err instanceof Error ? err.message : String(err) };
+        }
+      }),
+    );
   return [
+    {
+      name: "jin_list_machines",
+      description: "The machines jin works on: this one (\"local\") and each remote machine the user added (a dev VM), with whether it is connected and its workspace.",
+      input: {},
+      run: async () => [
+        { id: "local", label: "this machine", connected: true, workspaces: workspaces.map((w) => `${w.id} at ${w.root}`) },
+        ...(machines?.list() ?? []).map((m) => ({ id: m.id, label: m.label, host: m.host, connected: m.connected, workspace: m.workspace })),
+      ],
+    },
     {
       name: "jin_catch_up",
       description: "What needs the user: pending approvals, open feed items (GitHub reviews, failing checks, mentions), and running agents.",
@@ -70,6 +101,24 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           .list()
           .filter((t) => t.kind === "claude" && t.status !== "exited")
           .map((t) => ({ terminalId: t.id, taskId: t.taskId, status: t.status })),
+        // Other machines: their approvals and Claude Code sessions (open one with its link).
+        machines: await Promise.all(
+          connected().map(async (m) => {
+            try {
+              const [approvals, terms] = await Promise.all([
+                machines!.call<{ id: string; action: unknown; reason: string }[]>(m.id, "GET", "/api/approvals?state=pending"),
+                machines!.call<{ id: string; kind: string; taskId: string | null; status: string }[]>(m.id, "GET", "/api/terminals"),
+              ]);
+              return {
+                machine: m.id,
+                approvals: approvals.map((a) => ({ id: a.id, action: a.action, reason: a.reason })),
+                agents: terms.filter((t) => t.kind === "claude" && t.status !== "exited").map((t) => ({ taskId: t.taskId, status: t.status, open: t.taskId ? link(m.id, t.taskId) : undefined })),
+              };
+            } catch (err) {
+              return { machine: m.id, error: err instanceof Error ? err.message : String(err) };
+            }
+          }),
+        ),
       }),
     },
     {
@@ -81,8 +130,14 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     {
       name: "jin_list_repos",
       description: "Repos in a workspace, with their branches and descriptions.",
-      input: { workspace: z.string().optional().describe("workspace id; defaults to the first") },
+      input: { workspace: z.string().optional().describe("workspace id; defaults to the first"), machine: machineArg },
       run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        if (on) {
+          const ws = (a.workspace as string | undefined) ?? (await machines!.call<{ id: string }[]>(on, "GET", "/api/workspaces"))[0]?.id;
+          if (!ws) throw new Error(`${on} has no workspace yet`);
+          return machines!.call(on, "GET", `/api/workspaces/${encodeURIComponent(ws)}/repos`);
+        }
         const id = (a.workspace as string | undefined) ?? workspaces[0]?.id;
         const adapter = id ? adapters.get(id) : undefined;
         if (!adapter) throw new Error(`unknown workspace ${id}`);
@@ -91,17 +146,32 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     },
     {
       name: "jin_list_tasks",
-      description: "The user's tasks, their state, and the pull requests attached to each (state, review, checks).",
-      input: {},
-      run: async () =>
-        tasks.list().map((t) => ({
-          id: t.id,
-          workspace: t.workspace,
-          title: t.title ?? t.slug,
-          repos: t.repos,
-          state: t.state,
-          pullRequests: (prs?.list(t.id) ?? []).map((p) => ({ url: p.url, title: p.title, state: p.draft && p.state === "OPEN" ? "DRAFT" : p.state, review: p.review, checks: p.checks })),
-        })),
+      description: "The user's tasks on every connected machine (or one, with machine), their state, and the pull requests attached to each (state, review, checks).",
+      input: { machine: machineArg },
+      run: async (a) => {
+        type T = { id: string; workspace: string; title: string | null; slug: string; repos: string[]; state: string };
+        type P = { taskId: string; url: string; title: string | null; state: string | null; draft: boolean; review: string | null; checks: string | null };
+        const shape = (machine: string | null, list: T[], prList: P[]) =>
+          list.map((t) => ({
+            machine: machine ?? "local",
+            id: t.id,
+            workspace: t.workspace,
+            title: t.title ?? t.slug,
+            repos: t.repos,
+            state: t.state,
+            open: link(machine, t.id),
+            pullRequests: prList.filter((p) => p.taskId === t.id).map((p) => ({ url: p.url, title: p.title, state: p.draft && p.state === "OPEN" ? "DRAFT" : p.state, review: p.review, checks: p.checks })),
+          }));
+        const only = a.machine as string | undefined;
+        const here = !only || only === "local" ? shape(null, tasks.list(), prs?.list() ?? []) : [];
+        const there = (await everyMachine<T[]>("/api/tasks")).filter((r) => !only || only === r.machine);
+        const out: unknown[] = [...here];
+        for (const r of there) {
+          if ("error" in r) out.push({ machine: r.machine, error: r.error });
+          else out.push(...shape(r.machine, r.data as T[], await machines!.call<P[]>(r.machine, "GET", "/api/prs").catch(() => [])));
+        }
+        return out;
+      },
     },
     {
       name: "jin_start_task",
@@ -116,8 +186,14 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
         setup: z.boolean().optional().describe("run each repo's setup (installs); default true"),
         workspace: z.string().optional(),
         feedItemId: z.string().optional().describe("the feed item this task comes from, if any"),
+        machine: machineArg,
       },
       run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        if (on) {
+          const job = await machines!.call<{ taskId: string }>(on, "POST", "/api/task-jobs", { id: a.taskId, repos: a.repos, slug: a.slug, type: a.type, setup: a.setup, prompt: a.prompt, workspace: a.workspace });
+          return { setting_up: job.taskId, machine: on, open: link(on, job.taskId), note: `Setup runs on ${on} in the background; the task page shows progress.` };
+        }
         const workspace = (a.workspace as string | undefined) ?? workspaces[0]?.id;
         if (!workspace) throw new Error("no workspace configured");
         const job = await jobs.start(
@@ -131,8 +207,13 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     {
       name: "jin_start_agent",
       description: "Open Claude Code in a task's worktree, started with a prompt. The user watches and steers it in jin's task view; jin blocks deploys and pushes or PRs need the user's approval.",
-      input: { taskId: z.string(), prompt: z.string() },
+      input: { taskId: z.string(), prompt: z.string(), machine: machineArg },
       run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        if (on) {
+          const t = await machines!.call<{ id: string; taskId: string }>(on, "POST", "/api/terminals", { taskId: a.taskId, kind: "claude", prompt: a.prompt });
+          return { terminalId: t.id, taskId: t.taskId, machine: on, open: link(on, t.taskId) };
+        }
         const t = openTerminal({ terminals, tasks, workspaces, claude }, { taskId: a.taskId as string, kind: "claude", prompt: a.prompt as string });
         return { terminalId: t.id, taskId: t.taskId, open: `/t/${t.taskId}` };
       },

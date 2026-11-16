@@ -656,6 +656,21 @@ export class Machines {
     this.relay ??= setInterval(() => void tick(), 3000);
   }
 
+  /** Call a connected machine's daemon through its tunnel (jin's chat acts on other machines this way). */
+  async call<T>(id: string, method: string, path: string, payload?: unknown): Promise<T> {
+    const m = this.record(id);
+    if (!m.token || !m.localPort || this.tunnels.get(id)?.state !== "up") throw new HttpError(409, `${m.label} is not connected`);
+    const res = await fetch(`http://127.0.0.1:${m.localPort}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${m.token}`, ...(payload !== undefined ? { "content-type": "application/json" } : {}) },
+      body: payload !== undefined ? JSON.stringify(payload) : undefined,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new HttpError(res.status, `${m.label}: ${(JSON.parse(text || "{}") as { error?: string }).error ?? `answered ${res.status}`}`);
+    return JSON.parse(text) as T;
+  }
+
   /** Reopen tunnels to machines that finished onboarding (at start). */
   resume() {
     for (const m of this.records()) if (m.token) void this.openTunnel(m.id).catch(() => {});

@@ -75,7 +75,12 @@ tasks.onRemoved((taskId) => {
 terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude });
 const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
 jobRoutes(app.router, jobs);
-sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs }));
+sessions.provideJinTools(() =>
+  jinTools({
+    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs,
+    machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
+  }),
+);
 // Desktop notifications when a turn or a setup finishes, or something needs you.
 const notifier = new Notifier(config);
 notifyRoutes(app.router, notifier);
