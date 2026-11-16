@@ -164,3 +164,8 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
   }
   return (await res.json()) as T;
 }
+
+export interface NotificationSettings {
+  enabled: boolean;
+  sound: boolean;
+}

@@ -8,6 +8,7 @@ import { useArmedConfirm } from "@/lib/confirm";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { contextMenu, openContextMenu, type MenuItem } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";
+import { setActiveTerminal } from "@/lib/presence";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { TerminalView } from "./TerminalView";
 
@@ -133,6 +134,13 @@ export function TerminalTabs({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, current?.id, current?.status]);
+
+  // The Claude Code tab on screen: jin does not notify about it while you watch.
+  useEffect(() => {
+    if (kind !== "claude") return;
+    setActiveTerminal(current?.id ?? null);
+    return () => setActiveTerminal(null);
+  }, [kind, current?.id]);
 
   const confirmClose = useArmedConfirm();
   const close = async (t: TerminalInfo, confirmed = false) => {

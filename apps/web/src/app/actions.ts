@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { daemon, type ChatKind, type FileEntry, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, type ChatKind, type FileEntry, type NotificationSettings, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -198,4 +198,18 @@ export async function archivedTerminals(taskId: string): Promise<TerminalInfo[]>
 
 export async function archivedChats(kind: string): Promise<Session[]> {
   return daemon<Session[]>(`/api/sessions?kind=${encodeURIComponent(kind)}&archived=1`);
+}
+
+// ---------------------------------------------------------------- notifications
+
+export async function setNotifications(s: NotificationSettings): Promise<NotificationSettings> {
+  return daemon<NotificationSettings>("/api/notifications", { method: "PATCH", json: s });
+}
+
+export async function testNotification(): Promise<{ sent: boolean; skipped: string | null }> {
+  return daemon("/api/notifications/test", { method: "POST" });
+}
+
+export async function reportPresence(p: { path: string; chat: string | null; terminal: string | null; focused: boolean }): Promise<void> {
+  await daemon("/api/presence", { method: "POST", json: p });
 }

@@ -1,6 +1,7 @@
 "use client";
 import {
   ArrowRight,
+  Bell,
   BookOpen,
   Code2,
   File,
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { collectGithub, findFiles, openTerminal, searchFiles } from "@/app/actions";
+import { collectGithub, findFiles, openTerminal, searchFiles, testNotification } from "@/app/actions";
 import type { Task } from "@/lib/daemon";
 import { fuzzy } from "@/lib/fuzzy";
 import { setDensity, updateLayout } from "@/lib/layout";
@@ -109,6 +110,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
     for (const t of tasks.filter((x) => x.state === "ready")) items.push({ id: `go:task:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: `task · ${t.repos.join(", ")}`, icon: ArrowRight, run: go(`/t/${encodeURIComponent(t.id)}`) });
     for (const d of DESKS) items.push({ id: `go:desk:${d.kind}`, title: `${d.label} desk`, icon: d.icon, run: go(`/c/${d.kind}`) });
     items.push({ id: "task:new", title: "New task…", detail: "⌘⇧N", icon: Plus, run: openNewTaskDialog });
+    items.push({ id: "notify:test", title: "Send a test notification", detail: "desktop notification and sound", icon: Bell, run: () => void testNotification() });
     if (taskId) {
       items.push(
         {

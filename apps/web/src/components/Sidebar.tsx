@@ -23,9 +23,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, Session, Task, TaskJob, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, NotificationSettings, Session, Task, TaskJob, TerminalInfo } from "@/lib/daemon";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
+import { NotificationToggle } from "./Notifications";
 import { RenameInput } from "./RenameInput";
 import { DensityToggle, SidebarToggle } from "./ShellControls";
 import { StatusMark } from "./ThermalMark";
@@ -58,6 +59,7 @@ export function Sidebar({
   pendingApprovals,
   workspace,
   mode,
+  notifications,
 }: {
   tasks: Task[];
   sessions: Session[];
@@ -66,6 +68,7 @@ export function Sidebar({
   pendingApprovals: number;
   workspace: string;
   mode: string;
+  notifications: NotificationSettings;
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -207,6 +210,7 @@ export function Sidebar({
           {workspace} · {mode === "vm" ? "always on" : "local"}
         </span>
         <span className="sidebar-controls">
+          {mode !== "vm" && <NotificationToggle initial={notifications} />}
           <DensityToggle />
           <ThemeToggle />
           <SidebarToggle />
