@@ -3,7 +3,7 @@ import { BookOpen, GitPullRequest, Layers, Mail, MessageSquare, SquareKanban } f
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import type { Session, Task } from "@/lib/daemon";
+import type { AgentStatus, Session, Task, TerminalInfo } from "@/lib/daemon";
 import { StatusMark, ThermalMark } from "./ThermalMark";
 
 export const DESKS: { kind: "slack" | "linear" | "notion" | "gmail" | "github"; label: string; icon: ComponentType<{ size?: number }> }[] = [
@@ -14,7 +14,29 @@ export const DESKS: { kind: "slack" | "linear" | "notion" | "gmail" | "github"; 
   { kind: "gmail", label: "Gmail", icon: Mail },
 ];
 
-export function Sidebar({ tasks, sessions, pendingApprovals, workspace, mode }: { tasks: Task[]; sessions: Session[]; pendingApprovals: number; workspace: string; mode: string }) {
+const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | "interrupted"> = {
+  starting: "running",
+  working: "running",
+  waiting: "waiting_approval",
+  idle: "idle",
+  exited: "interrupted",
+};
+
+export function Sidebar({
+  tasks,
+  sessions,
+  terminals,
+  pendingApprovals,
+  workspace,
+  mode,
+}: {
+  tasks: Task[];
+  sessions: Session[];
+  terminals: TerminalInfo[];
+  pendingApprovals: number;
+  workspace: string;
+  mode: string;
+}) {
   const path = usePathname();
   const latest = (pred: (s: Session) => boolean) => sessions.find(pred);
   const jin = latest((s) => s.kind === "jin");
@@ -36,10 +58,13 @@ export function Sidebar({ tasks, sessions, pendingApprovals, workspace, mode }: 
         <div className="nav-section">Tasks</div>
         {live.length === 0 && <p className="sidebar-empty">Ask jin to start one.</p>}
         {live.map((t) => {
+          // Claude Code's status (from its hooks), else the latest SDK session's.
+          const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
           const s = latest((x) => x.taskId === t.id);
+          const mark = cli ? AGENT_MARK[cli.status] : s?.state;
           return (
             <Link key={t.id} href={`/t/${encodeURIComponent(t.id)}`} className={`nav-item task ${path === `/t/${t.id}` ? "active" : ""}`} title={t.slug}>
-              {s ? <StatusMark state={s.state} /> : <span className="status-dot" aria-hidden="true" />}
+              {mark ? <StatusMark state={mark} /> : <span className="status-dot" aria-hidden="true" />}
               <span className="nav-label">
                 <span className="mono">{t.id}</span> <span className="nav-sub">{t.slug}</span>
               </span>
