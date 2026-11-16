@@ -448,12 +448,13 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   display: flex;
   flex-direction: column;
 }
+/* The welcome sits at the bottom left, just above the composer. */
 .chat-welcome {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 28px var(--d-pad);
-  margin: auto 0;
+  padding: 28px var(--d-pad) var(--space-4);
+  margin: auto 0 0;
 }
 .welcome-overline {
   margin-bottom: 12px;
@@ -1704,4 +1705,52 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   color: var(--state-failed);
   font-size: var(--type-meta);
   cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ chat tabs in the pane's top bar */
+.pane-header.has-tabs {
+  padding: 0 var(--space-2);
+  align-items: stretch;
+}
+.chat-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chat-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 0 4px 0 10px;
+  border-bottom: 2px solid transparent;
+  color: var(--secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chat-tab:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.chat-tab.is-active {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+.chat-tab.is-new {
+  padding-right: 10px;
+  font-style: italic;
+  cursor: default;
+}
+.chat-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-tab:hover .file-tab-close,
+.chat-tab.is-active .file-tab-close {
+  opacity: 1;
 }
