@@ -15,13 +15,13 @@ function describe(a: Approval): string {
 }
 
 /**
- * Pending decisions, one compact row each (Zero's approval pattern in the page's
- * content flow): action mark, title, the exact action, decision controls.
+ * Pending decisions, one compact row each (Zero's approval pattern): action mark, title,
+ * the exact action, decision controls. As a drawer it sits directly above the composer.
  */
-export function Approvals({ approvals }: { approvals: Approval[] }) {
+export function Approvals({ approvals, drawer = false }: { approvals: Approval[]; drawer?: boolean }) {
   if (!approvals.length) return null;
   return (
-    <section className="approvals" aria-labelledby="approvals-heading">
+    <section className={drawer ? "approvals approval-drawer" : "approvals"} aria-labelledby="approvals-heading">
       <div className="section-label" id="approvals-heading">
         Approvals <span className="count">{approvals.length}</span>
       </div>
