@@ -3,6 +3,9 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal as Headless } from "@xterm/headless";
 import type { ServerWebSocket, Subprocess } from "bun";
 import { randomUUID } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { WorkspaceConfig } from "./config";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
@@ -188,7 +191,7 @@ export class Terminals {
   }
 
   /** Claude Code's session id; it changes on /clear, so the latest one wins. */
-  setClaudeSession(id: string, sessionId: string) {
+  setClaudeSession(id: string, sessionId: string | null) {
     this.db.query("update terminals set claude_session_id = ? where id = ?").run(sessionId, id);
   }
 
@@ -281,14 +284,29 @@ function place(deps: TerminalDeps, taskId?: string | null) {
   return { task, workspace, cwd };
 }
 
+/** Whether Claude Code has a saved conversation for `sessionId` (under any project directory). */
+export function hasTranscript(sessionId: string, configDir?: string): boolean {
+  if (!/^[\w-]+$/.test(sessionId)) return false;
+  const projects = join(configDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+  try {
+    return readdirSync(projects).some((d) => existsSync(join(projects, d, `${sessionId}.jsonl`)));
+  } catch {
+    return false;
+  }
+}
+
 /** Start (or restart) a tab's process: Claude Code resumes its conversation when it has one. */
 export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: string; cols?: number; rows?: number } = {}): TerminalInfo {
   const t = deps.terminals.get(id);
   if (deps.terminals.isLive(id)) return t;
   const { workspace } = place(deps, t.taskId);
   if (t.kind === "shell") return deps.terminals.spawn(id, { cols: opts.cols, rows: opts.rows });
-  const resume = t.claudeSessionId ? ["--resume", t.claudeSessionId] : [];
-  const prompt = !t.claudeSessionId && opts.prompt?.trim() ? [opts.prompt.trim()] : [];
+  // Claude Code saves a conversation only once something is sent, so a session that was
+  // opened and left empty has nothing to resume: start a fresh one instead of failing.
+  const session = t.claudeSessionId && hasTranscript(t.claudeSessionId, workspace?.profile.claudeConfigDir) ? t.claudeSessionId : null;
+  if (t.claudeSessionId && !session) deps.terminals.setClaudeSession(id, null);
+  const resume = session ? ["--resume", session] : [];
+  const prompt = !session && opts.prompt?.trim() ? [opts.prompt.trim()] : [];
   return deps.terminals.spawn(id, { argv: ["claude", ...deps.claude.args(), ...resume, ...prompt], env: deps.claude.env(workspace), cols: opts.cols, rows: opts.rows });
 }
 
