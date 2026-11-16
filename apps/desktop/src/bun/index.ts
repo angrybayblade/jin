@@ -93,6 +93,17 @@ if (MANAGE) {
   });
 }
 
+// Links to other sites open in your default browser: the window is jin, not a browser.
+function openExternal(url: unknown) {
+  if (typeof url !== "string" || !/^(https?|mailto):/i.test(url)) return;
+  Bun.spawn(["open", url], { stdio: ["ignore", "ignore", "ignore"] });
+}
+// A page asking for a new window (a link with target=_blank that slipped past the page's own handling).
+win.webview.on("new-window-open", (e: any) => {
+  const d = e?.data?.detail;
+  openExternal(typeof d === "string" ? d : d?.url);
+});
+
 // Double-clicking jin's title bar does what the system setting says (Desktop & Dock →
 // "Double-click a window's title bar to"): zoom by default, or minimize, or nothing.
 const doubleClickAction = () => {
@@ -109,6 +120,7 @@ win.webview.on("host-message", (e: any) => {
       return;
     }
   }
+  if (typeof m === "object" && m?.type === "jin:open-external") return openExternal((m as { url?: string }).url);
   if (typeof m !== "object" || m?.type !== "jin:title-bar-double-click" || win.isFullScreen()) return;
   const action = doubleClickAction();
   if (action === "Minimize") win.minimize();
