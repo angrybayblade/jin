@@ -28,11 +28,12 @@ async function openPr(url: string) {
 }
 
 /** The task's pull requests as small badges in the task bar; right-click the task label to attach one. */
-export function TaskPRBadges({ taskId, prs }: { taskId: string; prs: TaskPR[] }) {
+export function TaskPRBadges({ taskId, prs, onReview }: { taskId: string; prs: TaskPR[]; /** open the review as a task tab */ onReview?: (url: string) => void }) {
   const router = useRouter();
   const menu = (p: TaskPR): MenuItem[] => [
     { header: `${p.repo}#${p.number}` },
-    { label: "Review in Bobby", icon: GitPullRequest, run: () => openPr(p.url) },
+    { label: "Review in Bobby", icon: GitPullRequest, hint: "as a tab", run: () => (onReview ? onReview(p.url) : openPr(p.url)) },
+    { label: "Review in Bobby, new tab", icon: ExternalLink, run: () => openPr(p.url) },
     { label: "Open on GitHub", icon: ExternalLink, run: () => void window.open(p.url, "_blank", "noopener") },
     { label: "Copy link", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(p.url) },
     { label: "Refresh", icon: RefreshCw, run: () => refreshTaskPrs(taskId).then(() => router.refresh()) },
@@ -46,7 +47,7 @@ export function TaskPRBadges({ taskId, prs }: { taskId: string; prs: TaskPR[] })
         const Icon = p.state && p.state in ICON ? ICON[p.state as keyof typeof ICON] : p.draft ? GitPullRequestDraft : GitPullRequest;
         const tone = p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : p.checks === "failing" || p.review === "CHANGES_REQUESTED" ? "attention" : p.review === "APPROVED" ? "approved" : "open";
         return (
-          <button key={p.url} type="button" className={`pr-badge is-${tone}`} title={describe(p)} onClick={() => void openPr(p.url)} {...contextMenu(() => menu(p))}>
+          <button key={p.url} type="button" className={`pr-badge is-${tone}`} title={describe(p)} onClick={() => (onReview ? onReview(p.url) : void openPr(p.url))} {...contextMenu(() => menu(p))}>
             <Icon size={12} />
             <span>#{p.number}</span>
             {p.checks && p.state === "OPEN" && <span className={`pr-checks is-${p.checks}`} aria-label={`checks ${p.checks}`} />}

@@ -1,9 +1,9 @@
 "use client";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Archive, ArchiveRestore, ClipboardCopy, File, GitCompare, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, ClipboardCopy, File, GitCompare, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareArrowOutUpRight, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
+import { archivedTerminals, bobbyEmbed, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
 import { useArmedConfirm } from "@/lib/confirm";
 import type { AgentStatus, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
@@ -16,6 +16,7 @@ import { StatusMark, ThermalMark } from "../ThermalMark";
 import { Panes } from "../Panes";
 import { FilesPanel } from "./FilesPanel";
 import { TaskLabel, TaskPRBadges } from "./TaskPRs";
+import { BobbyTab } from "./BobbyTab";
 import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
 import { TerminalView } from "./TerminalView";
@@ -47,10 +48,12 @@ interface Doc {
   error?: string;
 }
 
-/** Tab keys: "t:<terminal id>", "f:<file path>", or "changes". */
+/** Tab keys: "t:<terminal id>", "b:<PR link>" (a Bobby review), "f:<file path>", or "changes". */
 type Key = string;
 const termKey = (id: string) => `t:${id}`;
 const fileKey = (p: string) => `f:${p}`;
+const reviewKey = (pr: string) => `b:${pr}`;
+const prNumber = (pr: string) => `#${pr.split("/").pop()}`;
 
 /**
  * A task as one row of tabs: Claude Code sessions, terminals, open files and the diff, with
@@ -103,6 +106,8 @@ export function TaskWorkspace({
   const [files, setFiles] = useState<string[]>([]);
   const [docs, setDocs] = useState<Record<string, Doc>>({});
   const [changesOpen, setChangesOpen] = useState(false);
+  // Bobby reviews open as tabs too (by PR link), remembered with the files.
+  const [reviews, setReviews] = useState<string[]>([]);
   const docsRef = useRef(docs);
   docsRef.current = docs;
 
@@ -115,22 +120,24 @@ export function TaskWorkspace({
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(filesKey) ?? "null") as { tabs?: string[] } | null;
+      const saved = JSON.parse(localStorage.getItem(filesKey) ?? "null") as { tabs?: string[]; reviews?: string[] } | null;
       if (saved?.tabs?.length) setFiles(saved.tabs);
+      if (saved?.reviews?.length) setReviews(saved.reviews);
       setActiveState(localStorage.getItem(activeKey));
     } catch {}
   }, [filesKey, activeKey]);
   useEffect(() => {
     try {
-      localStorage.setItem(filesKey, JSON.stringify({ tabs: files }));
+      localStorage.setItem(filesKey, JSON.stringify({ tabs: files, reviews }));
       if (active) localStorage.setItem(activeKey, active);
     } catch {}
-  }, [filesKey, activeKey, files, active]);
+  }, [filesKey, activeKey, files, reviews, active]);
 
-  const tabs: Key[] = [...terms.map((t) => termKey(t.id)), ...files.map(fileKey), ...(changesOpen ? ["changes"] : [])];
+  const tabs: Key[] = [...terms.map((t) => termKey(t.id)), ...reviews.map(reviewKey), ...files.map(fileKey), ...(changesOpen ? ["changes"] : [])];
   const current: Key | null = active && tabs.includes(active) ? active : (tabs[0] ?? null);
   const currentTerm = current?.startsWith("t:") ? (terms.find((t) => termKey(t.id) === current) ?? null) : null;
   const currentFile = current?.startsWith("f:") ? current.slice(2) : null;
+  const currentReview = current?.startsWith("b:") ? current.slice(2) : null;
 
   useEffect(() => {
     if (current) touchTab(current);
@@ -224,6 +231,14 @@ export function TaskWorkspace({
     },
     [revealPending],
   );
+  const openReview = useCallback((pr: string) => {
+    setReviews((r) => (r.includes(pr) ? r : [...r, pr]));
+    setActive(reviewKey(pr));
+  }, []);
+  const closeReview = (pr: string) => {
+    leave(reviewKey(pr));
+    setReviews((r) => r.filter((x) => x !== pr));
+  };
   const showChanges = useCallback(() => {
     setChangesOpen(true);
     setActive("changes");
@@ -310,9 +325,10 @@ export function TaskWorkspace({
         detail: `${taskId} · ${t.kind === "claude" ? `Claude Code · ${t.status}` : "shell"}`,
         activate: () => setActive(termKey(t.id)),
       })),
+      ...reviews.map((pr) => ({ id: reviewKey(pr), group: "file" as const, label: `Bobby ${prNumber(pr)}`, detail: `${taskId} · ${pr}`, activate: () => setActive(reviewKey(pr)) })),
       ...files.map((p) => ({ id: fileKey(p), group: "file" as const, label: base(p), detail: `${taskId} · ${p}`, activate: () => setActive(fileKey(p)) })),
     ]);
-  }, [owner, terms, files, taskId]);
+  }, [owner, terms, files, reviews, taskId]);
   useEffect(() => () => unregisterTabs(owner), [owner]);
 
   // ---------------------------------------------------------------- menus
@@ -424,6 +440,34 @@ export function TaskWorkspace({
               </div>
             );
           })}
+          {reviews.map((pr) => {
+            const k = reviewKey(pr);
+            const info = prs.find((p) => p.url === pr);
+            return (
+              <div
+                key={k}
+                role="tab"
+                tabIndex={0}
+                aria-selected={current === k}
+                className={`term-tab ${current === k ? "is-active" : ""}`}
+                title={`Bobby review · ${info?.title ?? pr}`}
+                onClick={() => setActive(k)}
+                onAuxClick={(e) => e.button === 1 && closeReview(pr)}
+                {...contextMenu(() => [
+                  { header: `Bobby · ${prNumber(pr)}` },
+                  { label: "Open in its own tab", icon: SquareArrowOutUpRight, run: () => bobbyInNewTab(pr) },
+                  { label: "Open on GitHub", icon: SquareArrowOutUpRight, run: () => void window.open(pr, "_blank", "noopener") },
+                  { divider: true },
+                  { label: "Close", icon: X, run: () => closeReview(pr) },
+                ])}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/bobby.svg" alt="" width={13} height={13} className="tab-icon" />
+                <span className="term-tab-name">{prNumber(pr)}</span>
+                {closeButton(k, `Bobby ${prNumber(pr)}`, () => closeReview(pr), "Close")}
+              </div>
+            );
+          })}
           {files.map((p) => {
             const k = fileKey(p);
             return (
@@ -443,8 +487,8 @@ export function TaskWorkspace({
             </div>
           )}
         </div>
-        <NewTab onClaude={() => void create("claude")} onShell={() => void create("shell")} onRestore={(e) => void restoreMenu(e)} />
-        <TaskPRBadges taskId={taskId} prs={prs} />
+        <NewTab onClaude={() => void create("claude")} onShell={() => void create("shell")} onRestore={(e) => void restoreMenu(e)} reviews={prs.filter((p) => p.state !== "CLOSED").map((p) => ({ url: p.url, label: `Review ${prNumber(p.url)} in Bobby`, title: p.title }))} onReview={openReview} />
+        <TaskPRBadges taskId={taskId} prs={prs} onReview={openReview} />
         <TaskLabel taskId={taskId} subtitle={subtitle} />
         <div className="pane-actions">
           <button type="button" className="button quiet icon-only" onClick={showChanges} title="Changes: the task's uncommitted diff" aria-label="Show changes">
@@ -511,6 +555,8 @@ export function TaskWorkspace({
               <div className="editor-empty">Loading…</div>
             )}
           </div>
+        ) : currentReview ? (
+          <BobbyTab key={currentReview} pr={currentReview} />
         ) : current === "changes" ? (
           <DiffView taskId={taskId} active />
         ) : (
@@ -522,7 +568,19 @@ export function TaskWorkspace({
 }
 
 /** "+": a Claude Code session on click; hover to choose a terminal instead; right-click for archived sessions. */
-function NewTab({ onClaude, onShell, onRestore }: { onClaude: () => void; onShell: () => void; onRestore: (e: React.MouseEvent) => void }) {
+function NewTab({
+  onClaude,
+  onShell,
+  onRestore,
+  reviews = [],
+  onReview,
+}: {
+  onClaude: () => void;
+  onShell: () => void;
+  onRestore: (e: React.MouseEvent) => void;
+  reviews?: { url: string; label: string; title: string | null }[];
+  onReview?: (url: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const show = () => {
@@ -550,6 +608,12 @@ function NewTab({ onClaude, onShell, onRestore }: { onClaude: () => void; onShel
           <button type="button" role="menuitem" onClick={pick(onShell)}>
             <SquareTerminal size={13} /> Terminal
           </button>
+          {reviews.map((r) => (
+            <button key={r.url} type="button" role="menuitem" title={r.title ?? r.url} onClick={pick(() => onReview?.(r.url))}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/bobby.svg" alt="" width={13} height={13} /> {r.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -576,4 +640,15 @@ function FilesToggle() {
       {hidden ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
     </button>
   );
+}
+
+/** A review in Bobby's own browser tab (the tab is opened first, so the browser allows it). */
+async function bobbyInNewTab(pr: string) {
+  const tab = window.open("about:blank", "_blank");
+  const r = await bobbyEmbed(pr);
+  const url = "error" in r ? pr : r.url;
+  if (tab) {
+    tab.opener = null;
+    tab.location.href = url;
+  } else window.open(url, "_blank", "noopener");
 }
