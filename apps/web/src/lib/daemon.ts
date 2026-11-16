@@ -31,13 +31,33 @@ export interface Task {
 
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
 
+export type ChatKind = "jin" | "slack" | "linear" | "notion" | "gmail" | "github";
+export type SessionKind = ChatKind | "task";
+
 export interface Session {
   id: string;
-  taskId: string;
+  kind: SessionKind;
+  taskId: string | null;
+  workspace: string | null;
+  title: string;
   harness: string;
   harnessSessionId: string | null;
   state: SessionState;
   createdAt: string;
+  lastEventAt: string | null;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+}
+
+export interface RepoDiff {
+  repo: string;
+  branch: string;
+  diff: string;
+  untracked: string[];
 }
 
 export interface SessionEvent {
@@ -63,6 +83,11 @@ export interface Status {
 }
 
 export class DaemonUnavailable extends Error {}
+
+/** The daemon's websocket base, for the browser (which connects with one-time tickets, never the token). */
+export function daemonWsBase(): string {
+  return connection().url.replace(/^http/, "ws");
+}
 
 function connection(): { url: string; token: string } {
   const home = process.env.JIN_HOME ?? join(homedir(), ".jin");
