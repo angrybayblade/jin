@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkspaceConfig } from "../config";
-import { AdapterError, type PolicyRules, type Repo, type TaskDirs, type TaskSpec, type WorkspaceAdapter } from "./types";
+import { AdapterError, type PolicyRules, type ProviderTask, type Repo, type TaskDirs, type TaskSpec, type WorkspaceAdapter } from "./types";
 
 /** Parse .gitmodules into submodule name -> keys (path, url, branch). */
 export function parseGitmodules(text: string): Map<string, Record<string, string>> {
@@ -58,6 +58,35 @@ export class ComposioAdapter implements WorkspaceAdapter {
     });
   }
 
+  /** Tasks as `cws task list` sees them: every tasks/<id>/task.json (composio-workspace cli/src/tasks.ts). */
+  listTasks(): ProviderTask[] {
+    const dir = join(this.root, "tasks");
+    if (!existsSync(dir)) return [];
+    const out: ProviderTask[] = [];
+    for (const id of readdirSync(dir)) {
+      const file = join(dir, id, "task.json");
+      if (!existsSync(file)) continue;
+      try {
+        const t = JSON.parse(readFileSync(file, "utf8")) as { id?: string; type?: string; branch?: string; repos?: string[]; created?: string };
+        const root = join(dir, id);
+        const repos = Array.isArray(t.repos) ? t.repos.map(String) : [];
+        out.push({
+          id: t.id ?? id,
+          type: t.type ?? null,
+          slug: slugFromBranch(t.branch, t.id ?? id),
+          branch: t.branch ?? null,
+          repos,
+          root,
+          dirs: Object.fromEntries(repos.map((r) => [r, join(root, r)])),
+          createdAt: t.created ?? new Date(0).toISOString(),
+        });
+      } catch {
+        // an unreadable task.json is not a task, as for cws
+      }
+    }
+    return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
   async startTask(spec: TaskSpec): Promise<TaskDirs> {
     const args = ["task", "new", spec.id];
     if (spec.type) args.push("--type", spec.type);
@@ -76,4 +105,12 @@ export class ComposioAdapter implements WorkspaceAdapter {
     // and cws refuses deploys. Jin's base policy already covers both; nothing extra yet.
     return { deny: [], ask: [] };
   }
+}
+
+/** "fix/PLEN-4560-show-apollo-429s-correctly" -> "show apollo 429s correctly" (cws puts the slug only in the branch). */
+export function slugFromBranch(branch: string | undefined, id: string): string {
+  if (!branch) return id;
+  const tail = branch.slice(branch.indexOf("/") + 1);
+  const rest = tail.startsWith(id) ? tail.slice(id.length).replace(/^-/, "") : tail;
+  return rest.replace(/-/g, " ").trim() || id;
 }

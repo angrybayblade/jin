@@ -1,8 +1,29 @@
 import { expect, test } from "bun:test";
-import { parseGitmodules } from "../src/adapters/composio";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ComposioAdapter, parseGitmodules, slugFromBranch } from "../src/adapters/composio";
 
 test("parses submodule paths, urls and branches", () => {
   const gm = parseGitmodules('[submodule "repos/platform"]\n\tpath = repos/platform\n\turl = git@github.com:ComposioHQ/platform.git\n\tbranch = master\n[submodule "repos/x"]\n\tpath = repos/x\n');
   expect(gm.get("repos/platform")).toEqual({ path: "repos/platform", url: "git@github.com:ComposioHQ/platform.git", branch: "master" });
   expect(gm.get("repos/x")).toEqual({ path: "repos/x" });
+});
+
+
+test("derives a title from the cws branch", () => {
+  expect(slugFromBranch("fix/PLEN-4560-show-apollo-429s-correctly", "PLEN-4560")).toBe("show apollo 429s correctly");
+  expect(slugFromBranch("feat/VIRAJ-CTX", "VIRAJ-CTX")).toBe("VIRAJ-CTX");
+  expect(slugFromBranch(undefined, "X-1")).toBe("X-1");
+});
+
+test("lists the workspace's tasks from task.json, skipping folders without one", () => {
+  const root = mkdtempSync(join(tmpdir(), "jin-ws-"));
+  mkdirSync(join(root, "tasks/PLEN-1/platform"), { recursive: true });
+  mkdirSync(join(root, "tasks/leftover"), { recursive: true });
+  writeFileSync(join(root, "tasks/PLEN-1/task.json"), JSON.stringify({ id: "PLEN-1", type: "bug", branch: "fix/PLEN-1-retry-webhooks", repos: ["platform"], created: "2026-11-10T00:00:00Z" }));
+  const tasks = new ComposioAdapter({ id: "composio", adapter: "composio", root, github: { owners: [] }, profile: {} }).listTasks();
+  expect(tasks).toEqual([
+    { id: "PLEN-1", type: "bug", slug: "retry webhooks", branch: "fix/PLEN-1-retry-webhooks", repos: ["platform"], root: join(root, "tasks/PLEN-1"), dirs: { platform: join(root, "tasks/PLEN-1/platform") }, createdAt: "2026-11-10T00:00:00Z" },
+  ]);
 });
