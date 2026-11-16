@@ -147,7 +147,8 @@ Jin's rules apply to every agent it runs, whatever the workspace:
 
 - `apps/desktop` (Electrobun) is jin in a native window with jin's own title bar: the panes'
   top bars move the window, the window buttons sit in the sidebar, double-click follows the
-  system setting.
+  system setting. ⌘T, ⌘W and ⌘1–9 work on task and chat tabs; the Dock badge counts Claude
+  Code sessions and approvals waiting on you.
 - `scripts/release-local.sh` builds a frozen copy of the current commit in
   `~/.jin/release/app` (production web build) and installs `~/Applications/jin.app`. The app
   starts the daemon (7317) and the web server (3917) from there with your login shell's PATH
@@ -193,7 +194,6 @@ running dev server; unit tests with `bun run test`.
 Before a release candidate:
 
 1. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
-2. **Desktop**: Cmd+W/T/1-9 for jin's tabs, a Dock badge when an agent waits, signing.
 
 Later: feed (snoozed items coming back, Linear, a ranking pass); a plain-git workspace
 adapter; scheduled briefs and PR watches on an always-on machine.
