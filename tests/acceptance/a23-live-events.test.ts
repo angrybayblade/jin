@@ -30,7 +30,11 @@ else if (c1 === "orgs" && c2 === "switch") out({ org_id: flag("--org-id") });
 else if (c1 === "dev" && c2 === "projects") out([{ id: "pr_jin", name: "jin" }]);
 else if (c1 === "dev" && c2 === "connected-accounts" && c3 === "list") out(["slack", "linear", "notion", "gmail", "github"].map((t) => ({ id: "ca_" + t, toolkit_slug: t, status: "ACTIVE" })));
 else if (c1 === "dev" && c2 === "connected-accounts" && c3 === "link") console.log("https://connect.composio.dev/link/lk_" + c4);
-else if (c1 === "dev" && c2 === "triggers" && c3 === "status") out(triggers());
+else if (c1 === "dev" && c2 === "triggers" && c3 === "status") {
+  // Like the real one: filtered by name, active only unless --show-disabled.
+  const names = (flag("--trigger-names") ?? "").split(",").filter(Boolean);
+  out(triggers().filter((t) => (!names.length || names.includes(t.trigger_name)) && (a.includes("--show-disabled") || t.status === "ACTIVE")));
+}
 else if (c1 === "dev" && c2 === "triggers" && c3 === "create") {
   const t = triggers();
   const id = "ti_" + (t.length + 1);
