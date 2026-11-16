@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
 import type { AgentStatus, Session, Task, TerminalInfo } from "@/lib/daemon";
 import { StatusMark, ThermalMark } from "./ThermalMark";
+import { DensityToggle, SidebarToggle } from "./ShellControls";
 import { ThemeToggle } from "./ThemeToggle";
 
 export const DESKS: { kind: "slack" | "linear" | "notion" | "gmail" | "github"; label: string; icon: ComponentType<{ size?: number }> }[] = [
@@ -88,10 +89,14 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <span className="meta">
+        <span className="meta sidebar-where">
           {workspace} · {mode === "vm" ? "always on" : "local"}
         </span>
-        <ThemeToggle />
+        <span className="sidebar-controls">
+          <DensityToggle />
+          <ThemeToggle />
+          <SidebarToggle />
+        </span>
       </div>
     </aside>
   );
