@@ -448,13 +448,14 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   display: flex;
   flex-direction: column;
 }
-/* The welcome sits at the bottom left, just above the composer. */
+/* The welcome sits in the middle of the pane. */
 .chat-welcome {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  padding: 28px var(--d-pad) var(--space-4);
-  margin: auto 0 0;
+  align-items: center;
+  text-align: center;
+  padding: 28px var(--d-pad);
+  margin: auto 0;
 }
 .welcome-overline {
   margin-bottom: 12px;
