@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { ContextMenuHost } from "@/components/ContextMenu";
 import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
@@ -44,6 +45,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
       />
       <SidebarResizer />
       <Palette tasks={shell.tasks} />
+      <ContextMenuHost />
       <main className="work-area">{children}</main>
     </div>
   );
