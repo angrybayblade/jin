@@ -1,0 +1,134 @@
+import { z } from "zod";
+import type { WorkspaceAdapter } from "./adapters";
+import type { WorkspaceConfig } from "./config";
+import { collectGithub, type Feed } from "./feed";
+import type { JinTool } from "./harness";
+import type { Sessions } from "./sessions";
+import type { Tasks } from "./tasks";
+
+export const CHAT_KINDS = ["jin", "slack", "linear", "notion", "gmail", "github"] as const;
+export type ChatKind = (typeof CHAT_KINDS)[number];
+export type SessionKind = ChatKind | "task";
+
+export const isChatKind = (k: string): k is ChatKind => (CHAT_KINDS as readonly string[]).includes(k);
+
+const OUTWARD =
+  "Anything that sends or changes something outside this machine (a message, a comment, an issue update, an email) is held for the user's approval by jin; draft it, then make the call, and the user decides.";
+
+/** What each chat is for, appended to Claude's system prompt. */
+export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig | undefined): string | undefined {
+  const ws = workspace ? `The user's workspace is ${workspace.id} at ${workspace.root} (${workspace.adapter}).` : "";
+  switch (kind) {
+    case "jin":
+      return [
+        "You are jin, the user's orchestrator. You run on their machine; you are not the coding agent.",
+        ws,
+        "Your job: catch the user up, help them decide what matters, and hand work to task agents.",
+        "- When asked to catch up (or at the start of a conversation), call jin_catch_up and give a short brief: what is blocked on them first (approvals, failing checks on their PRs, review requests), then what changed, then what can wait. Number the items so the user can say 'take 2'.",
+        "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task and hand off with jin_start_agent with a clear prompt. Coding happens in the task agent, not here.",
+        "- jin_update_feed snoozes, dismisses or marks items done once the user decides.",
+        "Be brief and concrete. Link PRs and issues by URL.",
+      ].join("\n");
+    case "slack":
+      return `You are jin's Slack desk. Use the Slack MCP tools to catch the user up on DMs, mentions and threads they are in, summarise what needs a reply, and draft replies in the user's voice. ${OUTWARD} If no Slack tools are available, say so and tell the user to run \`cws connect\` (or \`claude mcp add --transport http --scope user slack https://mcp.slack.com/mcp\`) and sign in.`;
+    case "linear":
+      return `You are jin's Linear desk. Use the Linear MCP tools to show the user's assigned issues and current cycle, what changed, and comments that need an answer. When the user wants to work on an issue, say so: they can start a task from jin's chat. ${OUTWARD} If no Linear tools are available, tell the user to run \`cws connect\` and sign in.`;
+    case "notion":
+      return `You are jin's Notion desk. Use the Notion MCP tools to find design docs and runbooks, answer from them with links, and surface comments and mentions. ${OUTWARD} If no Notion tools are available, tell the user to run \`cws connect\` and sign in.`;
+    case "gmail":
+      return `You are jin's Gmail desk. Use Gmail MCP tools, if available, to find mail that needs a reply and draft replies. ${OUTWARD} If no Gmail tools are available, say so plainly: no Gmail MCP server is configured for this user yet.`;
+    case "github":
+      return [
+        "You are jin's GitHub desk. Use the gh CLI (already logged in) to catch the user up on comments on their pull requests, replies to their review comments, and review threads waiting on them. Prefer `gh api graphql` and `gh pr view --comments`.",
+        "Summarise each thread in a line with its URL and what the user needs to do. Draft replies when asked.",
+        OUTWARD,
+        ws,
+      ].join("\n");
+    case "task":
+      return undefined; // the workspace's own CLAUDE.md and skills apply
+  }
+}
+
+/** Orchestration tools for jin's own chat. */
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[] }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces } = deps;
+  return [
+    {
+      name: "jin_catch_up",
+      description: "What needs the user: pending approvals, open feed items (GitHub reviews, failing checks, mentions), and running agents.",
+      input: {},
+      run: async () => ({
+        approvals: sessions.approvals("pending").map((a) => ({ id: a.id, sessionId: a.sessionId, action: a.action, reason: a.reason })),
+        feed: feed
+          .list()
+          .filter((i) => i.state === "new")
+          .map((i) => ({ id: i.id, kind: i.kind, title: i.title, summary: i.summary, url: i.externalRef, workspace: i.workspace })),
+        agents: sessions
+          .list()
+          .filter((s) => s.kind === "task" && (s.state === "running" || s.state === "waiting_approval"))
+          .map((s) => ({ sessionId: s.id, taskId: s.taskId, state: s.state, title: s.title })),
+      }),
+    },
+    {
+      name: "jin_refresh_github",
+      description: "Pull new review requests, failing checks on the user's PRs, and mentions from GitHub into the feed.",
+      input: {},
+      run: async () => ({ added: feed.add(await collectGithub(workspaces)) }),
+    },
+    {
+      name: "jin_list_repos",
+      description: "Repos in a workspace, with their branches and descriptions.",
+      input: { workspace: z.string().optional().describe("workspace id; defaults to the first") },
+      run: async (a) => {
+        const id = (a.workspace as string | undefined) ?? workspaces[0]?.id;
+        const adapter = id ? adapters.get(id) : undefined;
+        if (!adapter) throw new Error(`unknown workspace ${id}`);
+        return adapter.repos();
+      },
+    },
+    {
+      name: "jin_list_tasks",
+      description: "The user's tasks and their state.",
+      input: {},
+      run: async () => tasks.list().map((t) => ({ id: t.id, workspace: t.workspace, slug: t.slug, repos: t.repos, state: t.state })),
+    },
+    {
+      name: "jin_start_task",
+      description: "Create a task: a branch and worktree per repo in the workspace (runs the workspace's own tooling). Confirm the id, type and repos with the user first.",
+      input: {
+        taskId: z.string().describe("e.g. a Linear issue id like PLEN-123"),
+        repos: z.array(z.string()).min(1),
+        slug: z.string().describe("short title"),
+        type: z.enum(["feature", "enhancement", "refactor", "patch", "bug"]).optional(),
+        workspace: z.string().optional(),
+        feedItemId: z.string().optional().describe("the feed item this task comes from, if any"),
+      },
+      run: async (a) => {
+        const workspace = (a.workspace as string | undefined) ?? workspaces[0]?.id;
+        if (!workspace) throw new Error("no workspace configured");
+        const task = await tasks.start(workspace, { id: a.taskId as string, repos: a.repos as string[], slug: a.slug as string, type: a.type as string | undefined }, a.feedItemId as string | undefined);
+        if (a.feedItemId) feed.setState(a.feedItemId as string, "promoted", { taskId: task.id });
+        return { id: task.id, root: task.root, repos: task.repos };
+      },
+    },
+    {
+      name: "jin_start_agent",
+      description: "Start a coding agent in a task's worktree with a prompt. Its commands are checked by jin; pushes and PRs wait for the user's approval.",
+      input: { taskId: z.string(), prompt: z.string() },
+      run: async (a) => {
+        const s = sessions.startTask(a.taskId as string, a.prompt as string);
+        return { sessionId: s.id, taskId: s.taskId, open: `/t/${s.taskId}` };
+      },
+    },
+    {
+      name: "jin_update_feed",
+      description: "Snooze (24h), dismiss or mark a feed item done.",
+      input: { itemId: z.string(), action: z.enum(["snooze", "dismiss", "done"]) },
+      run: async (a) => {
+        const id = a.itemId as string;
+        if (a.action === "snooze") return feed.setState(id, "snoozed", { snoozedUntil: new Date(Date.now() + 86_400_000).toISOString() });
+        return feed.setState(id, a.action === "done" ? "done" : "dismissed");
+      },
+    },
+  ];
+}
