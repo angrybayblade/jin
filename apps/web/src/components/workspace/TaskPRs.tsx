@@ -16,15 +16,10 @@ function describe(p: TaskPR): string {
   return [`${p.repo}#${p.number}`, p.title, [state, review, checks].filter(Boolean).join(" · "), `attached by ${p.attachedBy === "hook" ? "jin (Claude Code created it)" : p.attachedBy === "claude" ? "Claude Code" : "you"}`].filter(Boolean).join("\n");
 }
 
-/** Open a PR in Bobby (focused review), or on GitHub when Bobby is not available. */
+/** Open a PR's review in Bobby in your browser, or the PR on GitHub when Bobby is not available. */
 async function openPr(url: string) {
-  const tab = window.open("about:blank", "_blank");
   const res = await openInBobby(url);
-  const target = "error" in res ? url : res.url;
-  if (tab) {
-    tab.opener = null;
-    tab.location.href = target;
-  } else window.open(target, "_blank", "noopener");
+  if ("error" in res) window.open(url, "_blank", "noopener");
 }
 
 /** The task's pull requests as small badges in the task bar; right-click the task label to attach one. */

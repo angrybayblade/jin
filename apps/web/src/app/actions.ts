@@ -107,10 +107,10 @@ export async function getDiff(taskId: string): Promise<RepoDiff[]> {
 
 // ---------------------------------------------------------------- bobby (PR reviews)
 
-/** The PR's review in Bobby, starting Bobby if it is not running. */
+/** Open the PR's review in Bobby in your default browser, starting Bobby if it is not running. */
 export async function openInBobby(pr: string): Promise<{ url: string } | { error: string }> {
   try {
-    return await daemon<{ url: string }>("/api/bobby/open", { method: "POST", json: { pr } });
+    return await daemon<{ url: string }>("/api/bobby/open", { method: "POST", json: { pr, browser: true } });
   } catch (err) {
     return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
   }
