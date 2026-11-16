@@ -87,6 +87,21 @@ const MIGRATIONS: string[] = [
   create index sessions_kind on sessions (kind, created_at);
   create index sessions_task on sessions (task_id, created_at);
   `,
+  // Terminal tabs (Claude Code and shells) outlive the daemon as records; Claude Code's own
+  // session id lets a tab resume its conversation after a restart.
+  `
+  create table terminals (
+    id text primary key,
+    task_id text,
+    kind text not null,
+    title text not null,
+    cwd text not null,
+    claude_session_id text,
+    created_at text not null,
+    closed_at text
+  );
+  create index terminals_task on terminals (task_id, created_at);
+  `,
 ];
 
 export function openDb(home: string): Database {
