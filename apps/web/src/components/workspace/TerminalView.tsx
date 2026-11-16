@@ -1,13 +1,14 @@
 "use client";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
-import { terminalTicket } from "@/app/actions";
+import { attachTicket } from "@/app/actions";
 
 const THEME = {
   background: "#1b1a1e",
   foreground: "#e6e4ea",
   cursor: "#e7a35a",
-  selectionBackground: "#3a2a1a",
+  cursorAccent: "#1b1a1e",
+  selectionBackground: "#5a3d22",
   black: "#141316",
   red: "#e0715e",
   green: "#9fd3a8",
@@ -16,35 +17,147 @@ const THEME = {
   magenta: "#d39bb4",
   cyan: "#8fcac4",
   white: "#ecebef",
+  brightBlack: "#66656f",
+  brightRed: "#f09a8a",
+  brightGreen: "#b6e2bd",
+  brightYellow: "#f5d48f",
+  brightBlue: "#b9c2d6",
+  brightMagenta: "#e2b4c8",
+  brightCyan: "#a9dbd5",
+  brightWhite: "#ffffff",
 };
 
-/** The user's shell in the task directory: xterm.js here, a PTY in the daemon. */
-export function TerminalView({ taskId, wsBase, active }: { taskId: string; wsBase: string; active: boolean }) {
+export type TerminalState = "connecting" | "attached" | "detached" | "exited";
+
+/**
+ * A daemon-owned terminal in xterm.js. Detaching (reload, tab switch) leaves the process
+ * running; re-attaching replays its screen. Tuned for full-screen TUIs like Claude Code:
+ * WebGL rendering, Unicode 11 widths, OSC 52 clipboard, clickable links, Shift+Enter as a
+ * newline, Cmd/Ctrl+C copies a selection.
+ */
+export function TerminalView({
+  terminalId,
+  wsBase,
+  active,
+  onState,
+  autoFocus = false,
+}: {
+  terminalId: string;
+  wsBase: string;
+  active: boolean;
+  onState?: (s: TerminalState) => void;
+  autoFocus?: boolean;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const fitRef = useRef<(() => void) | null>(null);
-  const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting");
+  const focusRef = useRef<(() => void) | null>(null);
+  const [state, setState] = useState<TerminalState>("connecting");
+  const stateRef = useRef(onState);
+  stateRef.current = onState;
 
   useEffect(() => {
+    const report = (s: TerminalState) => {
+      setState(s);
+      stateRef.current?.(s);
+    };
     let disposed = false;
     let ws: WebSocket | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     let cleanup = () => {};
+
     void (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
+      const [{ Terminal }, { FitAddon }, { WebglAddon }, { Unicode11Addon }, { WebLinksAddon }, { ClipboardAddon }] = await Promise.all([
+        import("@xterm/xterm"),
+        import("@xterm/addon-fit"),
+        import("@xterm/addon-webgl"),
+        import("@xterm/addon-unicode11"),
+        import("@xterm/addon-web-links"),
+        import("@xterm/addon-clipboard"),
+      ]);
       if (disposed || !host.current) return;
-      const term = new Terminal({ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13, cursorBlink: true, theme: THEME, allowProposedApi: false, scrollback: 5000 });
+      const term = new Terminal({
+        fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+        fontSize: 13,
+        lineHeight: 1.15,
+        cursorBlink: true,
+        theme: THEME,
+        allowProposedApi: true,
+        scrollback: 10000,
+        macOptionIsMeta: true,
+        drawBoldTextInBrightColors: false,
+      });
       const fit = new FitAddon();
       term.loadAddon(fit);
+      term.loadAddon(new Unicode11Addon());
+      term.unicode.activeVersion = "11";
+      term.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, "_blank", "noopener")));
+      term.loadAddon(new ClipboardAddon());
       term.open(host.current);
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+      } catch {
+        // DOM renderer fallback
+      }
       fit.fit();
-      const ticket = await terminalTicket();
-      if (disposed) return term.dispose();
-      ws = new WebSocket(`${wsBase}/api/terminal?task=${encodeURIComponent(taskId)}&ticket=${ticket}&cols=${term.cols}&rows=${term.rows}`);
-      ws.binaryType = "arraybuffer";
-      ws.onopen = () => setStatus("open");
-      ws.onclose = () => setStatus("closed");
-      ws.onmessage = (m) => term.write(typeof m.data === "string" ? m.data : new Uint8Array(m.data as ArrayBuffer));
-      const input = term.onData((d) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "in", d })));
+      focusRef.current = () => term.focus();
+      if (autoFocus) term.focus();
+
+      const send = (d: string) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "in", d }));
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== "keydown") return true;
+        // Shift+Enter: a newline in Claude Code's prompt (what /terminal-setup configures).
+        if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey) {
+          send("\x1b\r");
+          return false;
+        }
+        // Copy a selection with Cmd/Ctrl+C; without a selection Ctrl+C still interrupts.
+        if (e.key === "c" && (e.metaKey || (e.ctrlKey && e.shiftKey)) && term.hasSelection()) {
+          void navigator.clipboard.writeText(term.getSelection());
+          return false;
+        }
+        return true;
+      });
+      const input = term.onData(send);
+      const binary = term.onBinary((d) => send(d));
+
+      const connect = async () => {
+        report("connecting");
+        let ticket: string;
+        try {
+          ticket = await attachTicket(terminalId);
+        } catch {
+          report("exited");
+          return;
+        }
+        if (disposed) return;
+        ws = new WebSocket(`${wsBase}/api/terminals/${terminalId}/attach?ticket=${ticket}`);
+        ws.binaryType = "arraybuffer";
+        let first = true;
+        ws.onopen = () => {
+          report("attached");
+          ws?.send(JSON.stringify({ t: "resize", cols: term.cols, rows: term.rows }));
+        };
+        ws.onmessage = (m) => {
+          // The first message is the whole screen; start clean so a reconnect does not duplicate it.
+          if (first) {
+            term.reset();
+            first = false;
+          }
+          term.write(typeof m.data === "string" ? m.data : new Uint8Array(m.data as ArrayBuffer));
+        };
+        ws.onclose = (ev) => {
+          if (disposed) return;
+          if (ev.code === 1000 || ev.code === 1011) return report("exited");
+          report("detached");
+          retry = setTimeout(connect, 1500);
+        };
+      };
+      void connect();
+
       const resize = () => {
+        if (!host.current?.offsetParent) return; // hidden tab
         fit.fit();
         if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "resize", cols: term.cols, rows: term.rows }));
       };
@@ -54,25 +167,32 @@ export function TerminalView({ taskId, wsBase, active }: { taskId: string; wsBas
       cleanup = () => {
         observer.disconnect();
         input.dispose();
+        binary.dispose();
         term.dispose();
       };
     })();
+
     return () => {
       disposed = true;
+      clearTimeout(retry);
       ws?.close();
       cleanup();
     };
-  }, [taskId, wsBase]);
+  }, [terminalId, wsBase, autoFocus]);
 
-  // Fit again when the tab becomes visible (it was measured while hidden).
+  // Fit and focus when the tab becomes visible (it was measured while hidden).
   useEffect(() => {
-    if (active) requestAnimationFrame(() => fitRef.current?.());
+    if (!active) return;
+    requestAnimationFrame(() => {
+      fitRef.current?.();
+      focusRef.current?.();
+    });
   }, [active]);
 
   return (
-    <div className="terminal-view">
+    <div className="terminal-view" onClick={() => focusRef.current?.()}>
       <div ref={host} className="terminal-host" />
-      {status === "closed" && <div className="terminal-status">Shell exited. Switch tabs to start a new one.</div>}
+      {state === "detached" && <div className="terminal-status">Reconnecting…</div>}
     </div>
   );
 }
