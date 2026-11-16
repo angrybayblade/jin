@@ -2025,3 +2025,69 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
 .history-buttons {
   gap: 4px;
 }
+
+/* Pull requests attached to the task, before its label. */
+.task-prs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+.task-prs + .task-label {
+  margin-left: 6px;
+}
+.pr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--secondary);
+  font: inherit;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.pr-badge:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.pr-badge.is-open svg {
+  color: var(--success);
+}
+.pr-badge.is-approved svg {
+  color: var(--success);
+}
+.pr-badge.is-attention svg {
+  color: var(--state-failed);
+}
+.pr-badge.is-merged svg {
+  color: #a371f7;
+}
+.pr-badge.is-closed {
+  opacity: 0.6;
+}
+.pr-checks {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.pr-checks.is-passing {
+  background: var(--success);
+}
+.pr-checks.is-pending {
+  background: var(--state-waiting);
+}
+.pr-checks.is-failing {
+  background: var(--state-failed);
+}
+.task-label.is-attaching {
+  width: 320px;
+}
+.task-label[data-error] strong {
+  color: var(--state-failed);
+}
