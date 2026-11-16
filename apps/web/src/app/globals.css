@@ -1108,3 +1108,48 @@ button {
 .term-body .editor-empty p {
   margin: 0;
 }
+
+/* ------------------------------------------------------------------ Bobby badge (PR review in Bobby) */
+.feed-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bobby-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--secondary);
+  font-size: 11px;
+  font-weight: var(--weight-secondary);
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.bobby-badge:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--hover);
+}
+.bobby-badge.is-compact {
+  width: 20px;
+  padding: 0;
+  justify-content: center;
+  margin-left: 2px;
+}
+.bobby-badge.is-busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.bobby-badge[data-error] {
+  color: var(--state-failed);
+}
+.bobby-badge img {
+  display: block;
+  flex-shrink: 0;
+}
