@@ -56,7 +56,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
   }
   return (
     <div className="app-shell">
-      <AutoRefresh every={3000} />
+      <AutoRefresh />
       <Sidebar
         tasks={shell.tasks}
         sessions={shell.sessions}

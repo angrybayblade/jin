@@ -365,3 +365,26 @@ export async function installSetupWorkspace(): Promise<{ error: string } | null>
     return fail(err);
   }
 }
+
+// ---------------------------------------------------------------- refresh
+
+/**
+ * A fingerprint of what the app shows, from the machine it shows and every other connected
+ * machine (for the sidebar): the page re-renders only when it changes. A machine whose jin
+ * predates /api/stamp counts as changed every 15 seconds.
+ */
+export async function changeStamp(): Promise<string> {
+  const machines = await daemon<Machine[]>("/api/machines", { local: true }).catch(() => [] as Machine[]);
+  const ids = ["local", ...machines.filter((m) => m.connected).map((m) => m.id)];
+  const parts = await Promise.all(
+    ids.map((id) =>
+      daemon<{ stamp: string }>("/api/stamp", { machine: id, timeoutMs: 1500 })
+        .then((r) => `${id}:${r.stamp}`)
+        .catch(() => `${id}:?${Math.floor(Date.now() / 15_000)}`),
+    ),
+  );
+  return [current(), ...parts].join("|");
+  function current() {
+    return machines.map((m) => `${m.id}${m.connected ? "+" : "-"}${m.busy ? "*" : ""}`).join(",");
+  }
+}
