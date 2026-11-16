@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, File, Folder, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listFiles, readFile, writeFile } from "@/app/actions";
 import type { FileEntry } from "@/lib/daemon";
+import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { useResolvedTheme } from "@/lib/theme";
 
 const LANG: Record<string, string> = {
@@ -137,6 +138,55 @@ export function FileEditor({ taskId }: { taskId: string }) {
     setNote(null);
   }, []);
 
+  // Files opened from the finder or search, optionally at a line.
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const pendingLine = useRef<number | null>(null);
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const d = (e as CustomEvent<{ taskId: string; path: string; line?: number }>).detail;
+      if (d.taskId !== taskId) return;
+      pendingLine.current = d.line ?? null;
+      // Already the active file: nothing re-renders, so reveal the line now.
+      if (activeRef.current === d.path) requestAnimationFrame(() => revealPendingRef.current());
+      open(d.path);
+    };
+    window.addEventListener("jin:open-file", onOpen);
+    return () => window.removeEventListener("jin:open-file", onOpen);
+  }, [taskId, open]);
+  const revealPendingRef = useRef<() => void>(() => {});
+  const revealPending = useCallback(() => {
+    const ed = editorRef.current;
+    const line = pendingLine.current;
+    if (!ed || !line) return;
+    pendingLine.current = null;
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
+    ed.focus();
+  }, []);
+  revealPendingRef.current = revealPending;
+
+  // The tab switcher (⌘E) lists open files and can bring one to front.
+  const owner = `files:${taskId}`;
+  useEffect(() => {
+    registerTabs(
+      owner,
+      tabs.map((p) => ({
+        id: `file:${taskId}:${p}`,
+        group: "file" as const,
+        label: base(p),
+        detail: `${taskId} · ${p}`,
+        activate: () => {
+          setActive(p);
+          window.dispatchEvent(new CustomEvent("jin:show-pane-tab", { detail: { taskId, tab: "editor" } }));
+        },
+      })),
+    );
+  }, [owner, tabs, taskId]);
+  useEffect(() => () => unregisterTabs(owner), [owner]);
+  useEffect(() => {
+    if (active) touchTab(`file:${taskId}:${active}`);
+  }, [active, taskId]);
+
   const close = (p: string) => {
     const doc = docsRef.current[p];
     if (doc && doc.content !== doc.saved && !confirm(`${base(p)} has unsaved changes. Close it anyway?`)) return;
@@ -165,8 +215,14 @@ export function FileEditor({ taskId }: { taskId: string }) {
   }, [taskId]);
 
   const onMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save());
+    revealPending();
   };
+  // A file already loaded: reveal its line as soon as it is active.
+  useEffect(() => {
+    if (active && docs[active] && !docs[active]!.error) requestAnimationFrame(revealPending);
+  }, [active, docs, revealPending]);
 
   const doc = active ? docs[active] : undefined;
   return (
