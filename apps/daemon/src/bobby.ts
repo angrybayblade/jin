@@ -5,8 +5,10 @@ import { body, HttpError, json, type Router } from "./http";
 
 /**
  * Bobby (a focus-first PR reviewer, ~/bobby) as a companion app: jin links PRs to their review
- * in the Bobby running on this machine, starting it if needed. Reviews open in Bobby's own tab;
- * Bobby forbids framing by design, and its page asks before building a PR it has never seen.
+ * in the Bobby running on this machine, starting it if needed. Bobby forbids framing by design;
+ * jin starts it naming jin's own origins in BOBBY_FRAME_ANCESTORS (a Bobby that knows the setting
+ * lets just those frame it), and shows a review inside a task tab only when the running Bobby
+ * says it may. Otherwise reviews open in Bobby's own browser tab.
  */
 const LOCK = join(homedir(), ".bobby", "state", "app.lock");
 
@@ -45,12 +47,13 @@ function bobbyBinary(): string | null {
 }
 
 /** The running Bobby, started in the background (`bobby start`) if it is not running. */
-export async function ensureBobby(): Promise<string> {
+export async function ensureBobby(framers: string[] = []): Promise<string> {
   const running = await runningBobby();
   if (running) return running;
   const bin = bobbyBinary();
   if (!bin) throw new HttpError(404, "Bobby is not installed: curl -fsSL https://raw.githubusercontent.com/angrybayblade/bobby/main/install.sh | bash");
-  const proc = Bun.spawn([bin, "start"], { stdout: "ignore", stderr: "pipe", env: process.env });
+  const env = { ...process.env, ...(framers.length ? { BOBBY_FRAME_ANCESTORS: framers.join(" ") } : {}) };
+  const proc = Bun.spawn([bin, "start"], { stdout: "ignore", stderr: "pipe", env });
   const code = await proc.exited;
   if (code !== 0) throw new HttpError(502, `bobby start failed (${code}): ${(await new Response(proc.stderr).text()).trim().slice(-400)}`);
   for (let i = 0; i < 60; i++) {
@@ -67,15 +70,34 @@ export function parsePr(url: string): { owner: string; repo: string; number: num
   return m ? { owner: m[1]!, repo: m[2]!, number: Number(m[3]) } : null;
 }
 
-export function bobbyRoutes(router: Router) {
+/** Whether a page's headers let `origin` frame it (CSP frame-ancestors decides; X-Frame-Options alone forbids). */
+export function framesAllowed(headers: Headers, origins: string[]): boolean {
+  const csp = headers.get("content-security-policy") ?? "";
+  const rule = csp.split(";").map((d) => d.trim()).find((d) => d.toLowerCase().startsWith("frame-ancestors"));
+  if (!rule) return !headers.get("x-frame-options");
+  const allowed = rule.split(/\s+/).slice(1);
+  return origins.some((o) => allowed.includes(o) || allowed.includes("*"));
+}
+
+export function bobbyRoutes(router: Router, webOrigins: string[] = []) {
+  const reviewUrl = async (pr: string | undefined) => {
+    const parsed = pr ? parsePr(pr) : null;
+    if (!parsed) throw new HttpError(400, "pr must be a GitHub pull request URL");
+    const base = await ensureBobby(webOrigins);
+    // Bobby's review page: it reopens a review seen before and asks before building a new one.
+    return { base, url: `${base}/r/${parsed.owner}/${parsed.repo}/${parsed.number}` };
+  };
   router
+    // For a task tab: the review's URL, and whether this Bobby lets jin's page frame it.
+    .on("POST", "/api/bobby/embed", async (req) => {
+      const { pr } = await body<{ pr?: string }>(req);
+      const { base, url } = await reviewUrl(pr);
+      const head = await fetch(`${base}/`, { method: "HEAD", signal: AbortSignal.timeout(2000) }).catch(() => null);
+      return json({ url, embeddable: head ? framesAllowed(head.headers, webOrigins) : false });
+    })
     .on("GET", "/api/bobby", async () => json({ installed: Boolean(bobbyBinary()), url: await runningBobby() }))
     .on("POST", "/api/bobby/open", async (req) => {
       const { pr } = await body<{ pr?: string }>(req);
-      const parsed = pr ? parsePr(pr) : null;
-      if (!parsed) throw new HttpError(400, "pr must be a GitHub pull request URL");
-      const base = await ensureBobby();
-      // Bobby's review page: it reopens a review seen before and asks before building a new one.
-      return json({ url: `${base}/r/${parsed.owner}/${parsed.repo}/${parsed.number}` });
+      return json({ url: (await reviewUrl(pr)).url });
     });
 }
