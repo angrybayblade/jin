@@ -269,7 +269,7 @@ export interface ChatProps {
   wsBase: string;
   title: string;
   subtitle?: ReactNode;
-  welcome: { overline?: string; heading: string; body: string; suggestions: string[] };
+  welcome: { overline?: string; heading: string; body: string; suggestions: string[]; /** Shown when the desk cannot reach its service. */ notice?: string };
   placeholder: string;
   /** Every open chat of this kind, shown as tabs in the top bar (jin's chat and the desks). */
   chats?: Session[];
@@ -395,6 +395,7 @@ export function Chat(props: ChatProps) {
             {props.welcome.overline && <div className="welcome-overline">{props.welcome.overline}</div>}
             <h1>{props.welcome.heading}</h1>
             <p>{props.welcome.body}</p>
+            {props.welcome.notice && <p className="welcome-notice">{props.welcome.notice}</p>}
             <div className="suggestions">
               {props.welcome.suggestions.map((s) => (
                 <button key={s} type="button" onClick={() => void send(s)} disabled={busySending}>

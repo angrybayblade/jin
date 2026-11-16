@@ -2604,3 +2604,15 @@ html[data-sidebar="collapsed"] .nav-machine {
   justify-content: center;
   padding: 0;
 }
+.welcome-notice,
+.desk-connection.is-missing {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--state-waiting-tint);
+  font-size: var(--type-meta);
+  line-height: 1.45;
+}
+.desk-connection.is-ok {
+  color: var(--secondary);
+  font-size: var(--type-meta);
+}

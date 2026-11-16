@@ -119,6 +119,13 @@ export interface Approval {
   createdAt: string;
 }
 
+/** Whether a desk's connection is there (gh, or one of Claude's connectors). */
+export interface DeskStatus {
+  kind: "github" | "gmail" | "slack" | "linear" | "notion";
+  state: "connected" | "needs-auth" | "failed" | "missing";
+  via: string | null;
+}
+
 export interface Status {
   mode: "local" | "vm";
   jobs: number;
