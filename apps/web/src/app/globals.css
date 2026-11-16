@@ -1294,3 +1294,173 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   display: block;
   flex-shrink: 0;
 }
+
+/* ------------------------------------------------------------------ new task dialog and setup view */
+.nav-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-section-action {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.nav-section-action:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 64px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+}
+.modal::backdrop {
+  background: rgb(20 19 22 / 0.35);
+}
+.modal-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 20px;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px 0 4px;
+  padding-bottom: var(--space-2);
+  background-image: var(--grain);
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: var(--type-primary);
+  font-weight: var(--weight-primary);
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+.field legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.field :is(input, select, textarea) {
+  font-size: var(--d-text);
+}
+.field textarea {
+  min-height: 64px;
+  padding: 6px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  resize: vertical;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: var(--space-3);
+}
+.repo-picker {
+  display: grid;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+.repo-option {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px var(--space-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+.repo-option + .repo-option {
+  border-top: 1px solid var(--line);
+}
+.repo-option:hover {
+  background: var(--hover);
+}
+.repo-option.is-picked {
+  background: var(--accent-tint);
+}
+.repo-option .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-option input,
+.check input {
+  height: auto;
+  margin: 0;
+  accent-color: var(--action);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+.field-error {
+  margin: 0;
+  font-size: var(--type-meta);
+  color: var(--state-failed);
+}
+.task-setup {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.task-setup-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--d-pad);
+}
+.task-setup-body p {
+  margin: 0;
+}
+.setup-log {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+  color: var(--code-fg);
+  font-size: var(--type-code);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
