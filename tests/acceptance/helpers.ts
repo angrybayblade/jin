@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 export const REPO = resolve(import.meta.dir, "../..");
-export const WEB_ORIGIN = "http://127.0.0.1:3917";
+// The suite's own web server: a port and build directory of its own, so it runs next to a dev server on 3917.
+export const WEB_PORT = process.env.JIN_TEST_WEB_PORT ?? "3927";
+export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
+export const WEB_DIST = ".next-acceptance";
 
 export interface Env {
   home: string; // JIN_HOME

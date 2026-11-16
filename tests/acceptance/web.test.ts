@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { REPO, scripted, setupEnv, startDaemon, until, WEB_ORIGIN, type Daemon, type Env } from "./helpers";
+import { REPO, scripted, setupEnv, startDaemon, until, WEB_DIST, WEB_ORIGIN, WEB_PORT, type Daemon, type Env } from "./helpers";
 
 const WEB = join(REPO, "apps/web");
 const CHROME = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -25,10 +25,9 @@ afterAll(async () => {
 });
 
 async function startWeb() {
-  const port = new URL(WEB_ORIGIN).port;
   web = Bun.spawn(["bun", "run", "start"], {
     cwd: WEB,
-    env: { ...process.env, PORT: port, HOSTNAME: "127.0.0.1", JIN_HOME: env.home },
+    env: { ...process.env, PORT: WEB_PORT, JIN_HOME: env.home, JIN_WEB_DIST: WEB_DIST },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -38,7 +37,7 @@ async function startWeb() {
 test(
   "A17 the web app builds and the command center shows the daemon's feed",
   async () => {
-    const build = Bun.spawnSync(["bun", "run", "build"], { cwd: WEB, env: { ...process.env, JIN_HOME: env.home }, stdout: "pipe", stderr: "pipe" });
+    const build = Bun.spawnSync(["bun", "run", "build"], { cwd: WEB, env: { ...process.env, JIN_HOME: env.home, JIN_WEB_DIST: WEB_DIST }, stdout: "pipe", stderr: "pipe" });
     if (build.exitCode !== 0) throw new Error(`next build failed:\n${build.stderr.toString().slice(-3000)}${build.stdout.toString().slice(-3000)}`);
     built = true;
     await startWeb();
