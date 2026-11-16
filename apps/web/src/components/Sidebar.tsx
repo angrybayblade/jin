@@ -22,8 +22,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ComponentType } from "react";
-import { deleteSession, openTerminal, removeTask, revealTask, updateSession, updateTask } from "@/app/actions";
-import type { AgentStatus, Session, SessionKind, Task, TaskJob, TerminalInfo } from "@/lib/daemon";
+import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
+import type { AgentStatus, Session, Task, TaskJob, TerminalInfo } from "@/lib/daemon";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { RenameInput } from "./RenameInput";
@@ -112,28 +112,12 @@ export function Sidebar({
     },
   ];
 
-  /** Jin's chat and each desk show their newest chat; the menu acts on that one. */
-  const chatMenu = (kind: SessionKind, label: string, href: string): MenuItem[] => {
-    const s = latest((x) => x.kind === kind);
-    return [
-      { header: s ? `${label} · ${s.title || "chat"}` : label },
-      {
-        label: "New chat",
-        icon: MessageSquarePlus,
-        run: () => {
-          router.push(href);
-          window.dispatchEvent(new CustomEvent("jin:new-chat", { detail: { kind } }));
-        },
-      },
-      ...(s
-        ? ([
-            { label: "Rename chat", icon: Pencil, run: () => setRenaming(`chat:${kind}`) },
-            { label: "Archive chat", icon: Archive, hint: "keeps its history", run: () => updateSession(s.id, { archived: true }).then(() => router.refresh()) },
-            { label: "Delete chat", icon: Trash2, danger: true, confirm: "Delete this chat and its history?", run: () => deleteSession(s.id).then(() => router.refresh()) },
-          ] satisfies MenuItem[])
-        : []),
-    ];
-  };
+  /** Jin's chat and each desk: start a chat (each chat's own menu is on its tab). */
+  const chatMenu = (label: string, href: string): MenuItem[] => [
+    { header: label },
+    { label: "Open", icon: ArrowRight, run: () => router.push(href) },
+    { label: "New chat", icon: MessageSquarePlus, run: () => router.push(`${href}?chat=new`) },
+  ];
 
   const taskRow = (t: Task) => {
     // Claude Code's status (from its hooks), else the latest SDK session's.
@@ -164,24 +148,6 @@ export function Sidebar({
     );
   };
 
-  const chatLabel = (kind: SessionKind, label: string) => {
-    const s = latest((x) => x.kind === kind);
-    if (renaming !== `chat:${kind}` || !s) return <span className="nav-label">{label}</span>;
-    return (
-      <span className="nav-label">
-        <RenameInput
-          value={s.title || label}
-          label={`Rename the ${label} chat`}
-          onCancel={() => setRenaming(null)}
-          onSave={(v) => {
-            setRenaming(null);
-            void updateSession(s.id, { title: v }).then(() => router.refresh());
-          }}
-        />
-      </span>
-    );
-  };
-
   return (
     <aside className="sidebar">
       <Link href="/" className="workspace-brand" aria-label="jin">
@@ -190,9 +156,9 @@ export function Sidebar({
       </Link>
 
       <nav aria-label="Chats">
-        <Link href="/" className={`nav-item ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("jin", "Jin", "/"))}>
+        <Link href="/" className={`nav-item ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("Jin", "/"))}>
           <Layers size={15} />
-          {chatLabel("jin", "Jin")}
+          <span className="nav-label">Jin</span>
           {pendingApprovals > 0 && <span className="nav-count" title="Approvals waiting">{pendingApprovals}</span>}
         </Link>
 
@@ -231,9 +197,9 @@ export function Sidebar({
         {DESKS.map(({ kind, label, icon: Icon }) => {
           const s = latest((x) => x.kind === kind);
           return (
-            <Link key={kind} href={`/c/${kind}`} className={`nav-item ${path === `/c/${kind}` ? "active" : ""}`} {...contextMenu(() => chatMenu(kind, label, `/c/${kind}`))}>
+            <Link key={kind} href={`/c/${kind}`} className={`nav-item ${path === `/c/${kind}` ? "active" : ""}`} {...contextMenu(() => chatMenu(label, `/c/${kind}`))}>
               <Icon size={15} />
-              {chatLabel(kind, label)}
+              <span className="nav-label">{label}</span>
               {s && (s.state === "running" || s.state === "waiting_approval") && <StatusMark state={s.state} />}
             </Link>
           );
