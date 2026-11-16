@@ -28,7 +28,7 @@ import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
 import { RenameInput } from "./RenameInput";
-import { DensityToggle, SidebarToggle } from "./ShellControls";
+import { DensityToggle, HistoryButtons, SidebarToggle } from "./ShellControls";
 import { StatusMark } from "./ThermalMark";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -153,6 +153,16 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
+      {/* Level with the panes' top bars; in the desktop window it is the title bar, with room for the window buttons. */}
+      <div className="sidebar-top">
+        <span className="traffic-gap" aria-hidden="true" />
+        <span className="hide-collapsed">
+          <SidebarToggle />
+        </span>
+        <span className="hide-collapsed">
+          <HistoryButtons />
+        </span>
+      </div>
       <nav aria-label="Chats">
         <Link href="/" className={`nav-item ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("Jin", "/"))}>
           <Layers size={15} />
@@ -213,7 +223,9 @@ export function Sidebar({
           {mode !== "vm" && <NotificationToggle initial={notifications} />}
           <DensityToggle />
           <ThemeToggle />
-          <SidebarToggle />
+          <span className="only-collapsed">
+            <SidebarToggle shortcut={false} />
+          </span>
         </span>
       </div>
     </aside>

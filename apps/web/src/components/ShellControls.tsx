@@ -1,12 +1,13 @@
 "use client";
-import { PanelLeftClose, PanelLeftOpen, Rows2, Rows3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, Rows2, Rows3 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { readLayout, setDensity, updateLayout, type Density } from "@/lib/layout";
 
 const inEditorOrTerminal = (t: EventTarget | null) => t instanceof Element && Boolean(t.closest(".xterm, .monaco-editor, textarea, input"));
 
 /** Collapse the sidebar (also Cmd/Ctrl+B outside the terminal and editor). */
-export function SidebarToggle() {
+export function SidebarToggle({ shortcut = true }: { shortcut?: boolean }) {
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     const sync = () => setCollapsed(Boolean(readLayout().sidebarCollapsed));
@@ -18,12 +19,13 @@ export function SidebarToggle() {
         updateLayout((l) => ({ ...l, sidebarCollapsed: !l.sidebarCollapsed }));
       }
     };
-    window.addEventListener("keydown", key);
+    // One toggle owns ⌘B (there is a second one while the sidebar is collapsed).
+    if (shortcut) window.addEventListener("keydown", key);
     return () => {
       window.removeEventListener("jin-layout", sync);
       window.removeEventListener("keydown", key);
     };
-  }, []);
+  }, [shortcut]);
   return (
     <button
       type="button"
@@ -76,4 +78,19 @@ export function SidebarResizer() {
     window.addEventListener("pointerup", up);
   };
   return <div className="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" onPointerDown={start} onDoubleClick={() => updateLayout((l) => ({ ...l, sidebarW: undefined }))} />;
+}
+
+/** Back and forward through jin's pages (the desktop window has no browser buttons). */
+export function HistoryButtons() {
+  const router = useRouter();
+  return (
+    <span className="history-buttons">
+      <button type="button" className="button quiet icon-only" onClick={() => router.back()} title="Back (⌘[)" aria-label="Back">
+        <ChevronLeft size={15} />
+      </button>
+      <button type="button" className="button quiet icon-only" onClick={() => router.forward()} title="Forward (⌘])" aria-label="Forward">
+        <ChevronRight size={15} />
+      </button>
+    </span>
+  );
 }
