@@ -99,8 +99,9 @@ interface WorkspaceAdapter {
   GitHub, list repos and tasks, start a task, hand it to Claude Code (opens a Claude Code tab
   with the prompt), and update feed items.
 - **Desks** (GitHub, Slack, Linear, Notion, Gmail) are chats with their own instructions.
-  GitHub uses `gh`; the others use the user's MCP servers (claude.ai connectors do not load in
-  SDK sessions, so they come from `cws connect`, i.e. user-level servers). Gmail has none yet.
+  GitHub uses `gh`; the others use the user's claude.ai connectors (Gmail, Slack, Linear,
+  Notion) and user-level MCP servers. Connectors connect in the background, so those desks
+  hold the first message until they are up (at most 15s).
 - Replies stream live: text deltas go to open websockets and are not stored; the complete
   message is recorded at the end of the turn.
 
@@ -193,7 +194,7 @@ running dev server; unit tests with `bun run test`.
 
 Before a release candidate:
 
-1. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
+1. **Desks**: say on each desk whether its connector is connected.
 
 Later: feed (snoozed items coming back, Linear, a ranking pass); a plain-git workspace
 adapter; scheduled briefs and PR watches on an always-on machine.
