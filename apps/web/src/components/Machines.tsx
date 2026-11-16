@@ -371,45 +371,51 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
           Stop
         </button>
       </div>
-      <ol className="home-steps">
-        <li>
-          <div className="home-step-line">
-            <span>Let {machine.label} reach your other machines with its own key</span>
-            {!key && (
-              <button type="button" className="button small" disabled={busy} onClick={() => void run(hubKey(machine.id), (r) => setKey(r.publicKey))}>
-                Show its key
-              </button>
-            )}
+      <ul className="home-steps">
+        <li className="home-step">
+          <span className="home-step-icon">{key ? <Check size={14} className="step-done" /> : <Circle size={14} className="step-pending" />}</span>
+          <div className="home-step-text">
+            <span>Give {machine.label} its own key</span>
+            <span className="meta">so it can reach your other machines while this one sleeps</span>
           </div>
+          {!key && (
+            <button type="button" className="button small" disabled={busy} onClick={() => void run(hubKey(machine.id), (r) => setKey(r.publicKey))}>
+              Show key
+            </button>
+          )}
           {key && (
-            <div className="home-key">
-              <code className="home-key-text">{key}</code>
-              <CopyButton text={key} />
+            <div className="home-step-detail">
+              <div className="home-key">
+                <code className="home-key-text">{key}</code>
+                <CopyButton text={key} />
+              </div>
               <p className="meta">Add it to your exe.dev account's SSH keys (or each machine's ~/.ssh/authorized_keys). It was made on {machine.label} and never leaves it.</p>
             </div>
           )}
         </li>
-        <li>
-          <div className="home-step-line">
-            <span>Move this machine's chats and feed there, and have it connect to your other machines</span>
-            <button type="button" className="button small primary" disabled={busy} onClick={() => void run(moveToHome(machine.id), setMoved)}>
-              {busy ? <LoaderCircle size={12} className="spin" /> : null} Move
-            </button>
+        <li className="home-step">
+          <span className="home-step-icon">{moved ? <Check size={14} className="step-done" /> : <Circle size={14} className="step-pending" />}</span>
+          <div className="home-step-text">
+            <span>Move chats and feed to {machine.label}</span>
+            <span className="meta">and have it connect to your other machines</span>
           </div>
+          <button type="button" className={`button small ${moved ? "" : "primary"}`} disabled={busy} onClick={() => void run(moveToHome(machine.id), setMoved)}>
+            {busy ? <LoaderCircle size={12} className="spin" /> : null} {moved ? "Move again" : "Move"}
+          </button>
           {moved && (
-            <div className="home-result">
+            <div className="home-step-detail">
               <p className="meta">
-                Moved {moved.history.sessions} chats ({moved.history.transcripts ?? 0} with Claude's memory of them, so they continue where they left off) and {moved.history.feed} feed items.
+                {moved.history.sessions} chats ({moved.history.transcripts ?? 0} keep Claude's memory) and {moved.history.feed} feed items moved.
               </p>
               {moved.machines.map((r) => (
-                <p key={r.id} className={r.ok ? "meta setup-done" : "machine-error"}>
-                  {r.ok ? <Check size={12} className="step-done" /> : null} {r.id}: {r.ok ? `${machine.label} is connecting to it` : r.error}
+                <p key={r.id} className={r.ok ? "meta" : "machine-error"}>
+                  {r.id}: {r.ok ? `${machine.label} is connecting to it` : r.error}
                 </p>
               ))}
             </div>
           )}
         </li>
-      </ol>
+      </ul>
       {error && <p className="machine-error home-error">{error}</p>}
     </section>
   );

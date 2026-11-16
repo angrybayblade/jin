@@ -2838,35 +2838,54 @@ p.machine-auth-body {
 .home-steps {
   display: grid;
   margin: 0;
-  padding: 4px 0;
+  padding: 0;
   border-top: 1px solid var(--line);
-  list-style: decimal inside;
+  list-style: none;
 }
-.home-steps > li {
+.home-step {
   display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: 6px;
+  padding: 8px var(--space-2) 8px var(--space-3);
+}
+.home-step + .home-step {
+  border-top: 1px solid var(--line);
+}
+.home-step-icon {
+  display: inline-flex;
+}
+.home-step-text {
+  display: flex;
+  align-items: baseline;
   gap: var(--space-2);
-  padding: 6px var(--space-3);
+  min-width: 0;
   font-size: var(--type-meta);
 }
-.home-step-line {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: calc(100% - 18px);
+.home-step-text .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-step-detail {
+  grid-column: 2 / -1;
+  display: grid;
+  gap: 4px;
+}
+.home-step-detail p {
+  margin: 0;
+  font-size: var(--type-meta);
 }
 .home-key {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-left: 18px;
-}
-.home-key .meta {
-  grid-column: 1 / -1;
-  margin: 0;
+  min-width: 0;
 }
 .home-key-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2877,10 +2896,7 @@ p.machine-auth-body {
   font-size: 11px;
   user-select: all;
 }
-.home-result,
 .home-error {
-  margin: 0 0 0 18px;
-}
-.home-result p {
-  margin: 2px 0;
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-2);
 }
