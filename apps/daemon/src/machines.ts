@@ -266,6 +266,9 @@ interface SignIn {
   proc: Proc;
   out: string;
   answered: Set<string>;
+  /** Cursor-position queries answered so far (prompt libraries ask, and wait for the reply). */
+  cursorReplies: number;
+  answerTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export class Machines {
@@ -566,16 +569,26 @@ export class Machines {
     this.signIns.get(key)?.proc.kill();
     // A terminal on the far end (-tt) so the tools print their prompts; BROWSER=false: there is none there.
     const proc = this.spawn(["ssh", ...SSH_OPTS, "-tt", m.host, `${PATH_LINE}; BROWSER=false ${SIGN_IN[tool]}`], { stdin: "pipe" });
-    const s: SignIn = { proc, out: "", answered: new Set() };
+    const s: SignIn = { proc, out: "", answered: new Set(), cursorReplies: 0, answerTimer: null };
     this.signIns.set(key, s);
     this.setAuth(id, tool, { state: "waiting", url: null, code: null, needsCode: false, error: null });
     const onChunk = (all: string) => {
       s.out = all;
+      // Answer "where is the cursor?" (ESC[6n) as a terminal would, or the prompt waits forever.
+      const asked = all.split("\x1b[6n").length - 1;
+      for (; s.cursorReplies < asked; s.cursorReplies++) proc.stdin?.write("\x1b[24;80R");
+      proc.stdin?.flush?.();
       const r = readSignIn(tool, all);
+      // Answer a prompt once the tool has gone quiet: it may still be asking the terminal things.
+      if (s.answerTimer) clearTimeout(s.answerTimer);
       if (r.answer && !s.answered.has(r.answer.prompt)) {
-        s.answered.add(r.answer.prompt);
-        proc.stdin?.write(r.answer.keys);
-        proc.stdin?.flush?.();
+        const { prompt, keys } = r.answer;
+        s.answerTimer = setTimeout(() => {
+          if (s.answered.has(prompt)) return;
+          s.answered.add(prompt);
+          proc.stdin?.write(keys);
+          proc.stdin?.flush?.();
+        }, 400);
       }
       this.setAuth(id, tool, { url: r.url, code: r.code, needsCode: r.needsCode, ...(r.account ? { account: r.account } : {}) });
     };
