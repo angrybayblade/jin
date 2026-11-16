@@ -2188,3 +2188,13 @@ html[data-sidebar="collapsed"] .jin-button {
 html[data-sidebar="collapsed"] .only-collapsed-row {
   display: flex !important;
 }
+/* The list starts right under the top bar: no gap above the first section (Jin moved up). */
+.sidebar-top {
+  margin-bottom: 0;
+}
+.sidebar nav > .nav-section:first-of-type {
+  margin-top: var(--space-1);
+}
+html[data-sidebar="collapsed"] .sidebar nav > .nav-section:first-of-type {
+  margin-top: var(--space-4);
+}
