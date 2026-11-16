@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, File, Folder, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listFiles, readFile, writeFile } from "@/app/actions";
 import type { FileEntry } from "@/lib/daemon";
+import { useArmedConfirm } from "@/lib/confirm";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { useResolvedTheme } from "@/lib/theme";
 
@@ -187,9 +188,11 @@ export function FileEditor({ taskId }: { taskId: string }) {
     if (active) touchTab(`file:${taskId}:${active}`);
   }, [active, taskId]);
 
+  const confirmClose = useArmedConfirm();
   const close = (p: string) => {
     const doc = docsRef.current[p];
-    if (doc && doc.content !== doc.saved && !confirm(`${base(p)} has unsaved changes. Close it anyway?`)) return;
+    // Unsaved changes: the first click asks, the second closes and drops them.
+    if (doc && doc.content !== doc.saved && !confirmClose.ask(p)) return;
     setTabs((t) => {
       const next = t.filter((x) => x !== p);
       if (activeRef.current === p) setActive(next[Math.max(0, t.indexOf(p) - 1)] ?? null);
@@ -250,14 +253,15 @@ export function FileEditor({ taskId }: { taskId: string }) {
                   {dirty && <span className="dirty-dot" aria-label="unsaved" />}
                   <button
                     type="button"
-                    className="file-tab-close"
-                    aria-label={`Close ${base(p)}`}
+                    className={`file-tab-close ${confirmClose.armed === p ? "is-armed" : ""}`}
+                    aria-label={confirmClose.armed === p ? `Click again to close ${base(p)} without saving` : `Close ${base(p)}`}
+                    title={confirmClose.armed === p ? "Unsaved changes: click again to close without saving" : `Close ${base(p)}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       close(p);
                     }}
                   >
-                    <X size={12} />
+                    {confirmClose.armed === p ? "Close?" : <X size={12} />}
                   </button>
                 </div>
               );

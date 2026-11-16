@@ -1568,3 +1568,14 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* Two-step close: the × becomes "Close?" until the second click (or a few seconds pass). */
+.file-tab-close.is-armed {
+  width: auto;
+  padding: 0 6px;
+  opacity: 1;
+  background: var(--state-failed-tint);
+  color: var(--state-failed);
+  font-size: 11px;
+  font-weight: var(--weight-secondary);
+}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { closeTerminal, openTerminal, startTerminal } from "@/app/actions";
 import type { AgentStatus, TerminalInfo } from "@/lib/daemon";
+import { useArmedConfirm } from "@/lib/confirm";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { TerminalView } from "./TerminalView";
@@ -131,8 +132,10 @@ export function TerminalTabs({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, current?.id, current?.status]);
 
+  const confirmClose = useArmedConfirm();
   const close = async (t: TerminalInfo) => {
-    if (kind === "claude" && running(t) && !confirm(`Close ${t.title}? Its Claude Code session ends.`)) return;
+    // A running Claude Code session ends when its tab closes: the first click asks, the second closes.
+    if (kind === "claude" && running(t) && !confirmClose.ask(t.id)) return;
     setClosed((c) => new Set(c).add(t.id));
     await closeTerminal(t.id).catch(() => {});
     router.refresh();
@@ -147,14 +150,15 @@ export function TerminalTabs({
             <span className="term-tab-name">{t.title}</span>
             <button
               type="button"
-              className="file-tab-close"
-              aria-label={`Close ${t.title}`}
+              className={`file-tab-close ${confirmClose.armed === t.id ? "is-armed" : ""}`}
+              aria-label={confirmClose.armed === t.id ? `Click again to close ${t.title} and end its session` : `Close ${t.title}`}
+              title={confirmClose.armed === t.id ? "Click again to close; the Claude Code session ends" : `Close ${t.title}`}
               onClick={(e) => {
                 e.stopPropagation();
                 void close(t);
               }}
             >
-              <X size={12} />
+              {confirmClose.armed === t.id ? "Close?" : <X size={12} />}
             </button>
           </div>
         ))}
