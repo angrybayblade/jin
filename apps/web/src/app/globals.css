@@ -1,0 +1,483 @@
+/*
+ * Jin workspace styles, following Zero's layout contract (docs/design-system.md in
+ * ComposioHQ/zero): one centred 1040px measure, 12 columns with 24px gutters, an 8px
+ * rhythm, flat white surfaces, graphite emphasis, one named scroll region per view,
+ * no page-level overflow. Coding views use the dark tokens ([data-theme="dark"]).
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font: var(--weight-meta) var(--type-secondary) / 1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: inherit;
+}
+code,
+pre {
+  font-family: var(--font-code);
+}
+h1,
+h2 {
+  margin: 0;
+  font-weight: var(--weight-primary);
+  letter-spacing: -0.01em;
+}
+h1 {
+  font-size: 24px;
+  line-height: 1.25;
+}
+h2 {
+  font-size: var(--type-primary);
+}
+.meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* ------------------------------------------------------------------ shell */
+.app-frame {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.app-header {
+  display: flex;
+  align-items: center;
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+}
+.brand-name {
+  font-size: 18px;
+  font-weight: var(--weight-primary);
+  letter-spacing: -0.02em;
+}
+
+/* Zero's thermal mark */
+.thermal-mark {
+  width: var(--mark-size);
+  height: var(--mark-size);
+  display: inline-block;
+  flex-shrink: 0;
+  position: relative;
+}
+.thermal-mark-fallback,
+.thermal-mark-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.thermal-mark-canvas {
+  opacity: 0;
+}
+.thermal-mark.is-rendered .thermal-mark-canvas {
+  opacity: 1;
+}
+.thermal-mark.is-rendered .thermal-mark-fallback {
+  visibility: hidden;
+}
+.status-mark,
+.action-mark {
+  display: inline-flex;
+  align-items: center;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  margin: 6px;
+}
+
+/* ------------------------------------------------------------------ grid */
+.page-container {
+  width: 100%;
+  max-width: calc(1040px + 2 * var(--space-6));
+  margin: 0 auto;
+  padding: var(--space-6);
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--space-5);
+  row-gap: var(--space-5);
+  align-content: start;
+}
+.page-container > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.page-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: var(--space-4);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+.metric {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--line);
+}
+.metric-label {
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.metric-value {
+  font-size: 24px;
+  font-weight: var(--weight-primary);
+  font-variant-numeric: tabular-nums;
+}
+.columns {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--space-5);
+}
+.columns > .feed {
+  grid-column: span 8;
+  min-width: 0;
+}
+.columns > .tasks {
+  grid-column: span 4;
+  min-width: 0;
+}
+.section-label {
+  font-size: var(--type-meta);
+  font-weight: var(--weight-secondary);
+  color: var(--secondary);
+  margin-bottom: var(--space-2);
+}
+.count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--state-waiting-tint);
+  color: var(--state-waiting);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.list-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+.empty-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  color: var(--secondary);
+}
+.empty-state p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ controls */
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--weight-secondary) var(--type-secondary) / 1 var(--font-ui);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.button:hover {
+  background: var(--hover);
+}
+.button.primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--on-action);
+}
+.button.primary:hover {
+  background: var(--action-hover);
+}
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--secondary);
+}
+.button.quiet:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+input,
+select {
+  height: 32px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+/* ------------------------------------------------------------------ approvals */
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.approval-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+}
+.approval-row + .approval-row {
+  border-top: 1px solid var(--line);
+}
+.approval-title {
+  font-weight: var(--weight-secondary);
+}
+.approval-command {
+  display: block;
+  font-size: var(--type-meta);
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+.approval-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ------------------------------------------------------------------ feed */
+.feed-list,
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.feed-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.feed-main {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.feed-title {
+  font-weight: var(--weight-secondary);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.feed-title:hover {
+  text-decoration: underline;
+}
+.feed-actions {
+  display: flex;
+  align-items: start;
+  gap: var(--space-1);
+}
+.kind-chip {
+  justify-self: start;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  font-size: var(--type-meta);
+  background: var(--accent-tint);
+  color: var(--secondary);
+}
+.kind-chip.is-ci_failed {
+  background: var(--state-failed-tint);
+  color: var(--state-failed);
+}
+.kind-chip.is-review_requested {
+  background: var(--state-waiting-tint);
+  color: var(--state-waiting);
+}
+.promote {
+  position: relative;
+}
+.promote summary {
+  list-style: none;
+}
+.promote summary::-webkit-details-marker {
+  display: none;
+}
+.promote-form {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  width: 240px;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  margin-top: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface) var(--grain);
+}
+.promote-form label {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+
+/* ------------------------------------------------------------------ tasks */
+.task-row {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.task-id {
+  font-family: var(--font-code);
+  font-size: var(--type-meta);
+  font-weight: var(--weight-secondary);
+}
+.task-slug {
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+.start-session,
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+/* ------------------------------------------------------------------ session (dark coding view) */
+.session-view {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  background: var(--canvas);
+  color: var(--ink);
+}
+.session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.session-log {
+  margin: 0;
+  min-height: 0;
+  max-height: calc(100dvh - 220px);
+  overflow-y: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--code-fg);
+  font-size: var(--type-code);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.log-line.is-prompt {
+  color: var(--ink);
+  font-weight: var(--weight-secondary);
+}
+.log-line.is-tool {
+  color: var(--code-keyword);
+}
+.log-line.is-denied {
+  color: var(--diff-remove-ink);
+}
+.log-line.is-ok {
+  color: var(--diff-add-ink);
+}
+.log-line.is-waiting {
+  color: var(--state-waiting);
+}
+.log-line.is-meta {
+  color: var(--code-comment);
+}
+
+/* ------------------------------------------------------------------ narrow */
+@media (max-width: 760px) {
+  .page-container {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: var(--space-4);
+    padding: var(--space-4);
+  }
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-5);
+  }
+  .columns > .feed,
+  .columns > .tasks {
+    grid-column: 1 / -1;
+  }
+  .feed-row,
+  .approval-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .approval-row .action-mark {
+    display: none;
+  }
+  .app-header,
+  .session-view {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
