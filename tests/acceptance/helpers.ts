@@ -1,0 +1,239 @@
+// Black-box helpers for the v0 acceptance suite. They start the real daemon as a
+// separate process and talk to it over HTTP/websockets only; nothing here imports
+// jin's code. External programs (gh, cws) are fakes on PATH, so no test reaches
+// the network, GitHub or a real workspace.
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+export const REPO = resolve(import.meta.dir, "../..");
+export const WEB_ORIGIN = "http://127.0.0.1:3917";
+
+export interface Env {
+  home: string; // JIN_HOME
+  workspace: string; // fixture composio-workspace root
+  bin: string; // fake binaries, first on PATH
+  cleanup(): void;
+}
+
+/** A fresh JIN_HOME with one composio workspace profile pointing at a fixture workspace. */
+export function setupEnv(opts: { mode?: "local" | "vm" } = {}): Env {
+  const base = mkdtempSync(join(tmpdir(), "jin-acc-"));
+  const home = join(base, "home");
+  const workspace = join(base, "composio-workspace");
+  const bin = join(base, "bin");
+  for (const d of [home, join(home, "workspaces"), workspace, join(workspace, "bin"), bin]) mkdirSync(d, { recursive: true });
+
+  writeFileSync(join(home, "config.yaml"), `mode: ${opts.mode ?? "local"}\nwebOrigin: ${WEB_ORIGIN}\n`);
+  writeFileSync(
+    join(home, "workspaces", "composio.yaml"),
+    [
+      "id: composio",
+      "adapter: composio",
+      `root: ${workspace}`,
+      "github:",
+      "  owners: [ComposioHQ]",
+      "profile:",
+      `  claudeConfigDir: ${join(home, "profiles", "composio", "claude")}`,
+      "",
+    ].join("\n"),
+  );
+
+  // Fixture workspace: the files the composio adapter reads, and a fake cws.
+  writeFileSync(
+    join(workspace, "workspace.yaml"),
+    [
+      "repos:",
+      "  platform:",
+      "    description: Apollo, Thermos and shared packages",
+      "    mode: work",
+      "  mercury:",
+      "    description: Tool execution runtime",
+      "    mode: work",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(workspace, ".gitmodules"),
+    [
+      '[submodule "repos/platform"]',
+      "\tpath = repos/platform",
+      "\turl = git@github.com:ComposioHQ/platform.git",
+      "\tbranch = master",
+      '[submodule "repos/mercury"]',
+      "\tpath = repos/mercury",
+      "\turl = git@github.com:ComposioHQ/mercury.git",
+      "\tbranch = master",
+      "",
+    ].join("\n"),
+  );
+  script(
+    join(workspace, "bin", "cws"),
+    `#!/bin/sh
+root=$(cd "$(dirname "$0")/.." && pwd)
+printf '%s\\n' "$*" >> "$root/cws.log"
+if [ "$1" = task ] && [ "$2" = new ]; then
+  id=$3; repos=""
+  while [ $# -gt 0 ]; do [ "$1" = --repos ] && repos=$2; shift; done
+  for r in $(echo "$repos" | tr ',' ' '); do mkdir -p "$root/tasks/$id/$r"; done
+  echo "created tasks/$id"
+elif [ "$1" = task ] && [ "$2" = rm ]; then
+  rm -rf "$root/tasks/$3"
+fi
+`,
+  );
+
+  // Fake gh: canned GraphQL for the collector, and a log of every call.
+  writeFileSync(join(base, "gh-graphql.json"), JSON.stringify(GH_FIXTURE));
+  script(
+    join(bin, "gh"),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "${base}/gh.log"
+if [ "$1" = api ] && [ "$2" = graphql ]; then cat "${base}/gh-graphql.json"; exit 0; fi
+echo "fake gh: unsupported: $*" >&2; exit 1
+`,
+  );
+
+  return { home, workspace, bin, cleanup: () => rmSync(base, { recursive: true, force: true }) };
+}
+
+function script(path: string, body: string) {
+  writeFileSync(path, body);
+  chmodSync(path, 0o755);
+}
+
+export interface Daemon {
+  url: string;
+  token: string;
+  host: string;
+  port: number;
+  api(path: string, init?: RequestInit & { json?: unknown; noAuth?: boolean; origin?: string }): Promise<Response>;
+  json<T = any>(path: string, init?: RequestInit & { json?: unknown }): Promise<T>;
+  stop(): Promise<void>;
+}
+
+/** Start the daemon (scripted agent harness) and wait for daemon.json. */
+export async function startDaemon(env: Env, extra: Record<string, string> = {}): Promise<Daemon> {
+  const info = join(env.home, "daemon.json");
+  rmSync(info, { force: true });
+  const proc = Bun.spawn(["bun", join(REPO, "apps/daemon/src/main.ts")], {
+    cwd: REPO,
+    env: {
+      ...process.env,
+      PATH: `${env.bin}:${process.env.PATH}`,
+      JIN_HOME: env.home,
+      JIN_PORT: "0",
+      JIN_HARNESS: "scripted",
+      ...extra,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const deadline = Date.now() + 15_000;
+  while (!existsSync(info)) {
+    if (proc.exitCode !== null || Date.now() > deadline) {
+      const err = await new Response(proc.stderr).text();
+      throw new Error(`daemon did not start (exit ${proc.exitCode}): ${err.slice(-2000)}`);
+    }
+    await Bun.sleep(50);
+  }
+  const { host, port, token } = JSON.parse(readFileSync(info, "utf8"));
+  const url = `http://${host}:${port}`;
+  const api: Daemon["api"] = (path, init = {}) => {
+    const headers = new Headers(init.headers);
+    if (!init.noAuth) headers.set("authorization", `Bearer ${token}`);
+    if (init.origin) headers.set("origin", init.origin);
+    let body = init.body;
+    if (init.json !== undefined) {
+      headers.set("content-type", "application/json");
+      body = JSON.stringify(init.json);
+    }
+    return fetch(url + path, { ...init, headers, body });
+  };
+  const json: Daemon["json"] = async (path, init) => {
+    const res = await api(path, init);
+    if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  return {
+    url,
+    token,
+    host,
+    port,
+    api,
+    json,
+    stop: async () => {
+      proc.kill("SIGTERM");
+      await proc.exited;
+    },
+  };
+}
+
+/** Wait until fn returns a truthy value. */
+export async function until<T>(fn: () => Promise<T> | T, ms = 10_000, what = "condition"): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(50);
+  }
+}
+
+/** A prompt the scripted harness executes step by step, asking jin's policy before each tool call. */
+export const scripted = (steps: ({ tool: string; input: Record<string, unknown> } | { text: string })[]) =>
+  JSON.stringify({ script: steps });
+
+const pr = (o: Partial<Record<string, unknown>> & { number: number; repo: string; title: string; ci?: string }) => ({
+  __typename: "PullRequest",
+  number: o.number,
+  title: o.title,
+  url: `https://github.com/${o.repo}/pull/${o.number}`,
+  repository: { nameWithOwner: o.repo },
+  updatedAt: "2026-11-15T09:00:00Z",
+  commits: { nodes: o.ci ? [{ commit: { statusCheckRollup: { state: o.ci } } }] : [] },
+});
+
+/**
+ * What `gh api graphql` returns for the collector's query. The collector asks for three
+ * aliased searches: reviewRequested, authored (with the latest commit's check rollup)
+ * and mentions.
+ */
+export const GH_FIXTURE = {
+  data: {
+    reviewRequested: {
+      nodes: [
+        pr({ number: 14310, repo: "ComposioHQ/platform", title: "Rate-limit tool router sessions" }),
+        pr({ number: 77, repo: "OtherOrg/secret", title: "Not this organisation" }),
+      ],
+    },
+    authored: {
+      nodes: [
+        pr({ number: 14298, repo: "ComposioHQ/platform", title: "Fix thermos webhook retries", ci: "FAILURE" }),
+        pr({ number: 920, repo: "ComposioHQ/mercury", title: "Green PR", ci: "SUCCESS" }),
+      ],
+    },
+    mentions: {
+      nodes: [
+        {
+          __typename: "Issue",
+          number: 3311,
+          title: "Dashboard shows stale connection state",
+          url: "https://github.com/ComposioHQ/dashboard/issues/3311",
+          repository: { nameWithOwner: "ComposioHQ/dashboard" },
+          updatedAt: "2026-11-15T08:00:00Z",
+        },
+      ],
+    },
+  },
+};
+
+/** Collector item titles that must (and must not) appear. */
+export const EXPECTED_FEED = {
+  present: ["Rate-limit tool router sessions", "Fix thermos webhook retries", "Dashboard shows stale connection state"],
+  absent: ["Not this organisation", "Green PR"],
+};
+
+export function readLog(path: string): string[] {
+  return existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(Boolean) : [];
+}
