@@ -172,9 +172,20 @@ export function Sidebar({
         <span className="hide-collapsed">
           <HistoryButtons />
         </span>
+        <Link
+          href="/"
+          className={`jin-button hide-collapsed ${path === "/" ? "is-active" : ""}`}
+          title={pendingApprovals > 0 ? `Jin · ${pendingApprovals} approval${pendingApprovals === 1 ? "" : "s"} waiting` : "Jin, your orchestrator"}
+          aria-label="Jin"
+          {...contextMenu(() => chatMenu("Jin", "/"))}
+        >
+          {jin && (jin.state === "running" || jin.state === "waiting_approval") ? <StatusMark state={jin.state} /> : <Layers size={14} />}
+          {pendingApprovals > 0 && <span className="jin-count">{pendingApprovals}</span>}
+        </Link>
       </div>
       <nav aria-label="Chats">
-        <Link href="/" className={`nav-item ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("Jin", "/"))}>
+        {/* Collapsed sidebar: the top bar has only room for the window buttons, so Jin stays in the list. */}
+        <Link href="/" className={`nav-item only-collapsed-row ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("Jin", "/"))}>
           <Layers size={15} />
           <span className="nav-label">Jin</span>
           {jin && (jin.state === "running" || jin.state === "waiting_approval") && <StatusMark state={jin.state} />}

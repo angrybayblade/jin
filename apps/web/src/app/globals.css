@@ -2138,3 +2138,53 @@ html[data-sidebar="collapsed"] .nav-pr {
   height: 24px;
   border-radius: var(--radius-control);
 }
+
+/* Jin, as a button in the sidebar's top bar after back/forward. */
+.jin-button {
+  position: relative;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-control);
+  color: var(--secondary);
+  text-decoration: none;
+}
+.jin-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--state-waiting);
+  color: var(--canvas);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+.jin-button:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.jin-button.is-active {
+  color: var(--ink);
+  background: var(--selected, var(--hover));
+}
+.jin-button .status-mark,
+.jin-button .status-mark canvas {
+  width: 14px !important;
+  height: 14px !important;
+}
+html[data-sidebar="collapsed"] .jin-button {
+  display: none !important;
+}
+.only-collapsed-row {
+  display: none !important;
+}
+html[data-sidebar="collapsed"] .only-collapsed-row {
+  display: flex !important;
+}
