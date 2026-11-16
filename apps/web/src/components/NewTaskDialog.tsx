@@ -18,8 +18,13 @@ export function NewTaskButton() {
         setOpen(true);
       }
     };
+    const fromPalette = () => setOpen(true);
     window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    window.addEventListener("jin:new-task", fromPalette);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("jin:new-task", fromPalette);
+    };
   }, []);
   return (
     <>
