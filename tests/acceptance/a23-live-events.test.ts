@@ -46,6 +46,8 @@ else if (c1 === "dev" && c2 === "triggers" && c3 === "create") {
   else if (c3 === "LINEAR_LIST_LINEAR_TEAMS") out({ successful: true, data: { teams: [{ id: "team-1", name: "Platform" }] } });
   else process.exit(1);
 } else if (c1 === "dev" && c2 === "listen") {
+  // Like the real one: only in a folder bound to a developer project.
+  if (!existsSync(process.cwd() + "/.composio/project.json")) { console.error("No developer project configured for this directory. Run \`composio dev init\`."); process.exit(1); }
   // Emit each line appended to the events file, as the real listener streams events.
   const f = S + "/events.jsonl";
   let sent = 0;
