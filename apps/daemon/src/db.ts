@@ -64,6 +64,29 @@ const MIGRATIONS: string[] = [
     decided_at text
   );
   `,
+  // Chats: a session is a task agent, jin's own chat, or a knowledge chat (Slack, Linear,
+  // Notion, Gmail, GitHub). Only task agents have a task.
+  `
+  create table sessions_v2 (
+    id text primary key,
+    kind text not null default 'task',
+    task_id text,
+    workspace text,
+    title text not null default '',
+    cwd text,
+    harness text not null,
+    harness_session_id text,
+    state text not null,
+    created_at text not null
+  );
+  insert into sessions_v2 (id, kind, task_id, workspace, title, cwd, harness, harness_session_id, state, created_at)
+    select s.id, 'task', s.task_id, t.workspace, coalesce(t.slug, ''), json_extract(t.dirs, '$.root'), s.harness, s.harness_session_id, s.state, s.created_at
+    from sessions s left join tasks t on t.id = s.task_id;
+  drop table sessions;
+  alter table sessions_v2 rename to sessions;
+  create index sessions_kind on sessions (kind, created_at);
+  create index sessions_task on sessions (task_id, created_at);
+  `,
 ];
 
 export function openDb(home: string): Database {
