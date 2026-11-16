@@ -1,11 +1,12 @@
 "use client";
-import { Check, Circle, Copy, ExternalLink, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
+import { Check, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   addMachine,
   cancelMachineSignIn,
   checkMachineAuth,
+  detectMachineWorkspaces,
   getMachine,
   removeMachine,
   rerunMachineSetup,
@@ -215,39 +216,79 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
 function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void }) {
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [other, setOther] = useState(false);
   const step = machine.workspaceStep;
   const gh = machine.auth.find((a) => a.tool === "gh");
+  const found = machine.workspaceCandidates ?? [];
+  const looking = machine.workspaceCandidates === null;
   const go = (p?: string) =>
     void setupMachineWorkspace(machine.id, p).then((r) => {
       setError(r?.error ?? null);
       refresh();
     });
+  const pathForm = (
+    <form
+      className="machine-inline-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        go(path);
+      }}
+    >
+      <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/somewhere/composio-workspace" spellCheck={false} />
+      <button type="submit" className="button small" disabled={!path.trim() || machine.busy}>
+        Use
+      </button>
+    </form>
+  );
   return (
     <section className="machine-section">
-      <h3>Workspace</h3>
-      {machine.workspace && step?.state !== "running" && <p className="meta">composio workspace at {machine.workspace}</p>}
+      <div className="machine-section-head">
+        <h3>Workspace</h3>
+        {!machine.workspace && step?.state !== "running" && (
+          <button type="button" className="button small quiet" onClick={() => void detectMachineWorkspaces(machine.id).then(refresh)}>
+            <RefreshCw size={12} /> Look again
+          </button>
+        )}
+      </div>
+      {machine.workspace && step?.state !== "running" && (
+        <p className="setup-done">
+          <Check size={14} className="step-done" /> composio workspace at {machine.workspace}
+        </p>
+      )}
       {step && <Steps steps={[step]} />}
       {!machine.workspace && step?.state !== "running" && (
-        <div className="machine-workspace-actions">
-          <button type="button" className="button small primary" disabled={machine.busy || gh?.state !== "signed-in"} onClick={() => go()} title={gh?.state !== "signed-in" ? "Sign in to GitHub first: the repos are private" : undefined}>
-            Install the composio workspace
-          </button>
-          <span className="meta">or use one already there:</span>
-          <form
-            className="machine-inline-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              go(path);
-            }}
-          >
-            <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/composio-workspace" spellCheck={false} />
-            <button type="submit" className="button small" disabled={!path.trim() || machine.busy}>
-              Use
+        <div className="setup-options">
+          {looking && (
+            <p className="meta setup-done">
+              <LoaderCircle size={12} className="spin" /> Looking for a workspace on {machine.label}…
+            </p>
+          )}
+          {found.map((c) => (
+            <div key={c} className="setup-option">
+              <FolderGit2 size={14} />
+              <span className="setup-option-path">{c}</span>
+              {c === machine.workspaceCws && <span className="meta setup-option-hint">cws uses this one</span>}
+              <button type="button" className="button small primary" disabled={machine.busy} onClick={() => go(c)}>
+                Use this one
+              </button>
+            </div>
+          ))}
+          {!looking && found.length === 0 && (
+            <div className="machine-workspace-actions">
+              <button type="button" className="button small primary" disabled={machine.busy || gh?.state !== "signed-in"} onClick={() => go()} title={gh?.state !== "signed-in" ? "Sign in to GitHub first: the repos are private" : undefined}>
+                Install the composio workspace
+              </button>
+              <span className="meta">None found in the usual places.</span>
+            </div>
+          )}
+          {!looking && (other || found.length === 0 ? pathForm : (
+            <button type="button" className="button small quiet setup-other" onClick={() => setOther(true)}>
+              Somewhere else…
             </button>
-          </form>
+          ))}
         </div>
       )}
-      {!machine.workspace && gh?.state !== "signed-in" && <p className="meta">Sign in to GitHub first: the workspace's repos are private.</p>}
+      {!machine.workspace && !looking && found.length === 0 && gh?.state !== "signed-in" && <p className="meta">Sign in to GitHub first to install: the workspace's repos are private.</p>}
       {error && <p className="machine-error">{error}</p>}
     </section>
   );

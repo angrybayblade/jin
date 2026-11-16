@@ -296,6 +296,11 @@ export async function setMachineDopplerToken(id: string, token: string): Promise
   }
 }
 
+/** Look again for composio workspaces on the machine. */
+export async function detectMachineWorkspaces(id: string): Promise<void> {
+  await daemon(machinePath(id, "/workspaces/detect"), { method: "POST", local: true });
+}
+
 export async function setupMachineWorkspace(id: string, path?: string): Promise<{ error: string } | null> {
   try {
     await daemon(machinePath(id, "/workspace"), { method: "POST", json: { path: path || undefined }, local: true });

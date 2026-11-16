@@ -3,7 +3,7 @@
 // whole flow runs for real: tools check, jin copied with git archive, its daemon started
 // and answering through the tunnel, notices relayed back, and forgetting it stops it.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { setupEnv, startDaemon, until, type Daemon, type Env as TestEnv } from "./helpers";
@@ -59,6 +59,16 @@ beforeAll(async () => {
   env = setupEnv();
   remoteHome = join(env.home, "..", "remote-home");
   mkdirSync(remoteHome, { recursive: true });
+  // A composio workspace already on the machine, in a folder only its cws link leads to.
+  const ws = join(remoteHome, "projects", "cw");
+  mkdirSync(join(ws, "bin"), { recursive: true });
+  mkdirSync(join(ws, "tasks"), { recursive: true });
+  writeFileSync(join(ws, "workspace.yaml"), "repos:\n  platform:\n    description: Apollo\n    mode: work\n");
+  writeFileSync(join(ws, ".gitmodules"), '[submodule "repos/platform"]\n\tpath = repos/platform\n\turl = https://github.com/ComposioHQ/platform.git\n');
+  writeFileSync(join(ws, "bin", "cws"), "#!/bin/sh\nexit 0\n");
+  chmodSync(join(ws, "bin", "cws"), 0o755);
+  mkdirSync(join(remoteHome, ".local", "bin"), { recursive: true });
+  symlinkSync(join(ws, "bin", "cws"), join(remoteHome, ".local", "bin", "cws"));
   writeFileSync(join(env.bin, "ssh"), FAKE_SSH);
   chmodSync(join(env.bin, "ssh"), 0o755);
   d = await startDaemon(env, { FAKE_SSH_HOME: remoteHome, REAL_BUN_CACHE: process.env.BUN_INSTALL_CACHE_DIR ?? join(homedir(), ".bun", "install", "cache") });
@@ -96,6 +106,23 @@ test("A21 a machine onboards over ssh, answers through its tunnel, relays its no
   expect(await (await remote("/api/notifications/test", { method: "POST" })).json()).toMatchObject({ skipped: "kept for relay" });
   await until(() => notices().some((n) => n.subtitle?.startsWith("stand-in")), 15_000, "relayed notice");
   expect(notices().find((n) => n.subtitle?.startsWith("stand-in"))).toMatchObject({ path: "/m/stand-in/" });
+
+  // The workspace already there is found, and using it gives the machine's jin that workspace.
+  const ws = realpathSync(join(remoteHome, "projects", "cw"));
+  const seen = await until(async () => {
+    const v = await d.json("/api/machines/stand-in");
+    return v.workspaceCandidates ? v : null;
+  }, 20_000, "workspace detection");
+  expect(seen.workspaceCandidates).toEqual([ws]);
+  expect(seen.workspaceCws).toBe(ws);
+  await d.json("/api/machines/stand-in/workspace", { method: "POST", json: { path: ws } });
+  const used = await until(async () => {
+    const v = await d.json("/api/machines/stand-in");
+    return v.workspaceStep?.state !== "running" ? v : null;
+  }, 30_000, "workspace setup");
+  expect(used.workspaceStep.error).toBeNull();
+  expect(used).toMatchObject({ workspace: ws, workspaceCandidates: [] });
+  await until(async () => (await remote("/api/status").then((r) => r.json()).catch(() => null))?.workspaces?.includes("composio"), 20_000, "machine's jin with the workspace");
 
   // Forgetting it stops jin there and drops its record.
   expect(await d.json("/api/machines/stand-in", { method: "DELETE" })).toEqual({ removed: true });

@@ -248,6 +248,8 @@ export interface Machine {
   outdated: boolean;
   steps: MachineStep[];
   workspaceStep: MachineStep | null;
+  workspaceCandidates: string[] | null;
+  workspaceCws: string | null;
   auth: MachineAuth[];
 }
 
@@ -255,6 +257,7 @@ export interface Machine {
 export interface SetupState {
   workspaces: { id: string; root: string }[];
   candidates: string[];
+  cws: string | null;
   auth: MachineAuth[];
   install: MachineStep | null;
   ready: boolean;

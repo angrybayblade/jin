@@ -66,6 +66,7 @@ export function Setup({ initial }: { initial: SetupState }) {
                     <div key={c} className="setup-option">
                       <FolderGit2 size={14} />
                       <span className="setup-option-path">{c}</span>
+              {c === s.cws && <span className="meta setup-option-hint">cws uses this one</span>}
                       <button type="button" className="button small primary" onClick={() => use(c)}>
                         Use this one
                       </button>

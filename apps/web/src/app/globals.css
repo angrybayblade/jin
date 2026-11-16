@@ -2660,3 +2660,9 @@ html[data-sidebar="collapsed"] .nav-machine {
   color: var(--secondary);
   font-size: var(--type-meta);
 }
+.setup-other {
+  justify-self: start;
+}
+.setup-option-hint {
+  flex: none;
+}
