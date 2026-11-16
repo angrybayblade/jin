@@ -84,7 +84,7 @@ function localVersion(): string | null {
 }
 const REPO = resolve(import.meta.dir, "../../..");
 // Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
-const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
+export const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
 
 export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
 
@@ -225,7 +225,7 @@ if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user rest
 fi
 `;
 
-const AUTH_STATUS_SCRIPT = `
+export const AUTH_STATUS_SCRIPT = `
 ${PATH_LINE}
 if command -v gh >/dev/null; then if gh auth status >/dev/null 2>&1; then echo "gh yes $(gh api user -q .login 2>/dev/null)"; else echo "gh no"; fi; else echo "gh missing"; fi
 if command -v claude >/dev/null; then
@@ -235,17 +235,17 @@ else echo "claude missing"; fi
 if command -v doppler >/dev/null; then if doppler me --json >/dev/null 2>&1; then echo "doppler yes $(doppler me --json 2>/dev/null | sed -n 's/.*"workplace":{[^}]*"name":"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "doppler no"; fi; else echo "doppler missing"; fi
 `;
 
-const SIGN_IN: Record<AuthTool, string> = {
+export const SIGN_IN: Record<AuthTool, string> = {
   gh: "gh auth login --hostname github.com --git-protocol https --web",
   claude: "claude auth login",
   doppler: "doppler login",
 };
 
-type Proc = { stdin: { write(d: string | Uint8Array): unknown; end(): unknown; flush?(): unknown } | null; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill(): void };
+export type Proc = { stdin: { write(d: string | Uint8Array): unknown; end(): unknown; flush?(): unknown } | null; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill(): void };
 export type Spawn = (cmd: string[], opts?: { stdin?: "pipe" | "ignore" | Blob }) => Proc;
-const defaultSpawn: Spawn = (cmd, opts = {}) => Bun.spawn(cmd, { stdin: opts.stdin ?? "ignore", stdout: "pipe", stderr: "pipe" }) as unknown as Proc;
+export const defaultSpawn: Spawn = (cmd, opts = {}) => Bun.spawn(cmd, { stdin: opts.stdin ?? "ignore", stdout: "pipe", stderr: "pipe" }) as unknown as Proc;
 
-async function lines(stream: ReadableStream<Uint8Array>, onLine: (l: string) => void, onChunk?: (all: string) => void) {
+export async function lines(stream: ReadableStream<Uint8Array>, onLine: (l: string) => void, onChunk?: (all: string) => void) {
   const decoder = new TextDecoder();
   let buf = "";
   let all = "";
@@ -273,13 +273,53 @@ interface Tunnel {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-interface SignIn {
+export interface SignIn {
   proc: Proc;
   out: string;
   answered: Set<string>;
   /** Cursor-position queries answered so far (prompt libraries ask, and wait for the reply). */
   cursorReplies: number;
   answerTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * Drive a sign-in running in a terminal: answer its terminal queries and prompts, and report
+ * its link, code and outcome through `update`. `onExit(ok)` runs once it ends.
+ */
+export function driveSignIn(proc: Proc, tool: AuthTool, update: (patch: Partial<AuthState>) => void, onExit: (ok: boolean) => void | Promise<void>): SignIn {
+  const s: SignIn = { proc, out: "", answered: new Set(), cursorReplies: 0, answerTimer: null };
+  const onChunk = (all: string) => {
+    s.out = all;
+    // Answer "where is the cursor?" (ESC[6n) as a terminal would, or the prompt waits forever.
+    const asked = all.split("\x1b[6n").length - 1;
+    for (; s.cursorReplies < asked; s.cursorReplies++) proc.stdin?.write("\x1b[24;80R");
+    proc.stdin?.flush?.();
+    const r = readSignIn(tool, all);
+    // Answer a prompt once the tool has gone quiet: it may still be asking the terminal things.
+    if (s.answerTimer) clearTimeout(s.answerTimer);
+    if (r.answer && !s.answered.has(r.answer.prompt)) {
+      const { prompt, keys } = r.answer;
+      s.answerTimer = setTimeout(() => {
+        if (s.answered.has(prompt)) return;
+        s.answered.add(prompt);
+        proc.stdin?.write(keys);
+        proc.stdin?.flush?.();
+      }, 400);
+    }
+    update({ url: r.url, code: r.code, needsCode: r.needsCode, ...(r.account ? { account: r.account } : {}) });
+  };
+  void Promise.all([lines(proc.stdout, () => {}, onChunk), lines(proc.stderr, () => {})]);
+  void proc.exited.then(async (code) => {
+    const r = readSignIn(tool, s.out);
+    const ok = code === 0 || r.done;
+    if (ok) update({ state: "signed-in", url: null, code: null, needsCode: false, error: null });
+    else {
+      const last = stripAnsi(s.out).split("\n").map((l) => l.trim()).filter(Boolean).slice(-2).join(" ");
+      update({ state: "failed", url: null, code: null, needsCode: false, error: last || `exited with ${code}` });
+    }
+    await onExit(ok);
+  });
+  return s;
 }
 
 export class Machines {
@@ -587,42 +627,13 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     this.signIns.get(key)?.proc.kill();
     // A terminal on the far end (-tt) so the tools print their prompts; BROWSER=false: there is none there.
     const proc = this.spawn(["ssh", ...SSH_OPTS, "-tt", m.host, `${PATH_LINE}; BROWSER=false ${SIGN_IN[tool]}`], { stdin: "pipe" });
-    const s: SignIn = { proc, out: "", answered: new Set(), cursorReplies: 0, answerTimer: null };
-    this.signIns.set(key, s);
     this.setAuth(id, tool, { state: "waiting", url: null, code: null, needsCode: false, error: null });
-    const onChunk = (all: string) => {
-      s.out = all;
-      // Answer "where is the cursor?" (ESC[6n) as a terminal would, or the prompt waits forever.
-      const asked = all.split("\x1b[6n").length - 1;
-      for (; s.cursorReplies < asked; s.cursorReplies++) proc.stdin?.write("\x1b[24;80R");
-      proc.stdin?.flush?.();
-      const r = readSignIn(tool, all);
-      // Answer a prompt once the tool has gone quiet: it may still be asking the terminal things.
-      if (s.answerTimer) clearTimeout(s.answerTimer);
-      if (r.answer && !s.answered.has(r.answer.prompt)) {
-        const { prompt, keys } = r.answer;
-        s.answerTimer = setTimeout(() => {
-          if (s.answered.has(prompt)) return;
-          s.answered.add(prompt);
-          proc.stdin?.write(keys);
-          proc.stdin?.flush?.();
-        }, 400);
-      }
-      this.setAuth(id, tool, { url: r.url, code: r.code, needsCode: r.needsCode, ...(r.account ? { account: r.account } : {}) });
-    };
-    void Promise.all([lines(proc.stdout, () => {}, onChunk), lines(proc.stderr, () => {})]);
-    void proc.exited.then(async (code) => {
+    const s = driveSignIn(proc, tool, (patch) => this.setAuth(id, tool, patch), async (ok) => {
       if (this.signIns.get(key) !== s) return;
       this.signIns.delete(key);
-      const r = readSignIn(tool, s.out);
-      if (code === 0 || r.done) {
-        this.setAuth(id, tool, { state: "signed-in", url: null, code: null, needsCode: false, error: null });
-        await this.checkAuth(id).catch(() => {});
-      } else {
-        const last = stripAnsi(s.out).split("\n").map((l) => l.trim()).filter(Boolean).slice(-2).join(" ");
-        this.setAuth(id, tool, { state: "failed", url: null, code: null, needsCode: false, error: last || `exited with ${code}` });
-      }
+      if (ok) await this.checkAuth(id).catch(() => {});
     });
+    this.signIns.set(key, s);
   }
 
   /** Claude Code's sign-in page gives back a code: type it into the waiting sign-in. */
