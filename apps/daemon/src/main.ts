@@ -56,9 +56,9 @@ feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
 sessionRoutes(app.router, sessions, adapters);
-const terminals = new Terminals();
+const terminals = new Terminals(db);
 const claude = claudeLaunch(config, writeClaudeSettings(config));
-terminalRoutes(app.router, terminals, tasks, app.workspaces, claude);
+terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude });
 sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude }));
 claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
@@ -94,11 +94,7 @@ const server = Bun.serve<SocketData>({
       const denied = guard(app, req, url);
       if (denied) return denied;
       const terminalId = decodeURIComponent(attach[1]!);
-      try {
-        terminals.get(terminalId);
-      } catch {
-        return Response.json({ error: "unknown terminal" }, { status: 404 });
-      }
+      if (!terminals.isLive(terminalId)) return Response.json({ error: "terminal is not running" }, { status: 404 });
       if (srv.upgrade(req, { data: { type: "attach", terminalId } })) return undefined;
       return Response.json({ error: "upgrade failed" }, { status: 400 });
     }
@@ -125,7 +121,7 @@ chmodSync(info, 0o600);
 console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, model ${config.model})`);
 
 function shutdown() {
-  terminals.killAll();
+  terminals.stopAll();
   server.stop(true);
   db.close();
   rmSync(info, { force: true });
