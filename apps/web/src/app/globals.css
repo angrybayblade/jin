@@ -2585,3 +2585,22 @@ p.machine-auth-body {
 .sidebar-empty a {
   color: var(--ink);
 }
+.nav-machine {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: var(--space-2) 0 2px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nav-machine.is-current {
+  margin-top: 0;
+}
+html[data-sidebar="collapsed"] .nav-machine span {
+  display: none;
+}
+html[data-sidebar="collapsed"] .nav-machine {
+  justify-content: center;
+  padding: 0;
+}

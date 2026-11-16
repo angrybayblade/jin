@@ -18,12 +18,14 @@ import {
   Plus,
   SquareKanban,
   Trash2,
+  Monitor,
+  Server,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ComponentType } from "react";
+import { Fragment, useState, type ComponentType } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, Machine, NotificationSettings, Session, Task, TaskJob, TaskPR, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, Elsewhere, Machine, NotificationSettings, Session, Task, TaskJob, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
@@ -52,6 +54,16 @@ const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | 
 
 const copy = (text: string) => void navigator.clipboard?.writeText(text);
 
+/** A machine's name above its tasks, when the sidebar lists more than one machine's. */
+function MachineLabel({ label, current = false }: { label: string; current?: boolean }) {
+  return (
+    <div className={`nav-machine ${current ? "is-current" : ""}`}>
+      {label === "This machine" ? <Monitor size={11} /> : <Server size={11} />}
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export function Sidebar({
   tasks,
   sessions,
@@ -64,6 +76,7 @@ export function Sidebar({
   prs = [],
   machines = [],
   machine = "local",
+  elsewhere = [],
 }: {
   tasks: Task[];
   sessions: Session[];
@@ -76,6 +89,7 @@ export function Sidebar({
   prs?: TaskPR[];
   machines?: Machine[];
   machine?: string;
+  elsewhere?: Elsewhere[];
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -206,6 +220,7 @@ export function Sidebar({
             {error}
           </p>
         )}
+        {elsewhere.length > 0 && <MachineLabel label={machines.find((m) => m.id === machine)?.label ?? "This machine"} current />}
         {jobs
           .filter((j) => j.state !== "done" && !live.some((t) => t.id === j.taskId && j.state === "failed"))
           .map((j) => (
@@ -234,6 +249,30 @@ export function Sidebar({
             {showArchived && archived.map(taskRow)}
           </>
         )}
+
+        {elsewhere.map((e) => (
+          <Fragment key={e.id}>
+            <MachineLabel label={e.label} />
+            {e.tasks.map((t) => {
+              const cli = e.terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
+              const open = e.prs.filter((p) => p.taskId === t.id && p.state === "OPEN");
+              const href = `/m/${e.id}/t/${encodeURIComponent(t.id)}`;
+              return (
+                <Link key={`${e.id}:${t.id}`} href={href} prefetch={false} className="nav-item task is-elsewhere" title={`${t.title ?? t.slug} · on ${e.label}`} {...contextMenu(() => [{ header: `${t.id} · ${e.label}` }, { label: `Open on ${e.label}`, icon: ArrowRight, run: () => router.push(href) }])}>
+                  {cli ? <StatusMark state={AGENT_MARK[cli.status]} /> : <span className="status-dot" aria-hidden="true" />}
+                  <span className="nav-label">
+                    <span className="mono">{t.id}</span> <span className="nav-sub">{t.title ?? t.slug}</span>
+                  </span>
+                  {open.length > 0 && (
+                    <span className={`nav-pr ${open.some((p) => p.checks === "failing" || p.review === "CHANGES_REQUESTED") ? "is-attention" : ""}`}>
+                      <GitPullRequest size={12} />
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </Fragment>
+        ))}
 
         <div className="nav-section">Desks</div>
         {DESKS.map(({ kind, label, icon: Icon }) => {

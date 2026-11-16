@@ -171,8 +171,8 @@ function connection(machine: string): { url: string; token: string } {
 }
 
 /** A daemon call: to the machine the app is showing, or with `local`, always to this machine's own daemon. */
-export async function daemon<T>(path: string, init: { method?: string; json?: unknown; local?: boolean } = {}): Promise<T> {
-  const machine = init.local ? "local" : await currentMachine();
+export async function daemon<T>(path: string, init: { method?: string; json?: unknown; local?: boolean; machine?: string; timeoutMs?: number } = {}): Promise<T> {
+  const machine = init.machine ?? (init.local ? "local" : await currentMachine());
   const { url, token } = connection(machine);
   let res: Response;
   try {
@@ -181,6 +181,7 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
       headers: { authorization: `Bearer ${token}`, ...(init.json !== undefined ? { "content-type": "application/json" } : {}) },
       body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
       cache: "no-store",
+      signal: init.timeoutMs ? AbortSignal.timeout(init.timeoutMs) : undefined,
     });
   } catch {
     throw new DaemonUnavailable(machine === "local" ? `the jin daemon at ${url} is not answering` : `jin on ${machine} is not answering: its tunnel is down or the machine is off`);
@@ -194,6 +195,15 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
     throw new Error(`${init.method ?? "GET"} ${path}: ${message}`);
   }
   return (await res.json()) as T;
+}
+
+/** Another machine's tasks, for the sidebar (the one the app shows has the full set). */
+export interface Elsewhere {
+  id: string;
+  label: string;
+  tasks: Task[];
+  terminals: TerminalInfo[];
+  prs: TaskPR[];
 }
 
 export interface MachineStep {
