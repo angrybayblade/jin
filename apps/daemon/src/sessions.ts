@@ -111,10 +111,34 @@ export class Sessions {
     return toSession(row);
   }
 
-  list(filter: { taskId?: string; kind?: string } = {}): Session[] {
-    if (filter.taskId) return this.db.query(`${SELECT} where s.task_id = ? order by s.created_at desc`).all(filter.taskId).map(toSession);
-    if (filter.kind) return this.db.query(`${SELECT} where s.kind = ? order by s.created_at desc`).all(filter.kind).map(toSession);
-    return this.db.query(`${SELECT} order by s.created_at desc`).all().map(toSession);
+  /** Chats, newest first; archived ones only when asked for. */
+  list(filter: { taskId?: string; kind?: string; archived?: boolean } = {}): Session[] {
+    const live = filter.archived ? "s.archived_at is not null" : "s.archived_at is null";
+    if (filter.taskId) return this.db.query(`${SELECT} where s.task_id = ? and ${live} order by s.created_at desc`).all(filter.taskId).map(toSession);
+    if (filter.kind) return this.db.query(`${SELECT} where s.kind = ? and ${live} order by s.created_at desc`).all(filter.kind).map(toSession);
+    return this.db.query(`${SELECT} where ${live} order by s.created_at desc`).all().map(toSession);
+  }
+
+  /** Rename a chat, or archive it (the desk then starts a new one; its history is kept). */
+  update(id: string, patch: { title?: string; archived?: boolean }): Session {
+    this.get(id);
+    if (patch.title !== undefined && patch.title.trim()) this.db.query("update sessions set title = ? where id = ?").run(patch.title.trim().slice(0, 120), id);
+    if (patch.archived !== undefined) {
+      if (patch.archived) this.stop(id);
+      this.db.query("update sessions set archived_at = ? where id = ?").run(patch.archived ? now() : null, id);
+    }
+    return this.get(id);
+  }
+
+  /** Delete a chat and its history (events and approvals). */
+  remove(id: string) {
+    this.get(id);
+    this.stop(id);
+    this.db.transaction(() => {
+      this.db.query("delete from events where session_id = ?").run(id);
+      this.db.query("delete from approvals where session_id = ?").run(id);
+      this.db.query("delete from sessions where id = ?").run(id);
+    })();
   }
 
   events(id: string, after = 0): SessionEvent[] {
@@ -300,7 +324,15 @@ export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<
   router
     .on("POST", "/api/tasks/:id/sessions", async (req, p) => json(sessions.startTask(p.id!, (await body<{ prompt: string }>(req)).prompt), 201))
     .on("GET", "/api/tasks/:id/sessions", (_req, p) => json(sessions.list({ taskId: p.id! })))
-    .on("GET", "/api/sessions", (_req, _p, url) => json(sessions.list({ kind: url.searchParams.get("kind") ?? undefined })))
+    .on("GET", "/api/sessions", (_req, _p, url) => json(sessions.list({ kind: url.searchParams.get("kind") ?? undefined, archived: url.searchParams.get("archived") === "1" })))
+    .on("PATCH", "/api/sessions/:id", async (req, p) => {
+      const b = await body<{ title?: string; archived?: boolean }>(req);
+      return json(sessions.update(p.id!, b));
+    })
+    .on("DELETE", "/api/sessions/:id", (_req, p) => {
+      sessions.remove(p.id!);
+      return json({ deleted: true });
+    })
     .on("POST", "/api/chats", async (req) => {
       const { kind, prompt, workspace } = await body<{ kind: string; prompt: string; workspace?: string }>(req);
       if (!isChatKind(kind)) throw new HttpError(400, `kind must be one of jin, slack, linear, notion, gmail, github`);
