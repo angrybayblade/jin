@@ -119,6 +119,8 @@ export function Chat(props: ChatProps) {
   const [sessionId, setSessionId] = useState(props.session?.id ?? null);
   const [events, setEvents] = useState<SessionEvent[]>(props.initialEvents);
   const [draft, setDraft] = useState("");
+  // Text of the message being written right now (live deltas, replaced by the recorded message).
+  const [streaming, setStreaming] = useState("");
   const [busySending, setBusySending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -140,9 +142,16 @@ export function Chat(props: ChatProps) {
         if (closed) return;
         ws = new WebSocket(`${props.wsBase}/api/sessions/${sessionId}/stream?after=${lastSeq.current}&ticket=${ticket}`);
         ws.onmessage = (m) => {
-          const e = JSON.parse(String(m.data)) as SessionEvent;
+          const data = JSON.parse(String(m.data)) as SessionEvent | { ephemeral: true; kind: string; payload: { text?: string } };
+          if ("ephemeral" in data) {
+            if (data.kind === "message.delta" && data.payload.text) setStreaming((prev) => prev + data.payload.text);
+            return;
+          }
+          const e = data;
           if (e.seq <= lastSeq.current) return;
           lastSeq.current = e.seq;
+          // The recorded message (or the end of the turn) replaces the live text.
+          if (e.kind === "message" || e.kind === "session.idle" || e.kind === "session.failed" || e.kind === "tool.requested") setStreaming("");
           setEvents((prev) => [...prev, e]);
           if (e.kind === "session.idle" || e.kind === "session.failed" || e.kind === "approval.requested") router.refresh();
         };
@@ -165,7 +174,7 @@ export function Chat(props: ChatProps) {
   useEffect(() => {
     const el = scroller.current;
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
-  }, [items.length]);
+  }, [items.length, streaming]);
 
   const send = useCallback(
     async (text: string) => {
@@ -202,6 +211,7 @@ export function Chat(props: ChatProps) {
   const newChat = () => {
     setSessionId(null);
     setEvents([]);
+    setStreaming("");
     lastSeq.current = 0;
   };
 
@@ -261,7 +271,16 @@ export function Chat(props: ChatProps) {
                 </div>
               ),
             )}
-            {working && (
+            {streaming && (
+              <div className="message assistant is-streaming" aria-live="polite">
+                <div className="message-meta">
+                  <ThermalMark size={16} variant="blob" state="working" />
+                  <strong>{props.kind === "task" ? "Agent" : "jin"}</strong>
+                </div>
+                <Markdown content={streaming} streaming />
+              </div>
+            )}
+            {working && !streaming && (
               <div className="working-row" role="status">
                 <ThermalMark size={18} state={state === "waiting_approval" ? "waiting" : "working"} />
                 <span>{state === "waiting_approval" ? "Waiting for your approval" : "Working…"}</span>
