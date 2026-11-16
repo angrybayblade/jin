@@ -1,23 +1,32 @@
 import type { Database } from "bun:sqlite";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
-import type { WorkspaceConfig } from "./config";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import type { WorkspaceAdapter } from "./adapters";
+import { chatInstructions, isChatKind, type ChatKind, type SessionKind } from "./chats";
+import type { Config, WorkspaceConfig } from "./config";
 import { now } from "./db";
-import type { Harness, ToolGate } from "./harness";
+import type { Harness, JinTool, ToolGate } from "./harness";
 import { body, HttpError, json, type Router } from "./http";
 import { evaluate } from "./policy";
 import type { Tasks } from "./tasks";
-import type { WorkspaceAdapter } from "./adapters";
 
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
 
+/** A chat with an agent: a task agent, jin's own chat, or a knowledge chat. */
 export interface Session {
   id: string;
-  taskId: string;
+  kind: SessionKind;
+  taskId: string | null;
+  workspace: string | null;
+  title: string;
+  cwd: string | null;
   harness: string;
   harnessSessionId: string | null;
   state: SessionState;
   createdAt: string;
+  lastEventAt: string | null;
 }
 
 export interface SessionEvent {
@@ -38,15 +47,22 @@ export interface Approval {
   decidedAt: string | null;
 }
 
-export type StreamSocket = ServerWebSocket<{ sessionId: string; after: number }>;
+export type StreamSocket = ServerWebSocket<{ type: "stream"; sessionId: string; after: number }>;
+
+const SELECT = "select s.*, (select max(at) from events e where e.session_id = s.id) as last_event_at from sessions s";
 
 const toSession = (r: any): Session => ({
   id: r.id,
+  kind: r.kind,
   taskId: r.task_id,
+  workspace: r.workspace,
+  title: r.title,
+  cwd: r.cwd,
   harness: r.harness,
   harnessSessionId: r.harness_session_id,
   state: r.state,
   createdAt: r.created_at,
+  lastEventAt: r.last_event_at ?? null,
 });
 const toEvent = (r: any): SessionEvent => ({ seq: r.seq, sessionId: r.session_id, kind: r.kind, payload: JSON.parse(r.payload), at: r.at });
 const toApproval = (r: any): Approval => ({
@@ -59,35 +75,46 @@ const toApproval = (r: any): Approval => ({
   decidedAt: r.decided_at,
 });
 
+export interface SessionDeps {
+  db: Database;
+  config: Config;
+  tasks: Tasks;
+  adapters: Map<string, WorkspaceAdapter>;
+  workspaces: WorkspaceConfig[];
+  harness: () => Harness;
+  /** Jin's orchestration tools, for jin's own chat. Set after construction (they need this manager). */
+  jinTools?: () => JinTool[];
+}
+
 export class Sessions {
   private subscribers = new Map<string, Set<StreamSocket>>();
   private waiters = new Map<string, (approved: boolean) => void>();
   private running = new Map<string, AbortController>();
+  private db: Database;
 
-  constructor(
-    private db: Database,
-    private tasks: Tasks,
-    private adapters: Map<string, WorkspaceAdapter>,
-    private workspaces: WorkspaceConfig[],
-    private harness: () => Harness,
-  ) {
+  constructor(private deps: SessionDeps) {
+    this.db = deps.db;
     // Agent processes do not survive a daemon restart: what was in flight is interrupted
     // (and can be resumed with a new message); its open approvals can no longer be acted on.
-    db.query("update sessions set state = 'interrupted' where state in ('running', 'waiting_approval')").run();
-    db.query("update approvals set state = 'expired', decided_at = ? where state = 'pending'").run(now());
+    this.db.query("update sessions set state = 'interrupted' where state in ('running', 'waiting_approval')").run();
+    this.db.query("update approvals set state = 'expired', decided_at = ? where state = 'pending'").run(now());
+  }
+
+  /** Jin's orchestration tools need this manager, so they are provided after construction. */
+  provideJinTools(tools: () => JinTool[]) {
+    this.deps.jinTools = tools;
   }
 
   get(id: string): Session {
-    const row = this.db.query("select * from sessions where id = ?").get(id);
+    const row = this.db.query(`${SELECT} where s.id = ?`).get(id);
     if (!row) throw new HttpError(404, `unknown session ${id}`);
     return toSession(row);
   }
 
-  list(taskId?: string): Session[] {
-    const rows = taskId
-      ? this.db.query("select * from sessions where task_id = ? order by created_at desc").all(taskId)
-      : this.db.query("select * from sessions order by created_at desc").all();
-    return rows.map(toSession);
+  list(filter: { taskId?: string; kind?: string } = {}): Session[] {
+    if (filter.taskId) return this.db.query(`${SELECT} where s.task_id = ? order by s.created_at desc`).all(filter.taskId).map(toSession);
+    if (filter.kind) return this.db.query(`${SELECT} where s.kind = ? order by s.created_at desc`).all(filter.kind).map(toSession);
+    return this.db.query(`${SELECT} order by s.created_at desc`).all().map(toSession);
   }
 
   events(id: string, after = 0): SessionEvent[] {
@@ -130,10 +157,10 @@ export class Sessions {
     this.subscribers.get(ws.data.sessionId)?.delete(ws);
   }
 
-  private gate(sessionId: string, workspace: string): ToolGate {
+  private gate(sessionId: string, workspace: string | null): ToolGate {
     return async (tool, input, signal) => {
       this.emit(sessionId, "tool.requested", { tool, input });
-      const rules = this.adapters.get(workspace)?.policy();
+      const rules = workspace ? this.deps.adapters.get(workspace)?.policy() : undefined;
       const verdict = evaluate(tool, input, rules);
       if (verdict.decision === "deny") {
         this.emit(sessionId, "tool.denied", { tool, input, reason: verdict.reason, by: "policy" });
@@ -182,16 +209,33 @@ export class Sessions {
     return toApproval(this.db.query("select * from approvals where id = ?").get(approvalId));
   }
 
-  start(taskId: string, prompt: string): Session {
-    const task = this.tasks.get(taskId);
-    if (task.state !== "ready") throw new HttpError(409, `task ${taskId} is ${task.state}`);
+  private create(s: { kind: SessionKind; taskId?: string; workspace?: string; title: string; cwd: string }, prompt: string): Session {
     if (!prompt?.trim()) throw new HttpError(400, "prompt is required");
-    const harness = this.harness();
+    const harness = this.deps.harness();
     const id = randomUUID();
-    this.db.query("insert into sessions (id, task_id, harness, state, created_at) values (?, ?, ?, 'running', ?)").run(id, taskId, harness.id, now());
-    this.emit(id, "session.started", { taskId, harness: harness.id });
+    this.db
+      .query("insert into sessions (id, kind, task_id, workspace, title, cwd, harness, state, created_at) values (?, ?, ?, ?, ?, ?, ?, 'running', ?)")
+      .run(id, s.kind, s.taskId ?? null, s.workspace ?? null, s.title, s.cwd, harness.id, now());
+    this.emit(id, "session.started", { kind: s.kind, taskId: s.taskId ?? null, harness: harness.id });
     void this.run(id, prompt, harness);
     return this.get(id);
+  }
+
+  /** A coding agent in a task's worktree. */
+  startTask(taskId: string, prompt: string): Session {
+    const task = this.deps.tasks.get(taskId);
+    if (task.state !== "ready") throw new HttpError(409, `task ${taskId} is ${task.state}`);
+    return this.create({ kind: "task", taskId, workspace: task.workspace, title: task.slug, cwd: task.root }, prompt);
+  }
+
+  /** Jin's own chat or a knowledge chat, in a scratch directory of its own. */
+  startChat(kind: ChatKind, prompt: string, workspace?: string): Session {
+    const ws = workspace ?? this.deps.workspaces[0]?.id;
+    if (ws && !this.deps.workspaces.some((w) => w.id === ws)) throw new HttpError(404, `unknown workspace ${ws}`);
+    const cwd = join(this.deps.config.home, "chats", kind);
+    mkdirSync(cwd, { recursive: true });
+    const title = prompt.trim().replace(/\s+/g, " ").slice(0, 80);
+    return this.create({ kind, workspace: ws, title, cwd }, prompt);
   }
 
   send(sessionId: string, prompt: string): Session {
@@ -199,28 +243,30 @@ export class Sessions {
     if (session.state === "running" || session.state === "waiting_approval") throw new HttpError(409, `session is ${session.state}`);
     if (!prompt?.trim()) throw new HttpError(400, "prompt is required");
     this.setState(sessionId, "running");
-    void this.run(sessionId, prompt, this.harness(), session.harnessSessionId ?? undefined);
+    void this.run(sessionId, prompt, this.deps.harness(), session.harnessSessionId ?? undefined);
     return this.get(sessionId);
   }
 
   private async run(sessionId: string, prompt: string, harness: Harness, resume?: string) {
     const session = this.get(sessionId);
-    const task = this.tasks.get(session.taskId);
-    const workspace = this.workspaces.find((w) => w.id === task.workspace);
-    if (!workspace) throw new Error(`workspace ${task.workspace} is not configured`);
-    const env: Record<string, string> = workspace.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: workspace.profile.claudeConfigDir } : {};
+    const workspace = this.deps.workspaces.find((w) => w.id === session.workspace);
+    const cwd = session.cwd ?? (session.taskId ? this.deps.tasks.get(session.taskId).root : this.deps.config.home);
+    const env: Record<string, string> = workspace?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: workspace.profile.claudeConfigDir } : {};
     const controller = new AbortController();
     this.running.set(sessionId, controller);
     // Only the profile variable is recorded, never the rest of the environment.
-    this.emit(sessionId, "harness.started", { harness: harness.id, adapter: harness.adapter, cwd: task.root, env, resume: resume ?? null });
+    this.emit(sessionId, "harness.started", { harness: harness.id, adapter: harness.adapter, cwd, env, resume: resume ?? null, model: this.deps.config.model });
     this.emit(sessionId, "prompt", { text: prompt });
     try {
       const { sessionId: harnessSessionId } = await harness.run({
         prompt,
-        cwd: task.root,
+        cwd,
         env,
         resume,
-        gate: this.gate(sessionId, task.workspace),
+        model: this.deps.config.model,
+        instructions: chatInstructions(session.kind, workspace),
+        tools: session.kind === "jin" ? this.deps.jinTools?.() : undefined,
+        gate: this.gate(sessionId, session.workspace),
         emit: (kind, payload) => this.emit(sessionId, kind, payload),
         signal: controller.signal,
       });
@@ -228,7 +274,7 @@ export class Sessions {
       this.setState(sessionId, "idle");
       this.emit(sessionId, "session.idle", {});
     } catch (err) {
-      this.setState(sessionId, "failed");
+      this.setState(sessionId, controller.signal.aborted ? "interrupted" : "failed");
       this.emit(sessionId, "session.failed", { error: err instanceof Error ? err.message : String(err) });
     } finally {
       this.running.delete(sessionId);
@@ -243,9 +289,14 @@ export class Sessions {
 
 export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<string, WorkspaceAdapter>) {
   router
-    .on("POST", "/api/tasks/:id/sessions", async (req, p) => json(sessions.start(p.id!, (await body<{ prompt: string }>(req)).prompt), 201))
-    .on("GET", "/api/tasks/:id/sessions", (_req, p) => json(sessions.list(p.id!)))
-    .on("GET", "/api/sessions", () => json(sessions.list()))
+    .on("POST", "/api/tasks/:id/sessions", async (req, p) => json(sessions.startTask(p.id!, (await body<{ prompt: string }>(req)).prompt), 201))
+    .on("GET", "/api/tasks/:id/sessions", (_req, p) => json(sessions.list({ taskId: p.id! })))
+    .on("GET", "/api/sessions", (_req, _p, url) => json(sessions.list({ kind: url.searchParams.get("kind") ?? undefined })))
+    .on("POST", "/api/chats", async (req) => {
+      const { kind, prompt, workspace } = await body<{ kind: string; prompt: string; workspace?: string }>(req);
+      if (!isChatKind(kind)) throw new HttpError(400, `kind must be one of jin, slack, linear, notion, gmail, github`);
+      return json(sessions.startChat(kind, prompt, workspace), 201);
+    })
     .on("GET", "/api/sessions/:id", (_req, p) => json(sessions.get(p.id!)))
     .on("GET", "/api/sessions/:id/events", (_req, p, url) => {
       sessions.get(p.id!);

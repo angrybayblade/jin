@@ -7,4 +7,4 @@ export function claudeHarness(): Harness {
   return process.env.JIN_HARNESS === "scripted" ? new ScriptedHarness() : new ClaudeHarness();
 }
 
-export type { Harness, HarnessRun, ToolGate } from "./types";
+export type { Harness, HarnessRun, JinTool, ToolGate } from "./types";
