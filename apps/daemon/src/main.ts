@@ -15,6 +15,7 @@ import { exportHistory, historyRoutes } from "./history";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
 import { subtaskRoutes } from "./subtasks";
+import { Composio, composioRoutes } from "./composio";
 import { claudeHarness } from "./harness";
 import { json, Router } from "./http";
 import { join } from "node:path";
@@ -225,6 +226,11 @@ console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, m
 // Tunnels reopen once this jin knows itself (the one to a home carries the reverse line).
 machines.resume();
 
+// Live events through Composio (on the always-on home): the listener runs while any event is on.
+const composio = new Composio(config, { feed, workspaces: app.workspaces, notify: (n) => void notifier.notify(n) });
+composioRoutes(app.router, composio);
+composio.startListener();
+
 // Always on (vm mode, e.g. the hub): the GitHub feed refreshes on its own every 10 minutes.
 const feedTimer = config.mode === "vm" && !process.env.JIN_NO_TIMERS
   ? setInterval(() => void collectGithub(app.workspaces).then((items) => feed.add(items)).catch(() => {}), 10 * 60_000)
@@ -234,6 +240,7 @@ function shutdown() {
   clearInterval(prTimer);
   if (feedTimer) clearInterval(feedTimer);
   machines.stopAll();
+  composio.stopAll();
   setup.stopAll();
   terminals.stopAll();
   server.stop(true);
