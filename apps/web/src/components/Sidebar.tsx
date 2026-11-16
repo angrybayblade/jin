@@ -28,7 +28,7 @@ import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { RenameInput } from "./RenameInput";
 import { DensityToggle, SidebarToggle } from "./ShellControls";
-import { StatusMark, ThermalMark } from "./ThermalMark";
+import { StatusMark } from "./ThermalMark";
 import { ThemeToggle } from "./ThemeToggle";
 
 export const DESKS: { kind: "slack" | "linear" | "notion" | "gmail" | "github"; label: string; icon: ComponentType<{ size?: number }> }[] = [
@@ -150,15 +150,11 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <Link href="/" className="workspace-brand" aria-label="jin">
-        <ThermalMark size={26} label="jin" state={jin?.state === "running" ? "working" : "idle"} />
-        <span>jin</span>
-      </Link>
-
       <nav aria-label="Chats">
         <Link href="/" className={`nav-item ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("Jin", "/"))}>
           <Layers size={15} />
           <span className="nav-label">Jin</span>
+          {jin && (jin.state === "running" || jin.state === "waiting_approval") && <StatusMark state={jin.state} />}
           {pendingApprovals > 0 && <span className="nav-count" title="Approvals waiting">{pendingApprovals}</span>}
         </Link>
 

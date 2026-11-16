@@ -104,20 +104,6 @@ button {
   border-right: 1px solid var(--line);
   background: var(--canvas);
 }
-.workspace-brand {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 0 4px;
-  margin-bottom: 12px;
-  text-decoration: none;
-}
-.workspace-brand > span:not(.thermal-mark) {
-  font-size: var(--d-brand);
-  font-weight: var(--weight-primary);
-  letter-spacing: -0.05em;
-}
 .sidebar nav {
   display: flex;
   flex-direction: column;
@@ -187,7 +173,7 @@ button {
 html[data-sidebar="collapsed"] .app-shell {
   grid-template-columns: 52px minmax(0, 1fr);
 }
-html[data-sidebar="collapsed"] :is(.nav-label, .nav-section, .sidebar-empty, .sidebar-where, .workspace-brand > span:not(.thermal-mark)) {
+html[data-sidebar="collapsed"] :is(.nav-label, .nav-section, .sidebar-empty, .sidebar-where) {
   display: none;
 }
 html[data-sidebar="collapsed"] .nav-item {
@@ -202,9 +188,6 @@ html[data-sidebar="collapsed"] .nav-count {
   min-width: 14px;
   padding: 0 3px;
   font-size: 10px;
-}
-html[data-sidebar="collapsed"] .workspace-brand {
-  justify-content: center;
 }
 html[data-sidebar="collapsed"] .sidebar-bottom {
   justify-content: center;
@@ -1142,9 +1125,6 @@ button.step-line:hover {
   .sidebar nav {
     flex-direction: row;
     overflow: visible;
-  }
-  .workspace-brand {
-    margin: 0;
   }
   .nav-section,
   .sidebar-empty,
