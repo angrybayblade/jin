@@ -95,8 +95,9 @@ export const WORKSPACE_PLACES = ["composio-workspace", "Workspace/composio-works
 export const DETECT_SCRIPT = `
 for d in ${WORKSPACE_PLACES.join(" ")}; do
   p="$HOME/$d"
-  if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "WS $(cd "$p" && pwd -P)"; fi
-done | awk '!seen[$0]++'
+  # One line per folder: two spellings of one folder (case-insensitive disks) share an inode.
+  if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "$(ls -di "$p" | awk '{print $1}') WS $(cd "$p" && pwd -P)"; fi
+done | awk '!seen[$1]++ { $1 = ""; sub(/^ /, ""); print }'
 if [ -f ~/.jin/workspaces/composio.yaml ]; then echo "USING $(sed -n 's/^root: *//p' ~/.jin/workspaces/composio.yaml | head -1)"; fi
 true
 `;
