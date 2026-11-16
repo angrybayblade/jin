@@ -618,7 +618,7 @@ export class Machines {
     t.state = "connecting";
     // To the home (hub), the same connection also lets the hub reach this jin back (-R): a
     // laptop behind NAT cannot be dialled, so it keeps the line open itself.
-    const reverse = m.home && m.reversePort && this.identity ? ["-R", `127.0.0.1:${m.reversePort}:127.0.0.1:${this.identity.port}`] : [];
+    const reverse = m.reversePort && this.identity ? ["-R", `127.0.0.1:${m.reversePort}:127.0.0.1:${this.identity.port}`] : [];
     const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${m.remotePort}`, ...reverse, m.host]);
     t.proc = proc;
     void this.probe(id);
@@ -658,16 +658,44 @@ export class Machines {
 
   // ---------------------------------------------------------------- home (hub)
 
-  /** Make a machine this jin's home (the always-on hub), or stop; its tunnel reopens with the reverse line. */
+  /**
+   * Make a machine this jin's home (the always-on hub), or stop. Its tunnel reopens with the
+   * reverse line, and this returns only once it is up and this jin is attached there, so the
+   * app does not switch to a home it cannot reach yet.
+   */
   async setHome(id: string, home: boolean) {
     const m = this.record(id);
     if (m.attached) throw new HttpError(400, "an attached machine cannot be a home");
-    for (const other of this.records()) if (other.id !== id && other.home) this.update(other.id, { home: false });
+    if (home) {
+      if (!m.token || this.tunnels.get(id)?.state !== "up") throw new HttpError(409, `${m.label} is not connected`);
+      // A home must accept this jin attaching itself: an older jin there cannot.
+      const theirs = await fetch(`http://127.0.0.1:${m.localPort}/api/machines/attach`, { method: "POST", headers: { authorization: `Bearer ${m.token}`, "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5000) })
+        .then((r) => r.status)
+        .catch(() => 0);
+      if (theirs === 404 || theirs === 0) throw new HttpError(409, `${m.label} runs a jin too old to be a home (${m.version ?? "unknown"}); update jin there first`);
+    }
+    // Only one home: the old one loses its reverse line.
+    for (const other of this.records()) {
+      if (other.id === id || !other.home) continue;
+      this.update(other.id, { home: false, reversePort: null });
+      this.closeTunnel(other.id);
+      void this.openTunnel(other.id);
+    }
     // A port on the hub for this jin, the same every time (two laptops get different ones).
     const reversePort = home ? 20000 + (Number.parseInt(Bun.hash(this.identity?.id ?? "jin").toString(16).slice(-4), 16) % 20000) : null;
-    this.update(id, { home, reversePort });
+    this.update(id, { home: false, reversePort });
     this.closeTunnel(id);
     await this.openTunnel(id);
+    if (!home) return;
+    for (let i = 0; i < 60 && this.tunnels.get(id)?.state !== "up"; i++) await Bun.sleep(250);
+    if (this.tunnels.get(id)?.state !== "up") throw new HttpError(504, `the line to ${m.label} did not come back up; try again`);
+    try {
+      await this.attachToHome(id, true);
+    } catch (err) {
+      throw new HttpError(502, `${m.label} did not take this jin's attach: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // Only now is it the home (the app switches to it).
+    this.update(id, { home: true });
   }
 
   /**
@@ -692,9 +720,9 @@ export class Machines {
   }
 
   /** Tell the home how to reach this jin back over the reverse line (the hub records it as an attached machine). */
-  async attachToHome(id: string) {
+  async attachToHome(id: string, force = false) {
     const m = this.record(id);
-    if (!this.identity || !m.reversePort) return;
+    if (!this.identity || !m.reversePort || (!m.home && !force)) return;
     await this.call(id, "POST", "/api/machines/attach", { id: this.identity.id, label: this.identity.label, port: m.reversePort, token: this.identity.token, version: localVersion() });
   }
 
@@ -795,6 +823,8 @@ export class Machines {
 
   /** Reopen tunnels to machines that finished onboarding (at start). */
   resume() {
+    // A reverse line belongs only to the home (a switch that did not finish leaves none).
+    for (const m of this.records()) if (!m.home && m.reversePort) this.update(m.id, { reversePort: null });
     for (const m of this.records()) if (m.token) void this.openTunnel(m.id).catch(() => {});
   }
 
