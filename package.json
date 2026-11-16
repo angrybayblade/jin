@@ -1,0 +1,16 @@
+{
+  "name": "jin",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "acceptance": "bun scripts/acceptance.ts",
+    "test": "bun test apps packages",
+    "typecheck": "bun run --filter '*' typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "puppeteer-core": "24.43.1",
+    "typescript": "5.9.3"
+  }
+}
