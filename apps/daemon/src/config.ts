@@ -7,9 +7,12 @@ export interface Config {
   home: string;
   /** local: no timers or unattended work. vm: always-on features enabled. */
   mode: "local" | "vm";
-  /** The only browser origin the API accepts (the web app). */
+  /** The only browser origin the API accepts (the web app), as 127.0.0.1 and as localhost. */
   webOrigin: string;
+  webOrigins: string[];
   port: number;
+  /** Model for agent sessions. The SDK's own default is the largest model, which is costly for routine work. */
+  model: string;
 }
 
 /** One organisation's workspace, from $JIN_HOME/workspaces/<id>.yaml. */
@@ -37,11 +40,15 @@ export function loadConfig(home = jinHome()): Config {
   const file = join(home, "config.yaml");
   const raw = existsSync(file) ? parse(file) : {};
   const mode = raw.mode === "vm" ? "vm" : "local";
+  const webOrigin = String(raw.webOrigin ?? "http://127.0.0.1:3917");
+  const alias = (o: string) => (o.includes("//127.0.0.1") ? o.replace("//127.0.0.1", "//localhost") : o.replace("//localhost", "//127.0.0.1"));
   return {
     home,
     mode,
-    webOrigin: String(raw.webOrigin ?? "http://127.0.0.1:3917"),
+    webOrigin,
+    webOrigins: [...new Set([webOrigin, alias(webOrigin)])],
     port: Number(process.env.JIN_PORT ?? raw.port ?? 7317),
+    model: String(raw.model ?? "claude-sonnet-5-5"),
   };
 }
 

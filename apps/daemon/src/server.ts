@@ -31,7 +31,7 @@ function presentedToken(req: Request, url: URL): string | undefined {
 export function guard(app: App, req: Request, url: URL): Response | undefined {
   if (url.pathname === "/health") return undefined;
   const origin = req.headers.get("origin");
-  if (origin && origin !== app.config.webOrigin) return json({ error: "origin not allowed" }, 403);
+  if (origin && !app.config.webOrigins.includes(origin)) return json({ error: "origin not allowed" }, 403);
   const token = presentedToken(req, url);
   if (!token || !sameToken(token, app.token)) return json({ error: "missing or invalid token" }, 401);
   return undefined;
