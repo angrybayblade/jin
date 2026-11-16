@@ -2104,3 +2104,37 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
 html[data-sidebar="collapsed"] .nav-pr {
   display: none;
 }
+
+/* Chat tabs: the same compact pills as a task's tabs. */
+.pane-header.has-tabs:has(> .chat-tabs) {
+  align-items: center;
+}
+.chat-tabs {
+  align-items: center;
+}
+.chat-tabs .chat-tab {
+  height: 26px;
+  max-width: 200px;
+  gap: 5px;
+  padding: 0 2px 0 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+.chat-tabs .chat-tab.is-new {
+  padding-right: 8px;
+}
+.chat-tabs .status-mark,
+.chat-tabs .status-mark canvas {
+  width: 12px !important;
+  height: 12px !important;
+}
+.chat-tabs .file-tab-close {
+  width: 18px;
+  height: 18px;
+}
+.chat-tabs .term-tab-new {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-control);
+}
