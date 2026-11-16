@@ -586,12 +586,17 @@ export class Machines {
       for (const m of this.records()) {
         if (!m.token || this.tunnels.get(m.id)?.state !== "up") continue;
         try {
-          const res = await fetch(`http://127.0.0.1:${m.localPort}/api/notifications/outbox?after=${last.get(m.id) ?? -1}`, { headers: { authorization: `Bearer ${m.token}` }, signal: AbortSignal.timeout(3000) });
+          const first = !last.has(m.id);
+          const res = await fetch(`http://127.0.0.1:${m.localPort}/api/notifications/outbox?after=${last.get(m.id) ?? 0}`, { headers: { authorization: `Bearer ${m.token}` }, signal: AbortSignal.timeout(3000) });
           if (!res.ok) continue; // an older jin there has no outbox
-          const { seq, notices } = (await res.json()) as { seq: number; notices: { seq: number; key: string; title: string; subtitle?: string; body: string; path: string }[] };
-          // A restarted machine starts counting again: take its new count as the start.
-          if (seq < (last.get(m.id) ?? -1)) last.set(m.id, -1);
-          for (const n of notices) show(m, n);
+          const { seq, notices } = (await res.json()) as { seq: number; notices: { seq: number; at?: number; key: string; title: string; subtitle?: string; body: string; path: string }[] };
+          // A restarted machine starts counting again: start over with it.
+          if (seq < (last.get(m.id) ?? 0)) {
+            last.delete(m.id);
+            continue;
+          }
+          // The first time round, only what is recent: not a backlog from before this jin started.
+          for (const n of notices) if (!first || (n.at ?? 0) > Date.now() - 30_000) show(m, n);
           last.set(m.id, seq);
         } catch {
           // offline for now; the tunnel reconnects

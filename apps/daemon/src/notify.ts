@@ -53,7 +53,7 @@ export function plain(text: string, max = 160): string {
 export class Notifier {
   presence: Presence | null = null;
   /** Without a desktop (vm mode): notices kept for the jin that onboarded this machine to show. */
-  private outbox: (Notice & { seq: number })[] = [];
+  private outbox: (Notice & { seq: number; at: number })[] = [];
   private seq = 0;
   private recent = new Map<string, number>();
   private file: string;
@@ -86,7 +86,7 @@ export class Notifier {
   }
 
   /** Notices kept since `after` (vm mode), and the latest seq; a relay starting fresh asks with after = -1 to skip the backlog. */
-  since(after: number): { seq: number; notices: (Notice & { seq: number })[] } {
+  since(after: number): { seq: number; notices: (Notice & { seq: number; at: number })[] } {
     return { seq: this.seq, notices: after < 0 ? [] : this.outbox.filter((x) => x.seq > after) };
   }
 
@@ -107,7 +107,7 @@ export class Notifier {
     if (last && at - last < REPEAT_MS) return "repeat";
     this.recent.set(n.key, at);
     if (this.config.mode !== "local") {
-      this.outbox.push({ ...n, seq: ++this.seq });
+      this.outbox.push({ ...n, seq: ++this.seq, at });
       if (this.outbox.length > 100) this.outbox.splice(0, this.outbox.length - 100);
       return "kept for relay";
     }
