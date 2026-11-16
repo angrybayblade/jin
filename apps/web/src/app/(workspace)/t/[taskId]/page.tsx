@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ClaudePane } from "@/components/workspace/ClaudePane";
 import { WorkspacePane } from "@/components/workspace/WorkspacePane";
+import { Panes } from "@/components/Panes";
 import { daemon, daemonWsBase, type Task, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +25,10 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
   const terminals = await daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`);
   const ws = daemonWsBase();
   return (
-    <div className="panes with-workspace">
+    <Panes id="task" defaultSplit={56} minLeft={420} minRight={320} left={
       <ClaudePane taskId={task.id} title={task.id} subtitle={`${task.slug} · ${task.repos.join(", ")}`} terminals={terminals.filter((t) => t.kind === "claude")} wsBase={ws} />
-      <WorkspacePane taskId={task.id} wsBase={ws} shells={terminals.filter((t) => t.kind === "shell")} />
-    </div>
+      }
+      right={<WorkspacePane taskId={task.id} wsBase={ws} shells={terminals.filter((t) => t.kind === "shell")} />}
+    />
   );
 }

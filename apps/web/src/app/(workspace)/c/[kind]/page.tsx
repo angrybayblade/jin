@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/Chat";
 import { TodayPanel } from "@/components/TodayPanel";
+import { Panes } from "@/components/Panes";
 import { daemon, daemonWsBase, type Approval, type ChatKind, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export default async function DeskPage({ params }: { params: Promise<{ kind: str
   const session = sessions[0] ?? null;
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
-    <div className="panes">
+    <Panes id="desk" defaultSplit={70} left={<>
       <Chat
         key={session?.id ?? `new-${kind}`}
         kind={kind as ChatKind}
@@ -63,8 +64,8 @@ export default async function DeskPage({ params }: { params: Promise<{ kind: str
         subtitle="desk"
         welcome={{ overline: desk.label, heading: `Your ${desk.label} desk`, body: desk.body, suggestions: desk.suggestions }}
         placeholder={`Ask about ${desk.label}…`}
-      />
-      {kind === "github" ? (
+      /></>}
+      right={kind === "github" ? (
         <TodayPanel items={feed.filter((i) => i.source === "github")} title="GitHub" note={desk.connect} />
       ) : (
         <section className="side-panel">
@@ -79,6 +80,6 @@ export default async function DeskPage({ params }: { params: Promise<{ kind: str
           </div>
         </section>
       )}
-    </div>
+    />
   );
 }

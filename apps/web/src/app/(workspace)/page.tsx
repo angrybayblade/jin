@@ -1,5 +1,6 @@
 import { Chat } from "@/components/Chat";
 import { TodayPanel } from "@/components/TodayPanel";
+import { Panes } from "@/components/Panes";
 import { daemon, daemonWsBase, type Approval, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function Home() {
   const session = sessions[0] ?? null;
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
-    <div className="panes">
+    <Panes id="home" defaultSplit={70} left={<>
       <Chat
         key={session?.id ?? "new"}
         kind="jin"
@@ -36,8 +37,8 @@ export default async function Home() {
           suggestions: ["Catch me up", "What's blocked on me?", "Refresh GitHub and tell me what changed"],
         }}
         placeholder="Ask jin…"
-      />
-      <TodayPanel items={feed} />
-    </div>
+      /></>}
+      right={<TodayPanel items={feed} />}
+    />
   );
 }
