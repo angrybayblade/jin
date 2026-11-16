@@ -14,7 +14,7 @@ import { machineRoutes, Machines } from "./machines";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
 import { claudeHarness } from "./harness";
-import { Router } from "./http";
+import { json, Router } from "./http";
 import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
@@ -120,6 +120,22 @@ setupRoutes(app.router, setup);
 const desks = new Desks(config, app.workspaces);
 deskRoutes(app.router, desks);
 setTimeout(() => void desks.status().catch(() => {}), 8_000); // warm, so a desk page does not wait
+
+// A cheap fingerprint of what the app shows (tasks, tabs, chats, approvals, setups, PRs, feed):
+// the web app re-renders when it changes instead of on a timer.
+app.router.on("GET", "/api/stamp", () => {
+  const summary = JSON.stringify([
+    tasks.list().map((t) => [t.id, t.state, t.title, t.archived]),
+    [...terminals.list(), ...terminals.list({ archived: true })].map((t) => [t.id, t.status, t.title, t.archived, t.claudeSessionId]),
+    sessions.list({}).map((x) => [x.id, x.state, x.title, x.lastEventAt]),
+    sessions.approvals("pending").map((a) => a.id),
+    jobs.list().map((j) => [j.id, j.state, j.log.length]),
+    prs.list().map((p) => [p.url, p.state, p.checks, p.review, p.title, p.draft]),
+    feed.list().map((f) => [f.id, f.state]),
+    app.workspaces.map((w) => w.id),
+  ]);
+  return json({ stamp: Bun.hash(summary).toString(36) });
+});
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];
