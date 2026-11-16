@@ -72,7 +72,7 @@ tasks.onRemoved((taskId) => {
 terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude });
 const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
 jobRoutes(app.router, jobs);
-sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs }));
+sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs }));
 // Desktop notifications when a turn or a setup finishes, or something needs you.
 const notifier = new Notifier(config);
 notifyRoutes(app.router, notifier);
@@ -90,7 +90,13 @@ claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
 const prs = new TaskPRs(db);
 prRoutes(app.router, prs, tasks, terminals);
 tasks.onRemoved((taskId) => prs.removeTask(taskId));
-const prTimer = setInterval(() => void prs.refreshOpen(), 5 * 60_000);
+// Every few minutes (and soon after start): find PRs opened from tasks' branches, refresh open ones.
+const syncPrs = async () => {
+  for (const t of tasks.list().filter((x) => x.state === "ready")) await prs.discover(t).catch(() => {});
+  await prs.refreshOpen();
+};
+const prTimer = setInterval(() => void syncPrs(), 5 * 60_000);
+setTimeout(() => void syncPrs(), 5_000);
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];

@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { taskRules } from "../src/claude-cli";
@@ -43,4 +43,27 @@ test("Claude Code in a task is told to attach every PR it creates", () => {
   expect(rules).toContain("jin task PLEN-4548");
   expect(rules).toContain("MUST-FOLLOW");
   expect(rules).toContain("jin-task attach-pr <pull request URL>");
+});
+
+test("PRs opened from a task's branch are found, and a detached one stays detached", async () => {
+  const home = mkdtempSync(join(tmpdir(), "jin-prs-"));
+  afterAll(() => rmSync(home, { recursive: true, force: true }));
+  const root = join(home, "tasks", "PLEN-4548");
+  mkdirSync(join(root, "platform"), { recursive: true });
+  const db = openDb(home);
+  const gh = async (args: string[]) =>
+    args[0] === "pr" && args[1] === "list"
+      ? JSON.stringify(args.includes("ComposioHQ/platform") && args.includes("fix/PLEN-4548-preload") ? [{ url: "https://github.com/ComposioHQ/platform/pull/15030" }] : [])
+      : JSON.stringify({ title: "fix: preload", state: "OPEN" });
+  const git = async (_cwd: string, args: string[]) => (args[0] === "remote" ? "git@github.com:ComposioHQ/platform.git\n" : "fix/PLEN-4548-preload\n");
+  const prs = new TaskPRs(db, gh, git);
+  const task = { id: "PLEN-4548", root, repos: ["platform", "missing-repo"] };
+  await prs.discover(task);
+  expect(prs.list("PLEN-4548").map((p) => `${p.number}:${p.attachedBy}`)).toEqual(["15030:branch"]);
+  prs.detach("PLEN-4548", "https://github.com/ComposioHQ/platform/pull/15030");
+  await prs.discover(task);
+  expect(prs.list("PLEN-4548")).toEqual([]);
+  // Attaching it on purpose brings it back.
+  await prs.attach("PLEN-4548", "https://github.com/ComposioHQ/platform/pull/15030", "you");
+  expect(prs.list("PLEN-4548")).toHaveLength(1);
 });

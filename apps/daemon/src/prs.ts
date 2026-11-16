@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { parsePr } from "./bobby";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
@@ -17,7 +19,7 @@ export interface TaskPR {
   review: string | null; // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
   checks: "passing" | "failing" | "pending" | null;
   head: string | null;
-  attachedBy: string; // "hook", "claude", "you"
+  attachedBy: string; // "hook", "claude", "you", "branch" (found by the task's branch)
   attachedAt: string;
   updatedAt: string | null;
 }
@@ -83,10 +85,13 @@ export class TaskPRs {
   constructor(
     private db: Database,
     private gh: (args: string[]) => Promise<string> = runGh,
+    private git: (cwd: string, args: string[]) => Promise<string> = runGit,
   ) {}
 
   list(taskId?: string): TaskPR[] {
-    const rows = (taskId ? this.db.query("select * from task_prs where task_id = ? order by attached_at").all(taskId) : this.db.query("select * from task_prs order by attached_at").all()) as Row[];
+    const rows = (
+      taskId ? this.db.query("select * from task_prs where task_id = ? and detached = 0 order by attached_at").all(taskId) : this.db.query("select * from task_prs where detached = 0 order by attached_at").all()
+    ) as Row[];
     return rows.map(toPR);
   }
 
@@ -95,15 +100,35 @@ export class TaskPRs {
     const pr = parsePr(url.trim());
     if (!pr) throw new HttpError(400, `not a GitHub pull request link: ${url}`);
     const canonical = `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}`;
+    // Attaching on purpose undoes an earlier detach; finding it by branch does not.
     this.db
-      .query("insert into task_prs (task_id, url, repo, number, attached_by, attached_at) values (?, ?, ?, ?, ?, ?) on conflict(task_id, url) do nothing")
+      .query(`insert into task_prs (task_id, url, repo, number, attached_by, attached_at) values (?, ?, ?, ?, ?, ?) on conflict(task_id, url) do ${by === "branch" ? "nothing" : "update set detached = 0"}`)
       .run(taskId, canonical, `${pr.owner}/${pr.repo}`, pr.number, by, now());
     await this.refreshOne(taskId, canonical).catch(() => {});
     return toPR(this.db.query("select * from task_prs where task_id = ? and url = ?").get(taskId, canonical) as Row);
   }
 
+  /** Hide a PR from the task; it stays hidden even if its branch still matches. */
   detach(taskId: string, url: string) {
-    this.db.query("delete from task_prs where task_id = ? and url = ?").run(taskId, url);
+    this.db.query("update task_prs set detached = 1 where task_id = ? and url = ?").run(taskId, url);
+  }
+
+  /**
+   * Find PRs opened from the task's branches (each repo's worktree, any state) and attach
+   * them: catches PRs made before jin watched, or outside Claude Code.
+   */
+  async discover(task: { id: string; root: string; repos: string[] }) {
+    for (const repo of task.repos) {
+      const dir = join(task.root, repo);
+      if (!existsSync(dir)) continue;
+      const remote = (await this.git(dir, ["remote", "get-url", "origin"]).catch(() => "")).trim();
+      const slug = remote.match(/github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/)?.[1];
+      const branch = (await this.git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+      if (!slug || !branch || branch === "HEAD") continue;
+      const found = JSON.parse((await this.gh(["pr", "list", "--repo", slug, "--head", branch, "--state", "all", "--json", "url", "--limit", "10"]).catch(() => "[]")) || "[]") as { url: string }[];
+      const known = new Set((this.db.query("select url from task_prs where task_id = ?").all(task.id) as { url: string }[]).map((r) => r.url));
+      for (const { url } of found) if (!known.has(url)) await this.attach(task.id, url, "branch").catch(() => {});
+    }
   }
 
   removeTask(taskId: string) {
@@ -122,6 +147,13 @@ export class TaskPRs {
   async refreshOpen() {
     for (const p of this.list().filter((x) => x.state !== "MERGED" && x.state !== "CLOSED")) await this.refreshOne(p.taskId, p.url).catch(() => {});
   }
+}
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  if (code !== 0) throw new Error(`git ${args.join(" ")} failed`);
+  return out;
 }
 
 async function runGh(args: string[]): Promise<string> {
@@ -150,6 +182,7 @@ export function prRoutes(router: Router, prs: TaskPRs, tasks: Tasks, terminals: 
       return json({ detached: true });
     })
     .on("POST", "/api/tasks/:id/prs/refresh", async (_req, p) => {
+      await prs.discover(tasks.get(p.id!)).catch(() => {});
       for (const pr of prs.list(p.id!)) await prs.refreshOne(pr.taskId, pr.url).catch(() => {});
       return json(prs.list(p.id!));
     })

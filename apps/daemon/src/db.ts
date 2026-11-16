@@ -129,6 +129,7 @@ const MIGRATIONS: string[] = [
     attached_by text not null,
     attached_at text not null,
     updated_at text,
+    detached integer not null default 0,
     primary key (task_id, url)
   );
   `,
