@@ -2,13 +2,17 @@ import { notFound } from "next/navigation";
 import { ClaudePane } from "@/components/workspace/ClaudePane";
 import { WorkspacePane } from "@/components/workspace/WorkspacePane";
 import { Panes } from "@/components/Panes";
-import { daemon, daemonWsBase, type Task, type TerminalInfo } from "@/lib/daemon";
+import { TaskSetup } from "@/components/TaskSetup";
+import { daemon, daemonWsBase, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
 /** A task: Claude Code sessions in the worktree, and the workspace (editor, shells, diff), all as tabs. */
 export default async function TaskPage({ params }: { params: Promise<{ taskId: string }> }) {
   const { taskId } = await params;
+  // Being set up (or its setup failed): show the setup's progress until the task is ready.
+  const job = (await daemon<TaskJob[]>("/api/task-jobs")).find((j) => j.taskId === taskId);
+  if (job && job.state !== "done") return <TaskSetup key={job.id} initial={job} />;
   let task: Task;
   try {
     task = await daemon<Task>(`/api/tasks/${encodeURIComponent(taskId)}`);
