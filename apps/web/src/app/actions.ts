@@ -104,3 +104,14 @@ export async function writeFile(taskId: string, path: string, content: string): 
 export async function getDiff(taskId: string): Promise<RepoDiff[]> {
   return daemon<RepoDiff[]>(`/api/tasks/${encodeURIComponent(taskId)}/diff`);
 }
+
+// ---------------------------------------------------------------- bobby (PR reviews)
+
+/** The PR's review in Bobby, starting Bobby if it is not running. */
+export async function openInBobby(pr: string): Promise<{ url: string } | { error: string }> {
+  try {
+    return await daemon<{ url: string }>("/api/bobby/open", { method: "POST", json: { pr } });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
+  }
+}
