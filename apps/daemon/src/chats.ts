@@ -149,7 +149,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
       description: "The user's tasks on every connected machine (or one, with machine), their state, and the pull requests attached to each (state, review, checks).",
       input: { machine: machineArg },
       run: async (a) => {
-        type T = { id: string; workspace: string; title: string | null; slug: string; repos: string[]; state: string };
+        type T = { id: string; workspace: string; title: string | null; slug: string; repos: string[]; state: string; parent?: string | null };
         type P = { taskId: string; url: string; title: string | null; state: string | null; draft: boolean; review: string | null; checks: string | null };
         const shape = (machine: string | null, list: T[], prList: P[]) =>
           list.map((t) => ({
@@ -159,6 +159,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
             title: t.title ?? t.slug,
             repos: t.repos,
             state: t.state,
+            ...(t.parent ? { subtaskOf: t.parent } : {}),
             open: link(machine, t.id),
             pullRequests: prList.filter((p) => p.taskId === t.id).map((p) => ({ url: p.url, title: p.title, state: p.draft && p.state === "OPEN" ? "DRAFT" : p.state, review: p.review, checks: p.checks })),
           }));

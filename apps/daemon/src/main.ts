@@ -13,6 +13,7 @@ import { jobRoutes, TaskJobs } from "./jobs";
 import { machineRoutes, Machines } from "./machines";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
+import { subtaskRoutes } from "./subtasks";
 import { claudeHarness } from "./harness";
 import { json, Router } from "./http";
 import { join } from "node:path";
@@ -97,6 +98,8 @@ claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
 // Pull requests attached to tasks; open ones are refreshed from GitHub every few minutes.
 const prs = new TaskPRs(db);
 prRoutes(app.router, prs, tasks, terminals);
+// A task's Claude Code can split work into sub-tasks (jin-task spawn).
+subtaskRoutes(app.router, { terminals, tasks, jobs, prs });
 tasks.onRemoved((taskId) => prs.removeTask(taskId));
 // Every few minutes (and soon after start): find PRs opened from tasks' branches, refresh open ones.
 const syncPrs = async () => {

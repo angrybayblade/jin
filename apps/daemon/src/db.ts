@@ -133,6 +133,10 @@ const MIGRATIONS: string[] = [
     primary key (task_id, url)
   );
   `,
+  // 6: a task started from another task's Claude Code (jin-task spawn) remembers its parent.
+  `
+  alter table task_meta add column parent_id text;
+  `,
 ];
 
 export function openDb(home: string): Database {

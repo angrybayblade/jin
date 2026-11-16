@@ -41,6 +41,7 @@ const ASK: { pattern: RegExp; why: string }[] = [
   { pattern: /^gh\s+issue\s+(create|comment|close|reopen|edit|delete|transfer)\b/, why: "acts on an issue" },
   { pattern: /^gh\s+api\b.*(\s-X\s*|\s--method\s+)(POST|PUT|PATCH|DELETE)\b/i, why: "writes through the GitHub API" },
   { pattern: /^gh\s+repo\s+(create|delete|edit|rename|archive)\b/, why: "changes a repository" },
+  { pattern: /^jin-task\s+spawn\b/, why: "starts a sub-task: a new branch, worktrees and a Claude Code session" },
 ];
 
 // MCP tools that send or change something in Slack, Linear, Notion, Gmail and the like.

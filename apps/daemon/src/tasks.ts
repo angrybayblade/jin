@@ -18,11 +18,14 @@ export interface Task {
   /** Jin's display title, when renamed in jin (the workspace's own title stays the slug). */
   title: string | null;
   archived: boolean;
+  /** The task this one was spawned from (jin-task spawn), if any. */
+  parent: string | null;
 }
 
 interface Meta {
   title: string | null;
   archived_at: string | null;
+  parent_id: string | null;
 }
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -43,6 +46,7 @@ const toTask = (r: any): Task => {
     createdAt: r.created_at,
     title: null,
     archived: false,
+    parent: null,
   };
 };
 
@@ -60,6 +64,7 @@ const fromProvider = (workspace: string, t: ProviderTask, sourceItem: string | n
   createdAt: t.createdAt,
   title: null,
   archived: false,
+  parent: null,
 });
 
 export class Tasks {
@@ -75,12 +80,12 @@ export class Tasks {
   }
 
   private meta(): Map<string, Meta> {
-    return new Map((this.db.query("select task_id, title, archived_at from task_meta").all() as (Meta & { task_id: string })[]).map((r) => [r.task_id, r]));
+    return new Map((this.db.query("select task_id, title, archived_at, parent_id from task_meta").all() as (Meta & { task_id: string })[]).map((r) => [r.task_id, r]));
   }
 
   private withMeta(t: Task, meta: Map<string, Meta>): Task {
     const m = meta.get(t.id);
-    return m ? { ...t, title: m.title, archived: Boolean(m.archived_at) } : t;
+    return m ? { ...t, title: m.title, archived: Boolean(m.archived_at), parent: m.parent_id } : { ...t, parent: null };
   }
 
   /** Rename (a display title in jin) or archive (hidden from the sidebar's list) a task. */
@@ -90,6 +95,16 @@ export class Tasks {
     if (patch.title !== undefined) this.db.query("update task_meta set title = ? where task_id = ?").run(patch.title?.trim().slice(0, 120) || null, id);
     if (patch.archived !== undefined) this.db.query("update task_meta set archived_at = ? where task_id = ?").run(patch.archived ? now() : null, id);
     return this.get(id);
+  }
+
+  /** Record that `id` was spawned from `parent` (before the task exists: its setup runs in the background). */
+  setParent(id: string, parent: string) {
+    this.db.query("insert into task_meta (task_id, parent_id) values (?, ?) on conflict (task_id) do update set parent_id = excluded.parent_id").run(id, parent);
+  }
+
+  /** Ids of the tasks spawned from `parent`, including ones still being set up. */
+  childIds(parent: string): string[] {
+    return (this.db.query("select task_id from task_meta where parent_id = ? order by task_id").all(parent) as { task_id: string }[]).map((r) => r.task_id);
   }
 
   private removedHooks: ((id: string) => void)[] = [];

@@ -80,3 +80,8 @@ test("deny wins over ask in a compound command", () => {
 test("splits wrappers and nested shells into simple commands", () => {
   expect(simpleCommands("FOO=1 sudo npx vercel --prod && cd x; bash -lc 'pulumi up'")).toEqual(["vercel --prod", "pulumi up"]);
 });
+
+test("spawning a sub-task asks first", () => {
+  expect(evaluate("Bash", { command: 'jin-task spawn PLEN-1-a --repos platform --slug "x"' }).decision).toBe("ask");
+  expect(evaluate("Bash", { command: "jin-task subtasks" }).decision).toBe("allow");
+});
