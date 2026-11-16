@@ -25,7 +25,8 @@ export function writeClaudeSettings(config: Config): string {
 
 export function claudeLaunch(config: Config, settingsFile: string): ClaudeLaunch {
   return {
-    args: () => ["--settings", settingsFile],
+    // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
+    args: () => ["--settings", settingsFile, "--model", config.model],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,
       ...(w?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: w.profile.claudeConfigDir } : {}),

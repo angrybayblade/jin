@@ -11,7 +11,7 @@ export interface Config {
   webOrigin: string;
   webOrigins: string[];
   port: number;
-  /** Model for agent sessions. The SDK's own default is the largest model, which is costly for routine work. */
+  /** Model for jin's chats (Agent SDK) and the Claude Code sessions jin starts; `model:` in config.yaml. */
   model: string;
 }
 
@@ -48,7 +48,7 @@ export function loadConfig(home = jinHome()): Config {
     webOrigin,
     webOrigins: [...new Set([webOrigin, alias(webOrigin)])],
     port: Number(process.env.JIN_PORT ?? raw.port ?? 7317),
-    model: String(raw.model ?? "claude-sonnet-5-5"),
+    model: String(raw.model ?? "claude-opus-5-5"),
   };
 }
 
