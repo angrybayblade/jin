@@ -30,7 +30,7 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
   const ws = daemonWsBase();
   return (
     <Panes id="task" defaultSplit={56} minLeft={420} minRight={320} left={
-      <ClaudePane taskId={task.id} title={task.id} subtitle={`${task.slug} · ${task.repos.join(", ")}`} terminals={terminals.filter((t) => t.kind === "claude")} wsBase={ws} />
+      <ClaudePane taskId={task.id} title={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals.filter((t) => t.kind === "claude")} wsBase={ws} />
       }
       right={<WorkspacePane taskId={task.id} wsBase={ws} shells={terminals.filter((t) => t.kind === "shell")} />}
     />

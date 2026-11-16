@@ -125,6 +125,8 @@ export function Chat(props: ChatProps) {
   const lastSeq = useRef(props.initialEvents.at(-1)?.seq ?? 0);
 
   const state = stateFrom(events, props.session?.state ?? "idle");
+  // A chat's own title (its first message, or what it was renamed to), else the desk's subtitle.
+  const subtitle = sessionId && props.session?.id === sessionId && props.session.title && props.kind !== "task" ? props.session.title : props.subtitle;
   const items = useMemo(() => toItems(events), [events]);
   const working = state === "running" || state === "waiting_approval";
 
@@ -206,12 +208,21 @@ export function Chat(props: ChatProps) {
     }
   };
 
-  const newChat = () => {
+  const newChat = useCallback(() => {
     setSessionId(null);
     setEvents([]);
     setStreaming("");
     lastSeq.current = 0;
-  };
+  }, []);
+
+  // "New chat" from the sidebar's context menu.
+  useEffect(() => {
+    const onNew = (e: Event) => {
+      if ((e as CustomEvent<{ kind: string }>).detail.kind === props.kind) newChat();
+    };
+    window.addEventListener("jin:new-chat", onNew);
+    return () => window.removeEventListener("jin:new-chat", onNew);
+  }, [props.kind, newChat]);
 
   return (
     <section className="chat-panel" aria-label={props.title}>
@@ -219,7 +230,7 @@ export function Chat(props: ChatProps) {
         <div className="pane-title">
           {sessionId ? <StatusMark state={state} /> : null}
           <span className="pane-name">{props.title}</span>
-          {props.subtitle && <span className="meta">{props.subtitle}</span>}
+          {subtitle && <span className="meta">{subtitle}</span>}
         </div>
         {sessionId && !props.taskId && (
           <button type="button" className="button quiet" onClick={newChat}>

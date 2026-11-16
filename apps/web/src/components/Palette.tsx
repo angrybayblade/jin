@@ -106,7 +106,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
   const commands = useMemo<Item[]>(() => {
     const go = (href: string) => () => router.push(href);
     const items: Item[] = [{ id: "go:home", title: "Go to Jin", detail: "your orchestrator", icon: Layers, run: go("/") }];
-    for (const t of tasks.filter((x) => x.state === "ready")) items.push({ id: `go:task:${t.id}`, title: `${t.id} ${t.slug}`, detail: `task · ${t.repos.join(", ")}`, icon: ArrowRight, run: go(`/t/${encodeURIComponent(t.id)}`) });
+    for (const t of tasks.filter((x) => x.state === "ready")) items.push({ id: `go:task:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: `task · ${t.repos.join(", ")}`, icon: ArrowRight, run: go(`/t/${encodeURIComponent(t.id)}`) });
     for (const d of DESKS) items.push({ id: `go:desk:${d.kind}`, title: `${d.label} desk`, icon: d.icon, run: go(`/c/${d.kind}`) });
     items.push({ id: "task:new", title: "New task…", detail: "⌘⇧N", icon: Plus, run: openNewTaskDialog });
     if (taskId) {
@@ -168,7 +168,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
     const icon = (t: TabEntry): Pick<Item, "icon" | "mark"> => (t.group === "claude" ? { mark: "claude" } : { icon: t.group === "shell" ? SquareTerminal : File });
     const items: Item[] = ordered.map((t) => ({ id: `tab:${t.id}`, title: t.label, detail: t.detail, ...icon(t), run: t.activate }));
     // Other tasks follow the open tabs.
-    for (const t of tasks.filter((x) => x.state === "ready" && x.id !== taskId)) items.push({ id: `tab:task:${t.id}`, title: t.id, detail: t.slug, icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) });
+    for (const t of tasks.filter((x) => x.state === "ready" && x.id !== taskId)) items.push({ id: `tab:task:${t.id}`, title: t.id, detail: t.title ?? t.slug, icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) });
     return items;
   }, [tabs, tasks, taskId, router]);
 
@@ -188,7 +188,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
     if (mode === "files" && !taskId) {
       return tasks
         .filter((t) => t.state === "ready")
-        .map((t) => ({ id: `go:task:${t.id}`, title: `${t.id} ${t.slug}`, detail: "open a task to find its files", icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) }))
+        .map((t) => ({ id: `go:task:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: "open a task to find its files", icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) }))
         .filter((it) => fuzzy(q, it.title) !== null);
     }
     return [];
