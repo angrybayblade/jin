@@ -2091,3 +2091,16 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
 .task-label[data-error] strong {
   color: var(--state-failed);
 }
+
+.nav-pr {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+}
+.nav-pr.is-attention {
+  color: var(--state-failed);
+}
+html[data-sidebar="collapsed"] .nav-pr {
+  display: none;
+}

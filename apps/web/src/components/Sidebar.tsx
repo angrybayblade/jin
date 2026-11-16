@@ -23,7 +23,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, NotificationSettings, Session, Task, TaskJob, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, NotificationSettings, Session, Task, TaskJob, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
@@ -60,6 +60,7 @@ export function Sidebar({
   workspace,
   mode,
   notifications,
+  prs = [],
 }: {
   tasks: Task[];
   sessions: Session[];
@@ -69,6 +70,7 @@ export function Sidebar({
   workspace: string;
   mode: string;
   notifications: NotificationSettings;
+  prs?: TaskPR[];
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -128,6 +130,9 @@ export function Sidebar({
     const s = latest((x) => x.taskId === t.id);
     const mark = cli ? AGENT_MARK[cli.status] : s?.state;
     const title = t.title ?? t.slug;
+    // Open PRs: a quiet mark, red when one needs you (failing checks, changes requested).
+    const open = prs.filter((p) => p.taskId === t.id && p.state === "OPEN");
+    const needsYou = open.filter((p) => p.checks === "failing" || p.review === "CHANGES_REQUESTED");
     return (
       <Link key={t.id} href={`/t/${encodeURIComponent(t.id)}`} className={`nav-item task ${path === `/t/${t.id}` ? "active" : ""} ${t.archived ? "is-archived" : ""}`} title={title} {...contextMenu(() => taskMenu(t))}>
         {mark ? <StatusMark state={mark} /> : <span className="status-dot" aria-hidden="true" />}
@@ -147,6 +152,11 @@ export function Sidebar({
             <span className="nav-sub">{title}</span>
           )}
         </span>
+        {open.length > 0 && (
+          <span className={`nav-pr ${needsYou.length ? "is-attention" : ""}`} title={open.map((p) => `#${p.number} ${p.title ?? ""} — ${p.checks === "failing" ? "checks failing" : p.review === "CHANGES_REQUESTED" ? "changes requested" : p.draft ? "draft" : (p.review ?? "open").toLowerCase().replace("_", " ")}`).join("\n")}>
+            <GitPullRequest size={12} />
+          </span>
+        )}
       </Link>
     );
   };

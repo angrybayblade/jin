@@ -6,15 +6,15 @@ import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
-import { daemon, DaemonUnavailable, type Approval, type NotificationSettings, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, DaemonUnavailable, type Approval, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
 /** The persistent workspace shell: sidebar, then each page's chat and side pane. */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
-  let shell: { status: Status; tasks: Task[]; sessions: Session[]; approvals: Approval[]; terminals: TerminalInfo[]; jobs: TaskJob[]; notifications: NotificationSettings };
+  let shell: { status: Status; tasks: Task[]; sessions: Session[]; approvals: Approval[]; terminals: TerminalInfo[]; jobs: TaskJob[]; notifications: NotificationSettings; prs: TaskPR[] };
   try {
-    const [status, tasks, sessions, approvals, terminals, jobs, notifications] = await Promise.all([
+    const [status, tasks, sessions, approvals, terminals, jobs, notifications, prs] = await Promise.all([
       daemon<Status>("/api/status"),
       daemon<Task[]>("/api/tasks"),
       daemon<Session[]>("/api/sessions"),
@@ -22,8 +22,9 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
       daemon<TerminalInfo[]>("/api/terminals"),
       daemon<TaskJob[]>("/api/task-jobs"),
       daemon<NotificationSettings>("/api/notifications").catch(() => ({ enabled: true, sound: true })),
+      daemon<TaskPR[]>("/api/prs").catch(() => [] as TaskPR[]),
     ]);
-    shell = { status, tasks, sessions, approvals, terminals, jobs, notifications };
+    shell = { status, tasks, sessions, approvals, terminals, jobs, notifications, prs };
   } catch (err) {
     if (!(err instanceof DaemonUnavailable)) throw err;
     return (
@@ -45,6 +46,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         workspace={shell.status.workspaces.join(", ") || "no workspace"}
         mode={shell.status.mode}
         notifications={shell.notifications}
+        prs={shell.prs}
       />
       <SidebarResizer />
       <Palette tasks={shell.tasks} />
