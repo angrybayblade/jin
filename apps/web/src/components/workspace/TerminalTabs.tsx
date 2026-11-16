@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { closeTerminal, openTerminal, startTerminal } from "@/app/actions";
 import type { AgentStatus, TerminalInfo } from "@/lib/daemon";
+import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { TerminalView } from "./TerminalView";
 
@@ -74,12 +75,32 @@ export function TerminalTabs({
   const current = tabs.find((t) => t.id === selected) ?? tabs.at(-1) ?? null;
   useEffect(() => {
     if (!current) return;
+    touchTab(current.id);
     try {
       localStorage.setItem(storageKey, current.id);
     } catch {}
-  }, [current, storageKey]);
+  }, [current?.id, storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const remember = (t: TerminalInfo) => setLocal((l) => ({ ...l, [t.id]: t }));
+
+  // The tab switcher (⌘E) lists these tabs and can bring one to front.
+  const owner = `term:${taskId}:${kind}`;
+  useEffect(() => {
+    registerTabs(
+      owner,
+      tabs.map((t) => ({
+        id: t.id,
+        group: kind,
+        label: t.title,
+        detail: `${taskId} · ${kind === "claude" ? `Claude Code · ${t.status}` : "shell"}`,
+        activate: () => {
+          setSelected(t.id);
+          if (kind === "shell") window.dispatchEvent(new CustomEvent("jin:show-pane-tab", { detail: { taskId, tab: "terminal" } }));
+        },
+      })),
+    );
+  }, [owner, tabs, kind, taskId]);
+  useEffect(() => () => unregisterTabs(owner), [owner]);
 
   const create = () =>
     once(`${taskId}:${kind}:new:${tabs.length}`, () => openTerminal({ taskId, kind }))
