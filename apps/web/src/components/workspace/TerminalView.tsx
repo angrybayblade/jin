@@ -108,7 +108,7 @@ export function TerminalView({
       const term = new Terminal({
         fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
         fontSize: 13,
-        lineHeight: 1.15,
+        lineHeight: 1.1,
         cursorBlink: true,
         theme: THEMES[themeRef.current],
         allowProposedApi: true,

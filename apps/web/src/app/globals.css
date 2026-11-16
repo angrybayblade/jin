@@ -1034,11 +1034,10 @@ button.step-line:hover {
   min-width: 0;
   position: relative;
   background: var(--surface);
-  padding: var(--space-2);
 }
 .terminal-host {
   position: absolute;
-  inset: var(--space-2);
+  inset: 2px 0 0 4px;
 }
 .terminal-status {
   position: absolute;
