@@ -420,9 +420,6 @@ export function TaskWorkspace({
   return (
     <section className="task-workspace" ref={root} data-theme={theme === "system" ? undefined : theme} aria-label={`Task ${taskId}`}>
       <header className="pane-header has-tabs task-bar">
-        <span className="task-id" title={subtitle}>
-          {taskId}
-        </span>
         <div className="task-tabs" role="tablist" aria-label={`${taskId} tabs`}>
           {terms.map((t) => {
             const k = termKey(t.id);

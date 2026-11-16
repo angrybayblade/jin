@@ -1866,28 +1866,45 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   background: var(--canvas);
   color: var(--ink);
 }
+/* Compact tabs: small pills centred in the bar, not full-height blocks. */
 .task-bar {
-  gap: var(--space-2);
-  padding-left: var(--space-3);
-}
-.task-id {
-  flex: none;
-  align-self: center;
-  font-weight: var(--weight-primary);
-  font-size: 13px;
-  letter-spacing: -0.01em;
-  cursor: default;
+  gap: 4px;
+  padding-left: var(--space-2);
+  align-items: center;
 }
 .task-tabs {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 2px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .task-tabs .term-tab {
-  border-radius: 0;
+  height: 26px;
+  max-width: 200px;
+  gap: 5px;
+  padding: 0 2px 0 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+.task-tabs .term-tab .thermal-mark,
+.task-tabs .term-tab canvas {
+  width: 12px !important;
+  height: 12px !important;
+}
+.task-tabs .file-tab-close {
+  width: 18px;
+  height: 18px;
+}
+.task-bar .tab-new {
+  align-self: center;
+}
+.task-bar .term-tab-new {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-control);
 }
 .tab-icon {
   flex: none;
@@ -1908,7 +1925,7 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
 }
 .tab-new-menu {
   position: absolute;
-  top: calc(100% - 4px);
+  top: calc(100% + 4px);
   left: 0;
   z-index: 40;
   display: grid;
@@ -1970,4 +1987,9 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.task-tabs .status-mark {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
