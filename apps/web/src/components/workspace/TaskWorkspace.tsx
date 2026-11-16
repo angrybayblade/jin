@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
 import { useArmedConfirm } from "@/lib/confirm";
-import type { AgentStatus, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { readLayout, updateLayout } from "@/lib/layout";
@@ -15,6 +15,7 @@ import { RenameInput } from "../RenameInput";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { Panes } from "../Panes";
 import { FilesPanel } from "./FilesPanel";
+import { TaskLabel, TaskPRBadges } from "./TaskPRs";
 import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
 import { TerminalView } from "./TerminalView";
@@ -60,11 +61,13 @@ export function TaskWorkspace({
   taskId,
   subtitle,
   terminals,
+  prs,
   wsBase,
 }: {
   taskId: string;
   subtitle: string;
   terminals: TerminalInfo[];
+  prs: TaskPR[];
   wsBase: string;
 }) {
   const router = useRouter();
@@ -441,10 +444,8 @@ export function TaskWorkspace({
           )}
         </div>
         <NewTab onClaude={() => void create("claude")} onShell={() => void create("shell")} onRestore={(e) => void restoreMenu(e)} />
-        <span className="task-label" title={`${taskId} · ${subtitle}`}>
-          <strong>{taskId}</strong>
-          <span>{subtitle}</span>
-        </span>
+        <TaskPRBadges taskId={taskId} prs={prs} />
+        <TaskLabel taskId={taskId} subtitle={subtitle} />
         <div className="pane-actions">
           <button type="button" className="button quiet icon-only" onClick={showChanges} title="Changes: the task's uncommitted diff" aria-label="Show changes">
             <GitCompare size={14} />

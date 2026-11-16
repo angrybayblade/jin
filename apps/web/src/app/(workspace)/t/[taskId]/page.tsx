@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { TaskView } from "@/components/workspace/TaskView";
 import { TaskSetup } from "@/components/TaskSetup";
-import { daemon, daemonWsBase, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, daemonWsBase, type Task, type TaskJob, type TaskPR, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,9 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
       </section>
     );
   }
-  const terminals = await daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`);
-  return <TaskView key={task.id} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} wsBase={daemonWsBase()} />;
+  const [terminals, prs] = await Promise.all([
+    daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`),
+    daemon<TaskPR[]>(`/api/tasks/${encodeURIComponent(taskId)}/prs`).catch(() => [] as TaskPR[]),
+  ]);
+  return <TaskView key={task.id} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} prs={prs} wsBase={daemonWsBase()} />;
 }

@@ -169,3 +169,19 @@ export interface NotificationSettings {
   enabled: boolean;
   sound: boolean;
 }
+
+export interface TaskPR {
+  taskId: string;
+  url: string;
+  repo: string;
+  number: number;
+  title: string | null;
+  state: "OPEN" | "CLOSED" | "MERGED" | null;
+  draft: boolean;
+  review: string | null;
+  checks: "passing" | "failing" | "pending" | null;
+  head: string | null;
+  attachedBy: string;
+  attachedAt: string;
+  updatedAt: string | null;
+}

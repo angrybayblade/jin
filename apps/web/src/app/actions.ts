@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { daemon, type ChatKind, type FileEntry, type NotificationSettings, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -212,4 +212,26 @@ export async function testNotification(): Promise<{ sent: boolean; skipped: stri
 
 export async function reportPresence(p: { path: string; chat: string | null; terminal: string | null; focused: boolean }): Promise<void> {
   await daemon("/api/presence", { method: "POST", json: p });
+}
+
+// ---------------------------------------------------------------- pull requests attached to tasks
+
+export async function attachTaskPr(taskId: string, url: string): Promise<TaskPR | { error: string }> {
+  try {
+    const pr = await daemon<TaskPR>(`/api/tasks/${encodeURIComponent(taskId)}/prs`, { method: "POST", json: { url } });
+    revalidatePath("/", "layout");
+    return pr;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
+  }
+}
+
+export async function detachTaskPr(taskId: string, url: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs`, { method: "DELETE", json: { url } });
+  revalidatePath("/", "layout");
+}
+
+export async function refreshTaskPrs(taskId: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs/refresh`, { method: "POST" });
+  revalidatePath("/", "layout");
 }
