@@ -10,6 +10,7 @@ import { Feed, feedRoutes } from "./feed";
 import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
+import { machineRoutes, Machines } from "./machines";
 import { claudeHarness } from "./harness";
 import { Router } from "./http";
 import { join } from "node:path";
@@ -98,6 +99,11 @@ const syncPrs = async () => {
 const prTimer = setInterval(() => void syncPrs(), 5 * 60_000);
 setTimeout(() => void syncPrs(), 5_000);
 
+// Remote machines over SSH: each runs its own jin daemon, reached through a tunnel.
+const machines = new Machines(config, app.workspaces);
+machineRoutes(app.router, machines);
+machines.resume();
+
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];
 const ATTACH = /^\/api\/terminals\/([^/]+)\/attach$/;
@@ -155,6 +161,7 @@ console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, m
 
 function shutdown() {
   clearInterval(prTimer);
+  machines.stopAll();
   terminals.stopAll();
   server.stop(true);
   db.close();
