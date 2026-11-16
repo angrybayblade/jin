@@ -1,6 +1,6 @@
 "use client";
 import { Code2, GitCompare, SquareTerminal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TerminalInfo } from "@/lib/daemon";
 import { usePaneTheme } from "@/lib/theme";
 import { ThemeToggle } from "../ThemeToggle";
@@ -20,6 +20,23 @@ export function WorkspacePane({ taskId, wsBase, shells }: { taskId: string; wsBa
   const [tab, setTab] = useState<Tab>("editor");
   const [terminalSeen, setTerminalSeen] = useState(false);
   const [theme, setTheme] = usePaneTheme("workspace");
+
+  // The finder opens files here, and the tab switcher can bring a shell to front.
+  useEffect(() => {
+    const show = (e: Event) => {
+      const d = (e as CustomEvent<{ taskId: string; tab?: Tab }>).detail;
+      if (d.taskId !== taskId) return;
+      const next: Tab = e.type === "jin:open-file" ? "editor" : (d.tab ?? "editor");
+      setTab(next);
+      if (next === "terminal") setTerminalSeen(true);
+    };
+    window.addEventListener("jin:open-file", show);
+    window.addEventListener("jin:show-pane-tab", show);
+    return () => {
+      window.removeEventListener("jin:open-file", show);
+      window.removeEventListener("jin:show-pane-tab", show);
+    };
+  }, [taskId]);
   return (
     <section className="workspace-pane" data-theme={theme === "system" ? undefined : theme} aria-label="Workspace">
       <header className="pane-header">
