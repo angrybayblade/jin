@@ -1,6 +1,6 @@
 // Server-only access to the jin daemon. The token is read from $JIN_HOME/daemon.json
 // on the server; the browser never sees it and never talks to the daemon directly.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { cookies } from "next/headers";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -141,18 +141,44 @@ export const MACHINE_COOKIE = "jin-machine";
 
 const jinHome = () => process.env.JIN_HOME ?? join(homedir(), ".jin");
 
+/** The always-on hub this jin uses as its home, if one is set: chats, desks, feed and approvals live there. */
+export function homeMachine(): string {
+  const dir = join(jinHome(), "machines");
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".json")) continue;
+      const m = JSON.parse(readFileSync(join(dir, f), "utf8")) as { id: string; home?: boolean; token?: string | null };
+      if (m.home && m.token) return m.id;
+    }
+  } catch {
+    // no machines yet
+  }
+  return "local";
+}
+
 export async function currentMachine(): Promise<string> {
   try {
     const id = (await cookies()).get(MACHINE_COOKIE)?.value;
-    return id && /^[a-z0-9-]+$/.test(id) && existsSync(join(jinHome(), "machines", `${id}.json`)) ? id : "local";
+    if (id === "local") return "local";
+    if (id && /^[a-z0-9-]+$/.test(id) && existsSync(join(jinHome(), "machines", `${id}.json`))) return id;
   } catch {
-    return "local"; // outside a request
+    // outside a request
   }
+  return homeMachine(); // the home, when there is one; else this machine
 }
 
-/** The daemon's websocket base, for the browser (which connects with one-time tickets, never the token). */
-export async function daemonWsBase(): Promise<string> {
-  return connection(await currentMachine()).url.replace(/^http/, "ws");
+/** What lives on the home (hub) rather than on the machine a task page shows. */
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications)(\/|\?|$)/;
+function machineFor(path: string, init: { json?: unknown }): string | null {
+  if (HOME_PATH.test(path)) return homeMachine();
+  // A websocket ticket goes where its socket is: a chat's stream to the home.
+  if (path === "/api/tickets" && typeof (init.json as { path?: string } | undefined)?.path === "string" && (init.json as { path: string }).path.startsWith("/api/sessions/")) return homeMachine();
+  return null;
+}
+
+/** The daemon's websocket base, for the browser (which connects with one-time tickets, never the token); `home` for chats. */
+export async function daemonWsBase(opts: { home?: boolean } = {}): Promise<string> {
+  return connection(opts.home ? homeMachine() : await currentMachine()).url.replace(/^http/, "ws");
 }
 
 /**
@@ -181,7 +207,7 @@ function connection(machine: string): { url: string; token: string } {
 
 /** A daemon call: to the machine the app is showing, or with `local`, always to this machine's own daemon. */
 export async function daemon<T>(path: string, init: { method?: string; json?: unknown; local?: boolean; machine?: string; timeoutMs?: number } = {}): Promise<T> {
-  const machine = init.machine ?? (init.local ? "local" : await currentMachine());
+  const machine = init.machine ?? (init.local ? "local" : (machineFor(path, init) ?? (await currentMachine())));
   const { url, token } = connection(machine);
   let res: Response;
   try {
@@ -236,6 +262,10 @@ export interface MachineAuth {
 /** A remote machine, as this machine's daemon sees it (never its token). */
 export interface Machine {
   id: string;
+  /** This jin's home (the always-on hub). */
+  home?: boolean;
+  /** On a hub: a machine that connected itself (a laptop), reached back over its own line. */
+  attached?: boolean;
   host: string;
   label: string;
   remotePort: number;

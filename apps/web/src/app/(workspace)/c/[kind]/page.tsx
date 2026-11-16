@@ -74,7 +74,7 @@ export default async function DeskPage({ params, searchParams }: { params: Promi
         session={session}
         initialEvents={events}
         approvals={approvals.filter((a) => sessions.some((s) => s.id === a.sessionId))}
-        wsBase={await daemonWsBase()}
+        wsBase={await daemonWsBase({ home: true })}
         title={desk.label}
         subtitle="desk"
         welcome={{ overline: desk.label, heading: `Your ${desk.label} desk`, body: desk.body, suggestions: desk.suggestions, notice: connection.ok ? undefined : connection.text }}

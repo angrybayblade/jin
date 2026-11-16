@@ -6,6 +6,9 @@ import {
   addMachine,
   cancelMachineSignIn,
   checkMachineAuth,
+  hubKey,
+  moveToHome,
+  setMachineHome,
   detectMachineWorkspaces,
   getMachine,
   removeMachine,
@@ -307,6 +310,96 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
   );
 }
 
+/** Using a machine as jin's always-on home (the hub), and moving to it. */
+function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
+  const router = useRouter();
+  const [key, setKey] = useState<string | null>(null);
+  const [moved, setMoved] = useState<{ history: { sessions: number; events: number; feed: number }; machines: { id: string; ok: boolean; error?: string }[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async <T,>(p: Promise<T | { error: string }>, done: (v: T) => void) => {
+    setBusy(true);
+    setError(null);
+    const r = await p;
+    setBusy(false);
+    if (r && typeof r === "object" && "error" in r) setError((r as { error: string }).error);
+    else done(r as T);
+    refresh();
+    router.refresh();
+  };
+  if (!machine.home) {
+    return (
+      <section className="md-card">
+        <div className="md-card-head is-static">
+          <h3>Home</h3>
+          <span className="meta">run jin's main daemon here, always on</span>
+          <button type="button" className="button small md-card-action" disabled={busy || !machine.connected} onClick={() => void run(setMachineHome(machine.id, true).then((r) => r ?? {}), () => {})}>
+            Use as home
+          </button>
+        </div>
+        <div className="md-card-body">
+          <p className="meta">
+            jin's chat, the desks, the GitHub feed and approvals move to {machine.label} and keep going while this machine sleeps. This machine stays one of its machines: its tasks and Claude
+            Code sessions run here, and the app keeps working from here.
+          </p>
+          {error && <p className="machine-error">{error}</p>}
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="md-card">
+      <div className="md-card-head is-static">
+        <h3>Home</h3>
+        <span className="meta">jin's always-on home; this machine is attached to it</span>
+        <button type="button" className="button small quiet md-card-action" disabled={busy} onClick={() => void run(setMachineHome(machine.id, false).then((r) => r ?? {}), () => {})}>
+          Stop
+        </button>
+      </div>
+      <ol className="home-steps">
+        <li>
+          <div className="home-step-line">
+            <span>Let {machine.label} reach your other machines with its own key</span>
+            {!key && (
+              <button type="button" className="button small" disabled={busy} onClick={() => void run(hubKey(machine.id), (r) => setKey(r.publicKey))}>
+                Show its key
+              </button>
+            )}
+          </div>
+          {key && (
+            <div className="home-key">
+              <code className="home-key-text">{key}</code>
+              <CopyButton text={key} />
+              <p className="meta">Add it to your exe.dev account's SSH keys (or each machine's ~/.ssh/authorized_keys). It was made on {machine.label} and never leaves it.</p>
+            </div>
+          )}
+        </li>
+        <li>
+          <div className="home-step-line">
+            <span>Move this machine's chats and feed there, and have it connect to your other machines</span>
+            <button type="button" className="button small primary" disabled={busy} onClick={() => void run(moveToHome(machine.id), setMoved)}>
+              {busy ? <LoaderCircle size={12} className="spin" /> : null} Move
+            </button>
+          </div>
+          {moved && (
+            <div className="home-result">
+              <p className="meta">
+                Moved {moved.history.sessions} chats and {moved.history.feed} feed items.
+              </p>
+              {moved.machines.map((r) => (
+                <p key={r.id} className={r.ok ? "meta setup-done" : "machine-error"}>
+                  {r.ok ? <Check size={12} className="step-done" /> : null} {r.id}: {r.ok ? `${machine.label} is connecting to it` : r.error}
+                </p>
+              ))}
+            </div>
+          )}
+        </li>
+      </ol>
+      {error && <p className="machine-error home-error">{error}</p>}
+    </section>
+  );
+}
+
 function MachineDetail({ initial, current, onRemoved }: { initial: Machine; current: boolean; onRemoved: () => void }) {
   const router = useRouter();
   const [m, setM] = useState(initial);
@@ -345,6 +438,7 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
           <div className="md-name">
             <h2>{m.label}</h2>
             <span className={`machine-pill is-${state.tone}`}>{state.label}</span>
+            {m.home && <span className="machine-pill is-home">home</span>}
           </div>
           <span className="meta">ssh {m.host}</span>
         </div>
@@ -435,6 +529,7 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
             </ul>
           </section>
           <Workspace machine={m} refresh={refresh} />
+          <Home machine={m} refresh={refresh} />
         </>
       )}
     </article>
@@ -480,6 +575,7 @@ export function Machines({ machines, current, selected }: { machines: Machine[];
               <button key={m.id} type="button" className={`machines-item ${pick === m.id ? "is-selected" : ""} ${current === m.id ? "is-current" : ""}`} onClick={() => setPick(m.id)}>
                 <span className={`machine-dot is-${s.tone}`} />
                 <span className="machines-item-name">{m.label}</span>
+                {m.home && <span className="machine-pill is-home">home</span>}
                 <span className="meta">{current === m.id ? "current" : s.label}</span>
               </button>
             );

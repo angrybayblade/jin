@@ -34,7 +34,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         session={session}
         initialEvents={events}
         approvals={approvals}
-        wsBase={await daemonWsBase()}
+        wsBase={await daemonWsBase({ home: true })}
         title="Jin"
         subtitle="your orchestrator"
         welcome={{

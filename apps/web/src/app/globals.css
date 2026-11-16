@@ -2831,3 +2831,56 @@ p.machine-auth-body {
     border-left: 0;
   }
 }
+.machine-pill.is-home {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+.home-steps {
+  display: grid;
+  margin: 0;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+  list-style: decimal inside;
+}
+.home-steps > li {
+  display: grid;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  font-size: var(--type-meta);
+}
+.home-step-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: calc(100% - 18px);
+}
+.home-key {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: 18px;
+}
+.home-key .meta {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.home-key-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface-subtle);
+  font-family: var(--font-code);
+  font-size: 11px;
+  user-select: all;
+}
+.home-result,
+.home-error {
+  margin: 0 0 0 18px;
+}
+.home-result p {
+  margin: 2px 0;
+}

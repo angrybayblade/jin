@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ machine
   const { machine, rest } = await params;
   const home = process.env.JIN_HOME ?? join(homedir(), ".jin");
   const jar = await cookies();
-  if (machine === "local") jar.delete(MACHINE_COOKIE);
+  if (machine === "local") jar.set(MACHINE_COOKIE, "local", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
   else if (/^[a-z0-9-]+$/.test(machine) && existsSync(join(home, "machines", `${machine}.json`))) {
     jar.set(MACHINE_COOKIE, machine, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
   } else redirect("/machines");

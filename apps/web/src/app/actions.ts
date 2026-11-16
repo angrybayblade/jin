@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, MACHINE_COOKIE, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, homeMachine, MACHINE_COOKIE, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -212,7 +212,8 @@ export async function testNotification(): Promise<{ sent: boolean; skipped: stri
 }
 
 export async function reportPresence(p: { path: string; chat: string | null; terminal: string | null; focused: boolean }): Promise<void> {
-  await daemon("/api/presence", { method: "POST", json: p });
+  // To the home (its notices) and, with a home set, to this machine too (its own Claude Code sessions).
+  await Promise.all([daemon("/api/presence", { method: "POST", json: p }), homeMachine() !== "local" ? daemon("/api/presence", { method: "POST", json: p, machine: "local" }).catch(() => {}) : null]);
 }
 
 // ---------------------------------------------------------------- pull requests attached to tasks
@@ -320,8 +321,8 @@ export async function removeMachine(id: string): Promise<void> {
 /** Show another machine's jin ("local" for this one): tasks, terminals and chats all come from it. */
 export async function switchMachine(id: string): Promise<void> {
   const jar = await cookies();
-  if (id === "local") jar.delete(MACHINE_COOKIE);
-  else jar.set(MACHINE_COOKIE, id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+  // "local" is kept explicitly: with a home set, no cookie means the home.
+  jar.set(MACHINE_COOKIE, id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
   revalidatePath("/", "layout");
 }
 
@@ -391,5 +392,38 @@ export async function changeStamp(): Promise<string> {
   return [current(), ...parts].join("|");
   function current() {
     return machines.map((m) => `${m.id}${m.connected ? "+" : "-"}${m.busy ? "*" : ""}`).join(",");
+  }
+}
+
+// ---------------------------------------------------------------- home (the always-on hub)
+
+/** Use a machine as this jin's home: chats, desks, feed and approvals live there; this machine attaches to it. */
+export async function setMachineHome(id: string, home: boolean): Promise<{ error: string } | null> {
+  try {
+    await daemon(machinePath(id, "/home"), { method: "POST", json: { home }, local: true });
+    revalidatePath("/", "layout");
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** The hub's own SSH key (made there if it has none): add its public half to your exe.dev account. */
+export async function hubKey(id: string): Promise<{ publicKey: string } | { error: string }> {
+  try {
+    return await daemon<{ publicKey: string }>(machinePath(id, "/hub-key"), { method: "POST", local: true });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Copy this machine's chats and feed to the home, and ask the home to reach the other machines itself. */
+export async function moveToHome(id: string): Promise<{ history: { sessions: number; events: number; feed: number }; machines: { id: string; ok: boolean; error?: string }[] } | { error: string }> {
+  try {
+    const r = await daemon<{ history: { sessions: number; events: number; feed: number }; machines: { id: string; ok: boolean; error?: string }[] }>(machinePath(id, "/move"), { method: "POST", local: true });
+    revalidatePath("/", "layout");
+    return r;
+  } catch (err) {
+    return fail(err);
   }
 }
