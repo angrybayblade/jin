@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
-import { AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, defaultSpawn, driveSignIn, lines, PATH_LINE, readAuthStatus, SIGN_IN, type SignIn, type Spawn, type Step } from "./machines";
+import { WORKSPACE_PLACES as PLACES, AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, defaultSpawn, driveSignIn, lines, PATH_LINE, readAuthStatus, SIGN_IN, type SignIn, type Spawn, type Step } from "./machines";
 
 /** What jin needs on this machine before it is useful, and how far along it is. */
 export interface SetupView {
@@ -19,8 +19,6 @@ export interface SetupView {
 const LOG_LINES = 300;
 const TOOLS: AuthTool[] = ["gh", "claude", "doppler"];
 
-/** The usual places a composio workspace lives (its installer defaults to ~/composio-workspace). */
-const PLACES = ["composio-workspace", "Workspace/composio-workspace", "workspace/composio-workspace", "code/composio-workspace", "src/composio-workspace", "dev/composio-workspace"];
 
 export const isComposioWorkspace = (dir: string) => existsSync(join(dir, "workspace.yaml")) && existsSync(join(dir, "bin", "cws"));
 

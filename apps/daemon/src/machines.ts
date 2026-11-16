@@ -62,6 +62,8 @@ export interface MachineView extends Omit<MachineRecord, "token"> {
   outdated: boolean;
   steps: Step[];
   workspaceStep: Step | null;
+  /** composio workspaces found on the machine (null: not looked yet). */
+  workspaceCandidates: string[] | null;
   auth: AuthState[];
 }
 
@@ -85,6 +87,30 @@ function localVersion(): string | null {
 const REPO = resolve(import.meta.dir, "../../..");
 // Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
 export const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
+
+/** The usual places a composio workspace lives, under a home folder (its installer defaults to ~/composio-workspace). */
+export const WORKSPACE_PLACES = ["composio-workspace", "Workspace/composio-workspace", "workspace/composio-workspace", "code/composio-workspace", "src/composio-workspace", "dev/composio-workspace"];
+
+/** Lists composio workspaces in the usual places (`WS <path>`), and the one jin there already uses (`USING <path>`). */
+export const DETECT_SCRIPT = `
+for d in ${WORKSPACE_PLACES.join(" ")}; do
+  p="$HOME/$d"
+  if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "WS $(cd "$p" && pwd -P)"; fi
+done | awk '!seen[$0]++'
+if [ -f ~/.jin/workspaces/composio.yaml ]; then echo "USING $(sed -n 's/^root: *//p' ~/.jin/workspaces/composio.yaml | head -1)"; fi
+true
+`;
+
+/** What the detection script found. */
+export function readDetected(out: string): { found: string[]; using: string | null } {
+  const found: string[] = [];
+  let using: string | null = null;
+  for (const line of stripAnsi(out).split("\n").map((l) => l.trim())) {
+    if (line.startsWith("WS ")) found.push(line.slice(3).trim());
+    else if (line.startsWith("USING ")) using = line.slice(6).trim() || null;
+  }
+  return { found: [...new Set(found)], using };
+}
 
 export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
 
@@ -330,6 +356,7 @@ export class Machines {
   private dir: string;
   private steps = new Map<string, Step[]>();
   private workspaceSteps = new Map<string, Step>();
+  private candidates = new Map<string, string[]>();
   private busy = new Set<string>();
   private tunnels = new Map<string, Tunnel>();
   private auth = new Map<string, Map<AuthTool, AuthState>>();
@@ -388,6 +415,7 @@ export class Machines {
       outdated: Boolean(token && m.version && localVersion() && m.version !== localVersion()),
       steps,
       workspaceStep: this.workspaceSteps.get(id) ?? null,
+      workspaceCandidates: this.candidates.get(id) ?? null,
       auth: (["gh", "claude", "doppler"] as AuthTool[]).map((t) => this.authOf(id, t)),
     };
   }
@@ -451,6 +479,7 @@ export class Machines {
         }
       }
       void this.checkAuth(id).catch(() => {});
+      void this.detectWorkspaces(id).catch(() => {});
     } finally {
       this.busy.delete(id);
     }
@@ -703,6 +732,19 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
   // ---------------------------------------------------------------- workspace
 
   /**
+   * Look for composio workspaces on the machine. One that jin there already uses is taken as
+   * the machine's workspace (a machine set up before, or by hand); the rest are offered.
+   */
+  async detectWorkspaces(id: string): Promise<string[]> {
+    const m = this.record(id);
+    const { out } = await this.ssh(m.host, DETECT_SCRIPT, () => {});
+    const { found, using } = readDetected(out);
+    if (using && using !== m.workspace) this.update(id, { workspace: using });
+    this.candidates.set(id, found.filter((p) => p !== using));
+    return found;
+  }
+
+  /**
    * Give the machine's jin a workspace: install the composio workspace there (its own
    * install.sh, with the machine's gh), or use one already on the machine.
    */
@@ -754,6 +796,7 @@ echo "JIN-ROOT $ROOT"
         if (code !== 0) throw new Error("setting up the workspace failed; see the log");
         this.update(id, { workspace: out.match(/^JIN-ROOT (.+)$/m)?.[1]?.trim() ?? null });
         step.state = "done";
+        await this.detectWorkspaces(id).catch(() => {});
       } catch (err) {
         step.state = "failed";
         step.error = err instanceof Error ? err.message : String(err);
@@ -809,6 +852,10 @@ export function machineRoutes(router: Router, machines: Machines) {
     .on("POST", "/api/machines/:id/doppler-token", async (req, p) => {
       const { token } = await body<{ token?: string }>(req);
       await machines.dopplerToken(p.id!, token ?? "");
+      return json(machines.view(p.id!));
+    })
+    .on("POST", "/api/machines/:id/workspaces/detect", async (_req, p) => {
+      await machines.detectWorkspaces(p.id!);
       return json(machines.view(p.id!));
     })
     .on("POST", "/api/machines/:id/workspace", async (req, p) => {

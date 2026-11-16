@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { machineId, readAuthStatus, readSignIn, stripAnsi, validHost } from "../src/machines";
+import { machineId, readAuthStatus, readDetected, readSignIn, stripAnsi, validHost } from "../src/machines";
 
 test("a machine's id comes from its host, and never collides", () => {
   expect(machineId("tmp-jin.exe.xyz")).toBe("tmp-jin");
@@ -41,4 +41,12 @@ test("reads who is signed in from the status probe", () => {
     doppler: { state: "missing", account: null },
   });
   expect(stripAnsi("\x1b[1mhi\x1b[0m\r")).toBe("hi");
+});
+
+test("reads the workspaces found on a machine, and the one jin there uses", () => {
+  expect(readDetected("WS /home/me/composio-workspace\nWS /home/me/Workspace/composio-workspace\nWS /home/me/composio-workspace\nUSING /home/me/composio-workspace\n")).toEqual({
+    found: ["/home/me/composio-workspace", "/home/me/Workspace/composio-workspace"],
+    using: "/home/me/composio-workspace",
+  });
+  expect(readDetected("")).toEqual({ found: [], using: null });
 });
