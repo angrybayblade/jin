@@ -25,12 +25,9 @@ export const EVENTS = {
   linear: { toolkit: "linear", label: "Linear: issues and comments in your teams", triggers: ["LINEAR_ISSUE_CREATED_TRIGGER", "LINEAR_ISSUE_UPDATED_TRIGGER", "LINEAR_COMMENT_EVENT_TRIGGER"] },
   notion_comments: { toolkit: "notion", label: "Notion: comments", triggers: ["NOTION_COMMENT_CREATED"] },
   gmail: { toolkit: "gmail", label: "Gmail: new mail in your primary inbox", triggers: ["GMAIL_NEW_GMAIL_MESSAGE"] },
-  github_prs: {
-    toolkit: "github",
-    label: "GitHub: comments, reviews and commits on PRs you review or wrote",
-    triggers: ["GITHUB_PR_REVIEW_COMMENT_CREATED_TRIGGER", "GITHUB_ISSUE_COMMENT_CREATED_TRIGGER", "GITHUB_PULL_REQUEST_REVIEW_SUBMITTED_TRIGGER", "GITHUB_PULL_REQUEST_COMMIT_ADDED_TRIGGER"],
-  },
-} as const satisfies Record<string, { toolkit: Toolkit; label: string; triggers: readonly string[] }>;
+  // Not a Composio trigger: jin watches these PRs itself with gh (github-watch.ts).
+  github_prs: { toolkit: "github", label: "GitHub: comments, reviews and new commits on PRs you review or wrote", triggers: [], native: true },
+} as const satisfies Record<string, { toolkit: Toolkit; label: string; triggers: readonly string[]; native?: boolean }>;
 export type EventKind = keyof typeof EVENTS;
 
 interface Settings {
@@ -163,11 +160,10 @@ export class Composio {
   private recent: LiveEvent[] = [];
   private seen = new Set<string>();
   private login: { url: string | null; state: "idle" | "waiting" | "done" | "failed"; error: string | null; proc: Proc | null } = { url: null, state: "idle", error: null, proc: null };
-  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private config: Config,
-    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void },
+    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
     private spawn: Spawn = defaultSpawn,
     private bin = process.env.JIN_COMPOSIO_BIN ?? (Bun.which("composio") || join(homedir(), ".local", "bin", "composio")),
   ) {
@@ -240,8 +236,10 @@ export class Composio {
         label: EVENTS[k].label,
         toolkit: EVENTS[k].toolkit,
         on: Boolean(s.events[k]),
-        triggers: triggers.filter((t) => (EVENTS[k].triggers as readonly string[]).includes(t.trigger_name) && t.status === "ACTIVE" && !t.disabled_at).length,
+        native: "native" in EVENTS[k],
+        triggers: "native" in EVENTS[k] ? (this.deps.github?.state.watching ?? 0) : triggers.filter((t) => (EVENTS[k].triggers as readonly string[]).includes(t.trigger_name) && t.status === "ACTIVE" && !t.disabled_at).length,
       })),
+      github: this.deps.github?.state ?? null,
       linearTeams: s.linearTeams,
       listener: { state: this.listener.state, since: this.listener.since, error: this.listener.error },
       recent: this.recent.slice(0, 20),
@@ -301,8 +299,11 @@ export class Composio {
 
   // ---------------------------------------------------------------- triggers
 
+  /** jin's kinds of trigger instances. Asked per trigger name: Composio answers at most 50 per call. */
   async triggers(): Promise<TriggerInstance[]> {
-    return this.cli<TriggerInstance[]>(["dev", "triggers", "status", "--show-disabled", "--limit", "500"]);
+    const names = [...new Set(Object.values(EVENTS).flatMap((e) => [...e.triggers]))];
+    const lists = await Promise.all(names.map((n) => this.cli<TriggerInstance[]>(["dev", "triggers", "status", "--trigger-names", n, "--limit", "500"]).catch(() => [] as TriggerInstance[])));
+    return lists.flat();
   }
 
   private async account(toolkit: Toolkit): Promise<string> {
@@ -342,6 +343,11 @@ export class Composio {
     if (!ev) throw new HttpError(400, `unknown event ${kind}`);
     if (opts.linearTeams) this.save({ linearTeams: opts.linearTeams });
     this.save({ events: { ...this.settings.events, [kind]: on } });
+    if ("native" in ev) {
+      if (on) this.deps.github?.start();
+      else this.deps.github?.stop();
+      return;
+    }
     const existing = await this.triggers();
     const mine = existing.filter((t) => (ev.triggers as readonly string[]).includes(t.trigger_name));
     if (!on) {
@@ -352,8 +358,7 @@ export class Composio {
     const account = await this.account(ev.toolkit);
     const configs = this.configsFor(kind);
     const wanted = new Set<string>();
-    for (const slug of ev.triggers) for (const c of configs) if (kind !== "github_prs") wanted.add(await this.ensure(slug, account, c, existing));
-    if (kind === "github_prs") await this.reconcileGithub();
+    for (const slug of ev.triggers) for (const c of configs) wanted.add(await this.ensure(slug, account, c, existing));
     // Triggers of this event that are no longer wanted (a Linear team taken off) are switched off.
     if (kind === "linear") for (const t of mine) if (!wanted.has(t.id) && t.status === "ACTIVE" && !t.disabled_at) await this.disable(t.id);
   }
@@ -366,38 +371,6 @@ export class Composio {
     if (kind === "gmail") return [{ query: "in:inbox category:primary", interval: 1 }];
     if (kind === "slack_mentions") return [{ is_bot_message: false }];
     return [{}];
-  }
-
-  /**
-   * GitHub triggers watch one pull request each: keep them on the open PRs you are asked to
-   * review or wrote (gh, on this machine), and off the ones that closed.
-   */
-  async reconcileGithub(): Promise<{ watching: number }> {
-    if (!this.settings.events.github_prs) return { watching: 0 };
-    const search = async (q: string) => {
-      const p = Bun.spawn(["gh", "search", "prs", q, "--state=open", "--json", "number,repository", "--limit", "50"], { stdout: "pipe", stderr: "ignore" });
-      const out = await new Response(p.stdout).text();
-      return (await p.exited) === 0 ? (JSON.parse(out || "[]") as { number: number; repository: { nameWithOwner: string } }[]) : [];
-    };
-    const prs = [...(await search("--review-requested=@me")), ...(await search("--author=@me"))];
-    const key = (owner: string, repo: string, n: number) => `${owner}/${repo}#${n}`.toLowerCase();
-    const want = new Map(prs.map((p) => [key(...(p.repository.nameWithOwner.split("/") as [string, string]), p.number), p]));
-    const account = await this.account("github");
-    const existing = await this.triggers();
-    const gh = existing.filter((t) => (EVENTS.github_prs.triggers as readonly string[]).includes(t.trigger_name));
-    for (const p of want.values()) {
-      const [owner, repo] = p.repository.nameWithOwner.split("/") as [string, string];
-      for (const slug of EVENTS.github_prs.triggers) {
-        const cfg = slug === "GITHUB_ISSUE_COMMENT_CREATED_TRIGGER" ? { owner, repo, issue_number: p.number } : { owner, repo, pull_number: p.number };
-        await this.ensure(slug, account, cfg, existing).catch((err) => console.error(`github trigger ${slug} ${owner}/${repo}#${p.number}: ${err}`));
-      }
-    }
-    for (const t of gh) {
-      const c = triggerConfig(t);
-      const k = c.owner && c.repo ? key(String(c.owner), String(c.repo), Number(c.pull_number ?? c.issue_number)) : null;
-      if (k && !want.has(k) && t.status === "ACTIVE" && !t.disabled_at) await this.disable(t.id).catch(() => {});
-    }
-    return { watching: want.size };
   }
 
   /** Who you are on a service, so events about you can be told apart. */
@@ -423,11 +396,17 @@ export class Composio {
   // ---------------------------------------------------------------- the listener
 
   /** Keep `composio dev listen` running while any event is on; restart it when it drops. */
+  /** The GitHub watch runs with jin, when it is switched on. */
+  resumeNative() {
+    if (this.settings.events.github_prs) this.deps.github?.start();
+  }
+
   startListener() {
     const l = this.listener;
     l.stopped = false;
     if (l.proc) return;
-    if (!this.installed || !this.project() || !Object.values(this.settings.events).some(Boolean)) {
+    const composioOn = (Object.keys(this.settings.events) as EventKind[]).some((k) => this.settings.events[k] && EVENTS[k] && !("native" in EVENTS[k]));
+    if (!this.installed || !this.project() || !composioOn) {
       l.state = "off";
       return;
     }
@@ -463,7 +442,6 @@ export class Composio {
       l.timer = setTimeout(() => this.startListener(), l.backoff);
       l.backoff = Math.min(l.backoff * 2, 60_000);
     });
-    this.reconcileTimer ??= setInterval(() => void this.reconcileGithub().catch(() => {}), 10 * 60_000);
   }
 
   stopListener() {
@@ -482,7 +460,6 @@ export class Composio {
 
   stopAll() {
     this.stopListener();
-    if (this.reconcileTimer) clearInterval(this.reconcileTimer);
     this.login.proc?.kill();
   }
 
@@ -498,6 +475,11 @@ export class Composio {
     const e = readEvent(raw, this.settings.me);
     if (!e) return;
     this.listener.backoff = 2000;
+    this.deliver(e);
+  }
+
+  /** A live event (from Composio, or jin's own GitHub watch): recent list, feed, and a notification when it is for you. */
+  deliver(e: LiveEvent) {
     this.recent.unshift(e);
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     const workspace = this.deps.workspaces[0]?.id ?? "live";
@@ -576,5 +558,5 @@ export function composioRoutes(router: Router, c: Composio) {
       else c.restartListener();
       return json(await c.status());
     })
-    .on("POST", "/api/composio/github/reconcile", async () => json(await c.reconcileGithub()));
+    ;
 }
