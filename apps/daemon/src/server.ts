@@ -66,7 +66,7 @@ export function coreRoutes(app: App) {
     )
     .on("POST", "/api/tickets", async (req) => {
       const { path } = await body<{ path?: string }>(req);
-      if (!path || !/^\/api\/(sessions\/[^/]+\/stream|terminal)$/.test(path)) throw new HttpError(400, "tickets are for /api/sessions/:id/stream and /api/terminal");
+      if (!path || !/^\/api\/(sessions\/[^/]+\/stream|terminals\/[^/]+\/attach)$/.test(path)) throw new HttpError(400, "tickets are for /api/sessions/:id/stream and /api/terminals/:id/attach");
       return json(app.tickets.issue(path), 201);
     })
     .on("POST", "/api/schedules", () => {

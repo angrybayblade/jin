@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
-import { terminalHandlers, type TerminalSocket } from "./terminal";
+import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
 import { Tickets } from "./tickets";
 
 const HOST = "127.0.0.1"; // never a public interface; reach a VM over SSH or Tailscale
@@ -51,9 +51,15 @@ fileRoutes(app.router, tasks);
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
 sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces }));
 sessionRoutes(app.router, sessions, adapters);
+const terminals = new Terminals();
+terminalRoutes(app.router, terminals, tasks, app.workspaces, {
+  args: () => [],
+  env: (w): Record<string, string> => (w?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: w.profile.claudeConfigDir } : {}),
+});
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
-type SocketData = StreamSocket["data"] | TerminalSocket["data"];
+type SocketData = StreamSocket["data"] | AttachSocket["data"];
+const ATTACH = /^\/api\/terminals\/([^/]+)\/attach$/;
 const isWebsocket = (req: Request) => req.headers.get("upgrade")?.toLowerCase() === "websocket";
 
 const server = Bun.serve<SocketData>({
@@ -75,33 +81,31 @@ const server = Bun.serve<SocketData>({
       if (srv.upgrade(req, { data: { type: "stream", sessionId, after } })) return undefined;
       return Response.json({ error: "upgrade failed" }, { status: 400 });
     }
-    if (url.pathname === "/api/terminal" && isWebsocket(req)) {
+    const attach = url.pathname.match(ATTACH);
+    if (attach && isWebsocket(req)) {
       const denied = guard(app, req, url);
       if (denied) return denied;
-      const taskId = url.searchParams.get("task");
-      let cwd: string;
+      const terminalId = decodeURIComponent(attach[1]!);
       try {
-        cwd = taskId ? tasks.get(taskId).root : (app.workspaces[0]?.root ?? config.home);
+        terminals.get(terminalId);
       } catch {
-        return Response.json({ error: "unknown task" }, { status: 404 });
+        return Response.json({ error: "unknown terminal" }, { status: 404 });
       }
-      const cols = Number(url.searchParams.get("cols")) || 100;
-      const rows = Number(url.searchParams.get("rows")) || 30;
-      if (srv.upgrade(req, { data: { type: "terminal", cwd, cols, rows } })) return undefined;
+      if (srv.upgrade(req, { data: { type: "attach", terminalId } })) return undefined;
       return Response.json({ error: "upgrade failed" }, { status: 400 });
     }
     return handle(app, req, url);
   },
   websocket: {
     open(ws) {
-      if (ws.data.type === "terminal") terminalHandlers.open(ws as TerminalSocket);
+      if (ws.data.type === "attach") terminals.attach(ws as AttachSocket);
       else sessions.subscribe(ws as StreamSocket);
     },
     message(ws, msg) {
-      if (ws.data.type === "terminal") terminalHandlers.message(ws as TerminalSocket, msg);
+      if (ws.data.type === "attach") terminals.message(ws as AttachSocket, msg);
     },
     close(ws) {
-      if (ws.data.type === "terminal") terminalHandlers.close(ws as TerminalSocket);
+      if (ws.data.type === "attach") terminals.detach(ws as AttachSocket);
       else sessions.unsubscribe(ws as StreamSocket);
     },
   },
@@ -113,6 +117,7 @@ chmodSync(info, 0o600);
 console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, model ${config.model})`);
 
 function shutdown() {
+  terminals.killAll();
   server.stop(true);
   db.close();
   rmSync(info, { force: true });
