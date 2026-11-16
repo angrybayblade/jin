@@ -316,6 +316,7 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
   const [key, setKey] = useState<string | null>(null);
   const [moved, setMoved] = useState<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async <T,>(p: Promise<T | { error: string }>, done: (v: T) => void) => {
     setBusy(true);
@@ -333,11 +334,25 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
         <div className="md-card-head is-static">
           <h3>Home</h3>
           <span className="meta">run jin's main daemon here, always on</span>
-          <button type="button" className="button small md-card-action" disabled={busy || !machine.connected} onClick={() => void run(setMachineHome(machine.id, true).then((r) => r ?? {}), () => {})}>
-            Use as home
+          <button
+            type="button"
+            className={`button small md-card-action ${armed ? "primary" : ""}`}
+            disabled={busy || !machine.connected}
+            onClick={() => (armed ? (setArmed(false), void run(setMachineHome(machine.id, true).then((r) => r ?? {}), () => {})) : setArmed(true))}
+          >
+            {busy ? (
+              <>
+                <LoaderCircle size={12} className="spin" /> Switching…
+              </>
+            ) : armed ? (
+              `Make ${machine.label} the home`
+            ) : (
+              "Use as home"
+            )}
           </button>
         </div>
         <div className="md-card-body">
+          {armed && <p className="machine-notice">The app switches to {machine.label} for chats, desks, the feed and approvals. Click again to confirm.</p>}
           <p className="meta">
             jin's chat, the desks, the GitHub feed and approvals move to {machine.label} and keep going while this machine sleeps. This machine stays one of its machines: its tasks and Claude
             Code sessions run here, and the app keeps working from here.
