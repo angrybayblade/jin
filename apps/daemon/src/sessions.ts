@@ -310,6 +310,8 @@ export class Sessions {
         resume,
         model: this.deps.config.model,
         instructions: chatInstructions(session.kind, workspace),
+        // These desks work through the user's claude.ai connectors, which connect in the background.
+        needsConnectors: ["gmail", "slack", "linear", "notion"].includes(session.kind),
         tools: session.kind === "jin" ? this.deps.jinTools?.() : undefined,
         gate: this.gate(sessionId, session.workspace),
         emit: (kind, payload) => this.emit(sessionId, kind, payload),

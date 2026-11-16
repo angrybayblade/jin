@@ -22,6 +22,8 @@ export interface HarnessRun {
   model?: string;
   /** Appended to the agent's system prompt: what this chat is for. */
   instructions?: string;
+  /** Hold the first message until the user's claude.ai connectors (Gmail, Slack...) have connected. */
+  needsConnectors?: boolean;
   /** Jin's own tools for this chat (jin's chat gets orchestration tools; others none). */
   tools?: JinTool[];
   /** Every tool call goes through this gate before it runs. */

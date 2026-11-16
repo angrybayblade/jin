@@ -1,4 +1,20 @@
-import { createSdkMcpServer, query, tool, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type HookCallback, type McpServerStatus } from "@anthropic-ai/claude-agent-sdk";
+
+/**
+ * Wait (up to `ms`) until the claude.ai connectors are listed and none is still connecting;
+ * without any after a few seconds, the user has none and nothing more is waited for.
+ */
+export async function connectorsReady(status: () => Promise<McpServerStatus[]>, ms = 15_000, none = 6_000): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    const list = await status().catch(() => [] as McpServerStatus[]);
+    const cloud = list.filter((s) => s.name.startsWith("claude.ai "));
+    if (cloud.length && cloud.every((s) => s.status !== "pending")) return;
+    const waited = Date.now() - start;
+    if (waited > ms || (!cloud.length && waited > none)) return;
+    await Bun.sleep(250);
+  }
+}
 import type { Harness, HarnessRun } from "./types";
 
 /**
@@ -49,8 +65,20 @@ export class ClaudeHarness implements Harness {
           }),
         }
       : undefined;
+    // claude.ai connectors (Gmail, Slack, Linear, Notion...) connect in the background: a first
+    // message sent at once runs without them. Desks that need them send it once they are up.
+    // The SDK may start reading the prompt before query() returns: wait for the session first.
+    let live: ReturnType<typeof query> | undefined;
+    const prompt = run.needsConnectors
+      ? (async function* () {
+          while (!live) await Bun.sleep(10);
+          const q = live;
+          await connectorsReady(() => q.mcpServerStatus());
+          yield { type: "user" as const, message: { role: "user" as const, content: run.prompt }, parent_tool_use_id: null, session_id: run.resume ?? "" };
+        })()
+      : run.prompt;
     const session = query({
-      prompt: run.prompt,
+      prompt,
       options: {
         cwd: run.cwd,
         env: { ...process.env, ...run.env } as Record<string, string>,
@@ -74,6 +102,7 @@ export class ClaudeHarness implements Harness {
       },
     });
 
+    live = session;
     try {
       for await (const message of session) {
         if ("session_id" in message && message.session_id) sessionId = message.session_id;

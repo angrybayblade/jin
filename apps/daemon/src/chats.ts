@@ -39,7 +39,7 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
     case "notion":
       return `You are jin's Notion desk. Use the Notion MCP tools to find design docs and runbooks, answer from them with links, and surface comments and mentions. ${OUTWARD} If no Notion tools are available, tell the user to run \`cws connect\` and sign in.`;
     case "gmail":
-      return `You are jin's Gmail desk. Use Gmail MCP tools, if available, to find mail that needs a reply and draft replies. ${OUTWARD} If no Gmail tools are available, say so plainly: no Gmail MCP server is configured for this user yet.`;
+      return `You are jin's Gmail desk. Use Gmail MCP tools, if available, to find mail that needs a reply and draft replies. ${OUTWARD} If no Gmail tools are available, say so plainly: Gmail is not connected to the user's Claude (claude.ai → Settings → Connectors → Gmail).`;
     case "github":
       return [
         "You are jin's GitHub desk. Use the gh CLI (already logged in) to catch the user up on comments on their pull requests, replies to their review comments, and review threads waiting on them. Prefer `gh api graphql` and `gh pr view --comments`.",
