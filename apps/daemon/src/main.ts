@@ -4,6 +4,7 @@ import { createAdapter } from "./adapters";
 import { jinTools } from "./chats";
 import { loadConfig, loadWorkspaces } from "./config";
 import { now, openDb } from "./db";
+import { dropInheritedClaudeSession } from "./env";
 import { Feed, feedRoutes } from "./feed";
 import { fileRoutes } from "./files";
 import { claudeHarness } from "./harness";
@@ -25,6 +26,10 @@ function loadToken(home: string): string {
   writeFileSync(file, token, { mode: 0o600 });
   return token;
 }
+
+// Started from inside Claude Code? Its session variables must not reach the agents jin runs.
+const dropped = dropInheritedClaudeSession();
+if (dropped.length) console.log(`ignoring ${dropped.length} inherited Claude Code session variables`);
 
 const config = loadConfig();
 const db = openDb(config.home);
