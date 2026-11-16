@@ -62,6 +62,28 @@ export interface TerminalInfo {
   clients: number;
 }
 
+export interface Repo {
+  name: string;
+  path: string;
+  branch: string;
+  description: string;
+}
+
+export interface TaskJob {
+  id: string;
+  workspace: string;
+  taskId: string;
+  slug: string;
+  repos: string[];
+  setup: boolean;
+  state: "running" | "done" | "failed";
+  log: string[];
+  error: string | null;
+  terminalId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
 export interface FileEntry {
   name: string;
   path: string;

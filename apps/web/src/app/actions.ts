@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { daemon, type ChatKind, type FileEntry, type RepoDiff, type Session, type TerminalInfo } from "@/lib/daemon";
+import { daemon, type ChatKind, type FileEntry, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -114,4 +114,26 @@ export async function openInBobby(pr: string): Promise<{ url: string } | { error
   } catch (err) {
     return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
   }
+}
+
+// ---------------------------------------------------------------- new tasks
+
+export async function listRepos(workspace?: string): Promise<Repo[]> {
+  const ws = workspace ?? (await daemon<{ id: string }[]>("/api/workspaces"))[0]?.id;
+  return ws ? daemon<Repo[]>(`/api/workspaces/${encodeURIComponent(ws)}/repos`) : [];
+}
+
+/** Create a task in the background; its page shows setup progress until it is ready. */
+export async function startTaskJob(input: { id: string; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string }): Promise<{ job: TaskJob } | { error: string }> {
+  try {
+    const job = await daemon<TaskJob>("/api/task-jobs", { method: "POST", json: input });
+    revalidatePath("/", "layout");
+    return { job };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
+  }
+}
+
+export async function getTaskJob(id: string): Promise<TaskJob> {
+  return daemon<TaskJob>(`/api/task-jobs/${encodeURIComponent(id)}`);
 }
