@@ -1,6 +1,6 @@
 "use client";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Archive, ArchiveRestore, ClipboardCopy, File, GitCompare, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, ClipboardCopy, File, GitCompare, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
@@ -8,11 +8,13 @@ import { useArmedConfirm } from "@/lib/confirm";
 import type { AgentStatus, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
-import { usePaneTheme, useResolvedTheme } from "@/lib/theme";
+import { readLayout, updateLayout } from "@/lib/layout";
+import { useResolvedTheme } from "@/lib/theme";
 import { contextMenu, openContextMenu, type MenuItem } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";
 import { StatusMark, ThermalMark } from "../ThermalMark";
-import { ThemeToggle } from "../ThemeToggle";
+import { Panes } from "../Panes";
+import { FilesPanel } from "./FilesPanel";
 import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
 import { TerminalView } from "./TerminalView";
@@ -49,11 +51,6 @@ type Key = string;
 const termKey = (id: string) => `t:${id}`;
 const fileKey = (p: string) => `f:${p}`;
 
-export interface TaskWorkspaceHandle {
-  openFile: (path: string, line?: number) => void;
-  showChanges: () => void;
-}
-
 /**
  * A task as one row of tabs: Claude Code sessions, terminals, open files and the diff, with
  * one body below. Terminals persist (daemon-side) across reloads and restarts; an interrupted
@@ -64,19 +61,14 @@ export function TaskWorkspace({
   subtitle,
   terminals,
   wsBase,
-  bindHandle,
-  onActiveFile,
 }: {
   taskId: string;
   subtitle: string;
   terminals: TerminalInfo[];
   wsBase: string;
-  bindHandle: (h: TaskWorkspaceHandle) => void;
-  onActiveFile: (path: string | null) => void;
 }) {
   const router = useRouter();
   const root = useRef<HTMLElement>(null);
-  const [theme, setTheme] = usePaneTheme("task");
   const editorTheme = useResolvedTheme(root);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,7 +129,6 @@ export function TaskWorkspace({
   const currentTerm = current?.startsWith("t:") ? (terms.find((t) => termKey(t.id) === current) ?? null) : null;
   const currentFile = current?.startsWith("f:") ? current.slice(2) : null;
 
-  useEffect(() => onActiveFile(currentFile), [currentFile, onActiveFile]);
   useEffect(() => {
     if (current) touchTab(current);
   }, [current]);
@@ -234,7 +225,6 @@ export function TaskWorkspace({
     setChangesOpen(true);
     setActive("changes");
   }, []);
-  useEffect(() => bindHandle({ openFile, showChanges }), [bindHandle, openFile, showChanges]);
 
   // Load a file the first time its tab is shown.
   useEffect(() => {
@@ -418,7 +408,7 @@ export function TaskWorkspace({
   const doc = currentFile ? docs[currentFile] : undefined;
 
   return (
-    <section className="task-workspace" ref={root} data-theme={theme === "system" ? undefined : theme} aria-label={`Task ${taskId}`}>
+    <section className="task-workspace" ref={root} aria-label={`Task ${taskId}`}>
       <header className="pane-header has-tabs task-bar">
         <div className="task-tabs" role="tablist" aria-label={`${taskId} tabs`}>
           {terms.map((t) => {
@@ -451,12 +441,19 @@ export function TaskWorkspace({
           )}
         </div>
         <NewTab onClaude={() => void create("claude")} onShell={() => void create("shell")} onRestore={(e) => void restoreMenu(e)} />
+        <span className="task-label" title={`${taskId} · ${subtitle}`}>
+          <strong>{taskId}</strong>
+          <span>{subtitle}</span>
+        </span>
         <div className="pane-actions">
-          <ThemeToggle value={theme} onChange={setTheme} label="Task theme" />
+          <button type="button" className="button quiet icon-only" onClick={showChanges} title="Changes: the task's uncommitted diff" aria-label="Show changes">
+            <GitCompare size={14} />
+          </button>
+          <FilesToggle />
         </div>
       </header>
 
-      <div className="task-body">
+      <Panes id="task" defaultSplit={80} minLeft={480} minRight={180} toggle={false} left={<div className="task-body">
         {currentTerm ? (
           running(currentTerm) ? (
             <TerminalView key={currentTerm.id} terminalId={currentTerm.id} wsBase={wsBase} active autoFocus onState={(s) => s === "exited" && remember({ ...currentTerm, status: "exited" })} />
@@ -518,7 +515,7 @@ export function TaskWorkspace({
         ) : (
           <div className="editor-empty">{error ?? "Open a Claude Code session or a terminal with +, or a file from the tree."}</div>
         )}
-      </div>
+      </div>} right={<FilesPanel taskId={taskId} openPath={currentFile} onOpen={(p) => openFile(p)} />} />
     </section>
   );
 }
@@ -555,5 +552,27 @@ function NewTab({ onClaude, onShell, onRestore }: { onClaude: () => void; onShel
         </div>
       )}
     </div>
+  );
+}
+
+/** Show or hide the file tree on the right (remembered with the rest of the layout). */
+function FilesToggle() {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const sync = () => setHidden(Boolean(readLayout().asideHidden?.task));
+    sync();
+    window.addEventListener("jin-layout", sync);
+    return () => window.removeEventListener("jin-layout", sync);
+  }, []);
+  return (
+    <button
+      type="button"
+      className="button quiet icon-only"
+      onClick={() => updateLayout((l) => ({ ...l, asideHidden: { ...l.asideHidden, task: !l.asideHidden?.task } }))}
+      title={hidden ? "Show files" : "Hide files"}
+      aria-label={hidden ? "Show files" : "Hide files"}
+    >
+      {hidden ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
+    </button>
   );
 }

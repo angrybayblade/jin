@@ -7,7 +7,7 @@ import { readLayout, updateLayout } from "@/lib/layout";
  * A page's two panes with a draggable divider (double-click resets it) and a button to hide
  * or show the right pane. The split and visibility are remembered per page (`id`).
  */
-export function Panes({ id, defaultSplit, minLeft = 320, minRight = 280, left, right }: { id: string; defaultSplit: number; minLeft?: number; minRight?: number; left: ReactNode; right: ReactNode }) {
+export function Panes({ id, defaultSplit, minLeft = 320, minRight = 280, left, right, toggle: showToggle = true }: { id: string; defaultSplit: number; minLeft?: number; minRight?: number; left: ReactNode; right: ReactNode; /** false when the page has its own show/hide control */ toggle?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const [hidden, setHidden] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -58,9 +58,9 @@ export function Panes({ id, defaultSplit, minLeft = 320, minRight = 280, left, r
       <div className="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panes" onPointerDown={startDrag} onDoubleClick={reset} hidden={hidden}>
         <span className="splitter-line" />
       </div>
-      <button type="button" className="aside-toggle" onClick={toggle} title={hidden ? "Show the side pane" : "Hide the side pane"} aria-label={hidden ? "Show the side pane" : "Hide the side pane"}>
+      {showToggle && <button type="button" className="aside-toggle" onClick={toggle} title={hidden ? "Show the side pane" : "Hide the side pane"} aria-label={hidden ? "Show the side pane" : "Hide the side pane"}>
         {hidden ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
-      </button>
+      </button>}
       <div className="pane-slot" hidden={hidden}>
         {right}
       </div>
