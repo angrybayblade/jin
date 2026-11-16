@@ -6,11 +6,12 @@ import { jinTools } from "./chats";
 import { loadConfig, loadWorkspaces } from "./config";
 import { now, openDb } from "./db";
 import { dropInheritedClaudeSession } from "./env";
-import { Feed, feedRoutes } from "./feed";
+import { collectGithub, Feed, feedRoutes } from "./feed";
 import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
-import { machineRoutes, Machines } from "./machines";
+import { machineId, machineRoutes, Machines } from "./machines";
+import { exportHistory, historyRoutes } from "./history";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
 import { subtaskRoutes } from "./subtasks";
@@ -111,11 +112,23 @@ setTimeout(() => void syncPrs(), 5_000);
 
 // Remote machines over SSH: each runs its own jin daemon, reached through a tunnel.
 const machines = new Machines(config, app.workspaces);
-machineRoutes(app.router, machines);
-machines.resume();
+machineRoutes(app.router, machines, () => exportHistory(db));
+historyRoutes(app.router, db);
 // What a machine's agents want you to know shows here, under its name; a click opens it there.
+// With a home (hub), only the home is collected: it gathers its machines' notices itself, so
+// nothing arrives twice. A hub does not collect from machines attached to it (they show their own).
 machines.relayNotices((m, n) => {
-  notifier.notify({ ...n, key: `${m.id}:${n.key}`, subtitle: [m.label, n.subtitle].filter(Boolean).join(" · "), path: `/m/${m.id}${n.path}` });
+  const records = machines.records();
+  const hasHome = records.some((r) => r.home);
+  if (m.attached || (hasHome && !m.home)) return;
+  const fromHome = Boolean(m.home);
+  notifier.notify({
+    ...n,
+    key: `${m.id}:${n.key}`,
+    // The home already names the machine a notice came from, and links into it with /m/<machine>.
+    subtitle: fromHome ? n.subtitle : [m.label, n.subtitle].filter(Boolean).join(" · "),
+    path: n.path.startsWith("/m/") ? n.path : `/m/${m.id}${n.path}`,
+  });
 });
 // First-run setup for this machine; a workspace added there is live at once.
 const setup = new LocalSetup(config, app.workspaces, (w) => {
@@ -200,8 +213,23 @@ writeFileSync(info, JSON.stringify({ host: HOST, port: server.port, token: app.t
 chmodSync(info, 0o600);
 console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, model ${config.model})`);
 
+// How this jin introduces itself to a home (hub) it attaches to.
+{
+  const { hostname } = await import("node:os");
+  const name = hostname().replace(/\.local$/, "");
+  machines.identity = { id: machineId(name), label: name, port: server.port ?? config.port, token: app.token };
+}
+// Tunnels reopen once this jin knows itself (the one to a home carries the reverse line).
+machines.resume();
+
+// Always on (vm mode, e.g. the hub): the GitHub feed refreshes on its own every 10 minutes.
+const feedTimer = config.mode === "vm" && !process.env.JIN_NO_TIMERS
+  ? setInterval(() => void collectGithub(app.workspaces).then((items) => feed.add(items)).catch(() => {}), 10 * 60_000)
+  : null;
+
 function shutdown() {
   clearInterval(prTimer);
+  if (feedTimer) clearInterval(feedTimer);
   machines.stopAll();
   setup.stopAll();
   terminals.stopAll();
