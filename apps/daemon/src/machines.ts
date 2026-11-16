@@ -165,7 +165,7 @@ fi
 have bun || { echo "installing Bun"; curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; }
 have gh || { echo "installing gh"; pkg gh || echo "gh: not installed"; }
 have claude || { echo "installing Claude Code"; curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1 || echo "Claude Code: not installed"; }
-have doppler || { echo "installing Doppler (optional)"; curl -Ls --tlsv1.2 --proto "=https" https://cli.doppler.com/install.sh | $SUDO sh >/dev/null 2>&1 || echo "doppler: not installed (only cws up needs it)"; }
+have doppler || [ -z "$SUDO" ] || { echo "installing Doppler (optional)"; curl -Ls --tlsv1.2 --proto "=https" https://cli.doppler.com/install.sh | $SUDO sh >/dev/null 2>&1 || echo "doppler: not installed (only cws up needs it)"; }
 echo "bun $(bun --version)"
 have gh && echo "$(gh --version | head -1)"
 have claude && echo "claude $(claude --version 2>/dev/null | head -1)"
@@ -184,7 +184,8 @@ CFG=~/.jin/config.yaml
 ORIGINS=$( { grep -E '^webOrigins?:' $CFG | grep -oE 'https?://[^] ,"]+' ; echo '${origin}'; } | awk '!seen[$0]++' | paste -sd, - | sed 's/,/, /g')
 grep -v -E '^(webOrigins?|port):' $CFG > $CFG.tmp || true
 printf 'webOrigins: [%s]\\nport: %s\\n' "$ORIGINS" '${port}' >> $CFG.tmp && mv $CFG.tmp $CFG
-BUN="$HOME/.bun/bin/bun"; MAIN="$HOME/.jin/app/apps/daemon/src/main.ts"
+BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"; MAIN="$HOME/.jin/app/apps/daemon/src/main.ts"
+detach() { if command -v setsid >/dev/null; then nohup setsid "$@"; else nohup "$@"; fi; }
 if systemctl --user show-environment >/dev/null 2>&1; then
   mkdir -p ~/.config/systemd/user
   cat > ~/.config/systemd/user/jin-daemon.service <<EOF
@@ -206,7 +207,7 @@ EOF
   if loginctl enable-linger "$(id -un)" 2>/dev/null || sudo -n loginctl enable-linger "$(id -un)" 2>/dev/null; then echo "keeps running after you log out"; else echo "note: it stops when you log out (could not enable linger)"; fi
 else
   pkill -f "$MAIN" 2>/dev/null || true
-  nohup setsid "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null &
+  detach "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null &
   echo "running in the background (no systemd user session)"
 fi
 for i in $(seq 1 60); do curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1 && break; sleep 0.5; done
@@ -223,7 +224,8 @@ const RESTART_SCRIPT = `
 ${PATH_LINE}
 if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user restart jin-daemon; else
   MAIN="$HOME/.jin/app/apps/daemon/src/main.ts"; pkill -f "$MAIN" 2>/dev/null || true; sleep 1
-  nohup setsid "$HOME/.bun/bin/bun" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null &
+  BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
+  if command -v setsid >/dev/null; then nohup setsid "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null & else nohup "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null & fi
 fi
 `;
 
@@ -411,7 +413,7 @@ export class Machines {
   // ---------------------------------------------------------------- onboarding
 
   /** Add a machine and start onboarding it. */
-  add(host: string, label?: string): MachineView {
+  add(host: string, label?: string, opts: { remotePort?: number } = {}): MachineView {
     host = host.trim().replace(/^ssh\s+/, "");
     if (!validHost(host)) throw new HttpError(400, "give the host as you'd type it after ssh: a host name, user@host, or a Host from ~/.ssh/config");
     const existing = this.records().find((m) => m.host === host);
@@ -420,7 +422,7 @@ export class Machines {
       return this.view(existing.id);
     }
     const id = machineId(host, new Set(this.records().map((m) => m.id)));
-    this.save({ id, host, label: label?.trim() || id, remotePort: 7317, localPort: null, token: null, createdAt: new Date().toISOString(), version: null, workspace: null, system: null });
+    this.save({ id, host, label: label?.trim() || id, remotePort: opts.remotePort ?? 7317, localPort: null, token: null, createdAt: new Date().toISOString(), version: null, workspace: null, system: null });
     void this.setup(id);
     return this.view(id);
   }
@@ -767,9 +769,10 @@ export function machineRoutes(router: Router, machines: Machines) {
   router
     .on("GET", "/api/machines", () => json(machines.list()))
     .on("POST", "/api/machines", async (req) => {
-      const { host, label } = await body<{ host?: string; label?: string }>(req);
+      const { host, label, remotePort } = await body<{ host?: string; label?: string; remotePort?: number }>(req);
       if (!host) throw new HttpError(400, "host is required");
-      return json(machines.add(host, label), 201);
+      if (remotePort !== undefined && !(Number.isInteger(remotePort) && remotePort > 1024 && remotePort < 65536)) throw new HttpError(400, "remotePort must be a port above 1024");
+      return json(machines.add(host, label, { remotePort }), 201);
     })
     .on("GET", "/api/machines/:id", (_req, p) => json(machines.view(p.id!)))
     .on("DELETE", "/api/machines/:id", async (_req, p, url) => {
