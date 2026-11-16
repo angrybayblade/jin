@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Bell,
   BookOpen,
-  Code2,
   File,
   GitCompare,
   GitPullRequest,
@@ -25,7 +24,7 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { collectGithub, findFiles, openTerminal, searchFiles, testNotification } from "@/app/actions";
+import { collectGithub, findFiles, searchFiles, testNotification } from "@/app/actions";
 import type { Task } from "@/lib/daemon";
 import { fuzzy } from "@/lib/fuzzy";
 import { setDensity, updateLayout } from "@/lib/layout";
@@ -113,31 +112,11 @@ export function Palette({ tasks }: { tasks: Task[] }) {
     items.push({ id: "notify:test", title: "Send a test notification", detail: "desktop notification and sound", icon: Bell, run: () => void testNotification() });
     if (taskId) {
       items.push(
-        {
-          id: "task:claude",
-          title: "New Claude Code session",
-          detail: taskId,
-          icon: Plus,
-          run: async () => {
-            await openTerminal({ taskId, kind: "claude" });
-            router.refresh();
-          },
-        },
-        {
-          id: "task:shell",
-          title: "New terminal",
-          detail: taskId,
-          icon: SquareTerminal,
-          run: async () => {
-            await openTerminal({ taskId, kind: "shell" });
-            window.dispatchEvent(new CustomEvent("jin:show-pane-tab", { detail: { taskId, tab: "terminal" } }));
-            router.refresh();
-          },
-        },
+        { id: "task:claude", title: "New Claude Code session", detail: taskId, icon: Plus, run: () => void window.dispatchEvent(new CustomEvent("jin:new-tab", { detail: { taskId, kind: "claude" } })) },
+        { id: "task:shell", title: "New terminal", detail: taskId, icon: SquareTerminal, run: () => void window.dispatchEvent(new CustomEvent("jin:new-tab", { detail: { taskId, kind: "shell" } })) },
         { id: "task:find", title: "Find file…", detail: "⌘P", icon: File, run: () => openMode("files") },
         { id: "task:search", title: "Search in files…", detail: "⌘⇧F", icon: Search, run: () => openMode("search") },
-        { id: "task:editor", title: "Show editor", icon: Code2, run: () => void window.dispatchEvent(new CustomEvent("jin:show-pane-tab", { detail: { taskId, tab: "editor" } })) },
-        { id: "task:diff", title: "Show diff", icon: GitCompare, run: () => void window.dispatchEvent(new CustomEvent("jin:show-pane-tab", { detail: { taskId, tab: "diff" } })) },
+        { id: "task:diff", title: "Show changes", detail: "the task's diff as a tab", icon: GitCompare, run: () => void window.dispatchEvent(new CustomEvent("jin:show-pane-tab", { detail: { taskId, tab: "diff" } })) },
       );
     }
     items.push(

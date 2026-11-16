@@ -1,13 +1,11 @@
 import { notFound } from "next/navigation";
-import { ClaudePane } from "@/components/workspace/ClaudePane";
-import { WorkspacePane } from "@/components/workspace/WorkspacePane";
-import { Panes } from "@/components/Panes";
+import { TaskView } from "@/components/workspace/TaskView";
 import { TaskSetup } from "@/components/TaskSetup";
 import { daemon, daemonWsBase, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
-/** A task: Claude Code sessions in the worktree, and the workspace (editor, shells, diff), all as tabs. */
+/** A task: Claude Code sessions, terminals, files and the diff as one row of tabs; the file tree on the right. */
 export default async function TaskPage({ params }: { params: Promise<{ taskId: string }> }) {
   const { taskId } = await params;
   // Being set up (or its setup failed): show the setup's progress until the task is ready.
@@ -27,12 +25,5 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
     );
   }
   const terminals = await daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`);
-  const ws = daemonWsBase();
-  return (
-    <Panes id="task" defaultSplit={56} minLeft={420} minRight={320} left={
-      <ClaudePane taskId={task.id} title={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals.filter((t) => t.kind === "claude")} wsBase={ws} />
-      }
-      right={<WorkspacePane taskId={task.id} wsBase={ws} shells={terminals.filter((t) => t.kind === "shell")} />}
-    />
-  );
+  return <TaskView key={task.id} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} wsBase={daemonWsBase()} />;
 }
