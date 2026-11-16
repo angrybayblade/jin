@@ -1464,3 +1464,107 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------------------------ command palette, finder, tab switcher */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgb(20 19 22 / 0.18);
+}
+.palette {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.22);
+  overflow: hidden;
+}
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background-image: var(--grain);
+}
+.palette-input input {
+  flex: 1;
+  height: 44px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-primary) / 1 var(--font-ui);
+}
+.palette-input input:focus-visible {
+  outline: 0;
+}
+.palette-mode {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-code);
+}
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+.palette-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.palette-item.is-selected {
+  background: var(--accent-tint);
+}
+.palette-icon {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.palette-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--d-text);
+}
+.palette-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--type-meta);
+  text-align: right;
+  direction: rtl; /* long paths keep their file end visible */
+}
+.palette-empty {
+  padding: var(--space-4) var(--space-3);
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.palette-hints {
+  display: flex;
+  gap: var(--space-3);
+  padding: 6px var(--space-3);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
