@@ -29,6 +29,12 @@ export interface MachineRecord {
   /** The workspace the remote daemon was given, if any. */
   workspace: string | null;
   system: string | null;
+  /** This machine's jin uses it as its home (the always-on hub): chats, feed and approvals live there. */
+  home?: boolean;
+  /** On the hub's side of a home link: the port the hub reaches this jin back through. */
+  reversePort?: number | null;
+  /** On the hub: a machine that connected to us (a laptop behind NAT), reached over its reverse tunnel. */
+  attached?: boolean;
 }
 
 export type StepId = "connect" | "tools" | "jin" | "daemon" | "tunnel";
@@ -82,8 +88,17 @@ let headCache: { at: number; sha: string | null } | null = null;
 /** This jin's commit (short), as onboarding records it on a machine; cached for a few seconds. */
 function localVersion(): string | null {
   if (headCache && Date.now() - headCache.at < 5000) return headCache.sha;
-  const r = Bun.spawnSync(["git", "-C", resolve(import.meta.dir, "../../.."), "rev-parse", "--short", "HEAD"]);
-  headCache = { at: Date.now(), sha: r.exitCode === 0 ? r.stdout.toString().trim() || null : null };
+  const root = resolve(import.meta.dir, "../../..");
+  const r = Bun.spawnSync(["git", "-C", root, "rev-parse", "--short", "HEAD"]);
+  // A jin copied to a machine has no git: onboarding left its commit in VERSION.
+  const fromFile = () => {
+    try {
+      return readFileSync(join(root, "VERSION"), "utf8").trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  headCache = { at: Date.now(), sha: r.exitCode === 0 ? r.stdout.toString().trim() || null : fromFile() };
   return headCache.sha;
 }
 const REPO = resolve(import.meta.dir, "../../..");
@@ -315,6 +330,8 @@ export async function lines(stream: ReadableStream<Uint8Array>, onLine: (l: stri
 }
 
 interface Tunnel {
+  /** An attached machine has no ssh of ours: its own connection forwards the port. */
+  attached?: boolean;
   proc: Proc | null;
   state: "up" | "connecting" | "down";
   stopped: boolean;
@@ -383,6 +400,8 @@ export class Machines {
   private signIns = new Map<string, SignIn>();
   private health: ReturnType<typeof setInterval> | null = null;
   private relay: ReturnType<typeof setInterval> | null = null;
+  /** This jin, as a hub sees it when this machine attaches to its home. */
+  identity: { id: string; label: string; port: number; token: string } | null = null;
 
   constructor(
     private config: Config,
@@ -479,6 +498,7 @@ export class Machines {
   /** Run (or rerun: it also updates jin there) every onboarding step, in order. */
   async setup(id: string): Promise<void> {
     if (this.busy.has(id)) throw new HttpError(409, "this machine is already being set up");
+    if (this.record(id).attached) throw new HttpError(400, "this machine connects to this jin by itself; set it up from that machine");
     this.busy.add(id);
     const steps: Step[] = STEPS.map((s) => ({ ...s, state: "pending", log: [], error: null }));
     this.steps.set(id, steps);
@@ -524,11 +544,15 @@ export class Machines {
     }
     if (step === "jin") {
       // This checkout's committed daemon (with the root manifest for its dependencies); no web app.
-      const git = (args: string[]) => Bun.spawnSync(["git", "-C", REPO, ...args]);
-      const version = git(["rev-parse", "--short", "HEAD"]).stdout.toString().trim() || null;
+      const version = localVersion();
       const files = ["package.json", "bun.lock", "tsconfig.base.json", "apps/daemon"].filter((f) => existsSync(join(REPO, f)));
-      const archive = git(["archive", "--format=tar", "HEAD", "--", ...files]);
-      if (archive.exitCode !== 0) throw new Error(`git archive failed: ${archive.stderr.toString().trim()}`);
+      // A checkout sends its committed daemon (git archive); a jin that was itself copied to a
+      // machine (the hub) has no git and sends its own files.
+      const hasGit = existsSync(join(REPO, ".git"));
+      const archive = hasGit
+        ? Bun.spawnSync(["git", "-C", REPO, "archive", "--format=tar", "HEAD", "--", ...files])
+        : Bun.spawnSync(["tar", "-c", "--exclude=node_modules", "-C", REPO, ...files]);
+      if (archive.exitCode !== 0) throw new Error(`packing jin failed: ${archive.stderr.toString().trim()}`);
       say(`copying jin ${version ?? ""} (${Math.round(archive.stdout.length / 1024)} KB)`);
       const proc = this.spawn(["ssh", ...SSH_OPTS, m.host, `set -e; ${PATH_LINE}; rm -rf ~/.jin/app.new; mkdir -p ~/.jin/app.new; tar -x -C ~/.jin/app.new; echo '${version ?? ""}' > ~/.jin/app.new/VERSION; cd ~/.jin/app.new && bun install --production 2>&1 | tail -2; rm -rf ~/.jin/app; mv ~/.jin/app.new ~/.jin/app`], { stdin: new Blob([new Uint8Array(archive.stdout)]) });
       await Promise.all([lines(proc.stdout, say), lines(proc.stderr, say)]);
@@ -575,6 +599,15 @@ export class Machines {
   async openTunnel(id: string) {
     const m = this.record(id);
     if (!m.token) return;
+    if (m.attached) {
+      // It forwarded its daemon to our loopback itself; we only watch that it answers.
+      this.tunnels.set(id, this.tunnels.get(id) ?? { attached: true, proc: null, state: "connecting", stopped: false, backoff: 1000, timer: null });
+      void this.probe(id);
+      this.health ??= setInterval(() => {
+        for (const mid of this.tunnels.keys()) void this.probe(mid);
+      }, 10_000);
+      return;
+    }
     const existing = this.tunnels.get(id);
     if (existing && !existing.stopped && existing.proc) return;
     const t: Tunnel = existing ?? { proc: null, state: "connecting", stopped: false, backoff: 1000, timer: null };
@@ -583,7 +616,10 @@ export class Machines {
     const port = await this.freePort(m.localPort);
     if (port !== m.localPort) this.update(id, { localPort: port });
     t.state = "connecting";
-    const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${m.remotePort}`, m.host]);
+    // To the home (hub), the same connection also lets the hub reach this jin back (-R): a
+    // laptop behind NAT cannot be dialled, so it keeps the line open itself.
+    const reverse = m.home && m.reversePort && this.identity ? ["-R", `127.0.0.1:${m.reversePort}:127.0.0.1:${this.identity.port}`] : [];
+    const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${m.remotePort}`, ...reverse, m.host]);
     t.proc = proc;
     void this.probe(id);
     void proc.exited.then(() => {
@@ -601,8 +637,9 @@ export class Machines {
 
   private async probe(id: string) {
     const t = this.tunnels.get(id);
-    if (!t?.proc) return;
+    if (!t || (!t.proc && !t.attached)) return;
     const m = this.record(id);
+    const wasUp = t.state === "up";
     for (let i = 0; i < (t.state === "connecting" ? 20 : 1); i++) {
       const ok = await fetch(`http://127.0.0.1:${m.localPort}/health`, { signal: AbortSignal.timeout(3000) })
         .then((r) => r.ok)
@@ -610,11 +647,96 @@ export class Machines {
       if (ok) {
         t.state = "up";
         t.backoff = 1000;
+        // Each time the line to the home comes up, tell the hub how to reach this jin.
+        if (m.home && !wasUp) void this.attachToHome(id).catch((err) => console.error(`attaching to ${m.label}: ${err}`));
         return;
       }
       if (t.state === "connecting") await Bun.sleep(300);
     }
-    if (t.proc) t.state = t.state === "up" ? "down" : t.state;
+    if (t.proc || t.attached) t.state = t.state === "up" || t.attached ? "down" : t.state;
+  }
+
+  // ---------------------------------------------------------------- home (hub)
+
+  /** Make a machine this jin's home (the always-on hub), or stop; its tunnel reopens with the reverse line. */
+  async setHome(id: string, home: boolean) {
+    const m = this.record(id);
+    if (m.attached) throw new HttpError(400, "an attached machine cannot be a home");
+    for (const other of this.records()) if (other.id !== id && other.home) this.update(other.id, { home: false });
+    // A port on the hub for this jin, the same every time (two laptops get different ones).
+    const reversePort = home ? 20000 + (Number.parseInt(Bun.hash(this.identity?.id ?? "jin").toString(16).slice(-4), 16) % 20000) : null;
+    this.update(id, { home, reversePort });
+    this.closeTunnel(id);
+    await this.openTunnel(id);
+  }
+
+  /**
+   * Move to the home: this jin's chats and feed are copied there, and the home is asked to
+   * reach this jin's other machines itself (with its own key, which must be on them first).
+   */
+  async moveToHome(id: string, history: unknown): Promise<{ history: unknown; machines: { id: string; ok: boolean; error?: string }[] }> {
+    const m = this.record(id);
+    if (!m.home) throw new HttpError(400, `${m.label} is not this jin's home`);
+    const moved = await this.call(id, "POST", "/api/history/import", history);
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const other of this.records()) {
+      if (other.id === id || other.attached || !other.token) continue;
+      try {
+        await this.call(id, "POST", "/api/machines", { host: other.host, label: other.label, remotePort: other.remotePort });
+        results.push({ id: other.id, ok: true });
+      } catch (err) {
+        results.push({ id: other.id, ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { history: moved, machines: results };
+  }
+
+  /** Tell the home how to reach this jin back over the reverse line (the hub records it as an attached machine). */
+  async attachToHome(id: string) {
+    const m = this.record(id);
+    if (!this.identity || !m.reversePort) return;
+    await this.call(id, "POST", "/api/machines/attach", { id: this.identity.id, label: this.identity.label, port: m.reversePort, token: this.identity.token, version: localVersion() });
+  }
+
+  /** On the hub: a machine attached itself (its reverse line forwards `port` here). */
+  attach(a: { id: string; label: string; port: number; token: string; version?: string | null }): MachineView {
+    if (!/^[a-z0-9-]+$/.test(a.id)) throw new HttpError(400, "machine id must be lowercase letters, digits and dashes");
+    if (!(Number.isInteger(a.port) && a.port > 1024 && a.port < 65536)) throw new HttpError(400, "port must be above 1024");
+    if (!a.token) throw new HttpError(400, "token is required");
+    const existing = existsSync(this.file(a.id)) ? this.record(a.id) : null;
+    if (existing && !existing.attached) throw new HttpError(409, `${a.id} is already a machine this jin reaches over ssh`);
+    this.save({
+      id: a.id,
+      host: a.label,
+      label: a.label,
+      remotePort: a.port,
+      localPort: a.port,
+      token: a.token,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      version: a.version ?? null,
+      workspace: existing?.workspace ?? null,
+      system: existing?.system ?? null,
+      attached: true,
+    });
+    this.closeTunnel(a.id);
+    void this.openTunnel(a.id);
+    return this.view(a.id);
+  }
+
+  /**
+   * An SSH key for this jin to reach other machines with (on the hub: add its public half to
+   * your exe.dev account once). Made here if there is none; the private half never leaves.
+   */
+  async sshKey(): Promise<{ publicKey: string; created: boolean }> {
+    const dir = join(process.env.HOME ?? "", ".ssh");
+    for (const name of ["id_ed25519", "id_ecdsa", "id_rsa"]) {
+      if (existsSync(join(dir, `${name}.pub`))) return { publicKey: readFileSync(join(dir, `${name}.pub`), "utf8").trim(), created: false };
+    }
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const label = `jin@${(await Bun.$`hostname`.text()).trim()}`;
+    const p = Bun.spawnSync(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", label, "-f", join(dir, "id_ed25519")], { stdout: "ignore", stderr: "pipe" });
+    if (p.exitCode !== 0) throw new HttpError(500, `ssh-keygen failed: ${p.stderr.toString().trim()}`);
+    return { publicKey: readFileSync(join(dir, "id_ed25519.pub"), "utf8").trim(), created: true };
   }
 
   closeTunnel(id: string) {
@@ -850,7 +972,7 @@ const tool = (t: string | undefined): AuthTool => {
   return t as AuthTool;
 };
 
-export function machineRoutes(router: Router, machines: Machines) {
+export function machineRoutes(router: Router, machines: Machines, exportHistory?: () => unknown) {
   router
     .on("GET", "/api/machines", () => json(machines.list()))
     .on("POST", "/api/machines", async (req) => {
@@ -889,6 +1011,19 @@ export function machineRoutes(router: Router, machines: Machines) {
     .on("POST", "/api/machines/:id/doppler-token", async (req, p) => {
       const { token } = await body<{ token?: string }>(req);
       await machines.dopplerToken(p.id!, token ?? "");
+      return json(machines.view(p.id!));
+    })
+    .on("POST", "/api/machines/attach", async (req) => {
+      const a = await body<{ id?: string; label?: string; port?: number; token?: string; version?: string | null }>(req);
+      return json(machines.attach({ id: a.id ?? "", label: a.label ?? a.id ?? "", port: Number(a.port), token: a.token ?? "", version: a.version }), 201);
+    })
+    .on("POST", "/api/machines/key", async () => json(await machines.sshKey()))
+    // The hub's own key, asked of the hub through its tunnel.
+    .on("POST", "/api/machines/:id/hub-key", async (_req, p) => json(await machines.call(p.id!, "POST", "/api/machines/key")))
+    .on("POST", "/api/machines/:id/move", async (_req, p) => json(await machines.moveToHome(p.id!, exportHistory?.() ?? { sessions: [], events: [], approvals: [], feed: [] })))
+    .on("POST", "/api/machines/:id/home", async (req, p) => {
+      const { home } = await body<{ home?: boolean }>(req);
+      await machines.setHome(p.id!, home !== false);
       return json(machines.view(p.id!));
     })
     .on("POST", "/api/machines/:id/workspaces/detect", async (_req, p) => {
