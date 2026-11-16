@@ -1,5 +1,7 @@
 "use client";
 import { Streamdown, type Components } from "streamdown";
+import { isPullRequest } from "@/lib/pr";
+import { BobbyBadge } from "./BobbyBadge";
 
 // Zero's markdown setup: jin's typography and named scroll regions instead of utility styles.
 // Streamdown's defaults rely on Tailwind classes (bold is a font-semibold span), which jin
@@ -10,9 +12,12 @@ const components: Components = {
   del: ({ children }) => <del>{children}</del>,
   code: ({ children, className }) => <code className={className}>{children}</code>,
   a: ({ children, href }) => (
-    <a className="link-chip" href={href} target="_blank" rel="noreferrer">
-      {children}
-    </a>
+    <>
+      <a className="link-chip" href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+      {isPullRequest(href) && <BobbyBadge pr={href} compact />}
+    </>
   ),
   pre: ({ children }) => (
     <pre data-scroll="both" tabIndex={0} aria-label="Code block">

@@ -1,6 +1,8 @@
 import { RefreshCw } from "lucide-react";
 import { collectGithub, feedAction } from "@/app/actions";
 import type { FeedItem } from "@/lib/daemon";
+import { isPullRequest } from "@/lib/pr";
+import { BobbyBadge } from "./BobbyBadge";
 
 const KIND_LABEL: Record<string, string> = { review_requested: "Review", ci_failed: "Checks failing", mention: "Mention" };
 
@@ -38,7 +40,10 @@ export function TodayPanel({ items, title = "Today", note }: { items: FeedItem[]
             {open.map((item) => (
               <li key={item.id} className="feed-row" data-feed-id={item.id}>
                 <div className="feed-main">
-                  <span className={`kind-chip is-${item.kind}`}>{KIND_LABEL[item.kind] ?? item.kind}</span>
+                  <div className="feed-chips">
+                    <span className={`kind-chip is-${item.kind}`}>{KIND_LABEL[item.kind] ?? item.kind}</span>
+                    {isPullRequest(item.externalRef) && <BobbyBadge pr={item.externalRef} />}
+                  </div>
                   <a className="feed-title" href={item.externalRef} target="_blank" rel="noreferrer">
                     {item.title}
                   </a>
