@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { archivedChats, deleteSession, updateSession } from "@/app/actions";
 import type { ChatKind, Session, SessionState } from "@/lib/daemon";
+import { useTabShortcuts } from "@/lib/shortcuts";
 import { contextMenu, openContextMenu, type MenuItem } from "./ContextMenu";
 import { RenameInput } from "./RenameInput";
 import { StatusMark } from "./ThermalMark";
@@ -39,6 +40,17 @@ export function ChatTabs({ kind, chats, activeId, activeState }: { kind: ChatKin
     await (how === "archive" ? updateSession(s.id, { archived: true }) : deleteSession(s.id)).catch(() => {});
     router.refresh();
   };
+
+  // ⌘T a new chat, ⌘W archive the open one (as its × does), ⌘1–9 a chat.
+  useTabShortcuts({
+    count: tabs.length,
+    create: () => go("new"),
+    select: (i) => tabs[i] && go(tabs[i]!.id),
+    close: () => {
+      const s = tabs.find((t) => t.id === activeId);
+      if (s) void drop(s, "archive");
+    },
+  });
 
   const menu = (s: Session): MenuItem[] => [
     { header: label(s) },

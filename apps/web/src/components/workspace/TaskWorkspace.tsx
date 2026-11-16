@@ -7,6 +7,7 @@ import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTermin
 import { useArmedConfirm } from "@/lib/confirm";
 import type { AgentStatus, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
+import { useTabShortcuts } from "@/lib/shortcuts";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { readLayout, updateLayout } from "@/lib/layout";
 import { useResolvedTheme } from "@/lib/theme";
@@ -266,6 +267,24 @@ export function TaskWorkspace({
       setNote(e instanceof Error ? e.message : String(e));
     }
   }, [taskId]);
+
+  // ⌘T a new Claude Code session, ⌘W close the open tab (as its × does), ⌘1–9 a tab.
+  useTabShortcuts({
+    count: tabs.length,
+    create: () => void create("claude"),
+    select: (i) => tabs[i] && setActive(tabs[i]!),
+    close: () => {
+      if (!current) return;
+      if (current === "changes") {
+        leave("changes");
+        setChangesOpen(false);
+      } else if (current.startsWith("f:")) closeFile(current.slice(2));
+      else {
+        const t = terms.find((x) => termKey(x.id) === current);
+        if (t) void closeTerm(t);
+      }
+    },
+  });
 
   // ---------------------------------------------------------------- outside requests
   // The palette's finder opens files, and its commands open sessions, terminals and the diff.
