@@ -39,6 +39,7 @@ export function NewTaskButton() {
 function NewTaskDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
+  const idInput = useRef<HTMLInputElement>(null);
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [id, setId] = useState("");
@@ -51,6 +52,8 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     dialog.current?.showModal();
+    // showModal focuses the first control (the close button); the Task ID is where you start.
+    idInput.current?.focus();
     void listRepos().then(setRepos, (e) => setError(String(e)));
   }, []);
 
@@ -86,7 +89,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
         <div className="field-row">
           <label className="field">
             <span>Task ID</span>
-            <input value={id} onChange={(e) => setId(e.target.value)} placeholder="PLEN-123" autoFocus required />
+            <input ref={idInput} value={id} onChange={(e) => setId(e.target.value)} placeholder="PLEN-123" required />
           </label>
           <label className="field">
             <span>Type</span>

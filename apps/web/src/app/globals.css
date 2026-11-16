@@ -1380,9 +1380,7 @@ button.step-line:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: -4px 0 4px;
-  padding-bottom: var(--space-2);
-  background-image: var(--grain);
+  margin: -6px -6px 2px 0;
 }
 .modal-header h2 {
   margin: 0;
@@ -1411,6 +1409,33 @@ button.step-line:hover {
 }
 .field :is(input, select, textarea) {
   font-size: var(--d-text);
+}
+/* One look for text fields and pickers: same height, border, radius and surface. */
+.field :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  height: var(--d-control-h);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+.field :is(input, select, textarea)::placeholder {
+  color: var(--muted);
+}
+.field :is(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
 }
 .field textarea {
   min-height: 64px;
@@ -2585,11 +2610,13 @@ p.machine-auth-body {
 .sidebar-empty a {
   color: var(--ink);
 }
+/* A machine's name above its tasks: the icon in the status-dot column, the name where task ids start. */
 .nav-machine {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin: var(--space-2) 0 2px;
+  gap: var(--space-2);
+  height: 24px;
+  margin-top: var(--space-2);
   padding: 0 8px;
   font-size: 11px;
   color: var(--muted);
@@ -2597,7 +2624,24 @@ p.machine-auth-body {
 .nav-machine.is-current {
   margin-top: 0;
 }
-html[data-sidebar="collapsed"] .nav-machine span {
+.nav-machine-icon {
+  display: inline-flex;
+  justify-content: center;
+  width: 20px;
+  flex: none;
+}
+.nav-machine-name {
+  color: var(--secondary);
+  font-weight: var(--weight-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-machine-empty {
+  margin-left: auto;
+  font-style: italic;
+}
+html[data-sidebar="collapsed"] :is(.nav-machine-name, .nav-machine-empty) {
   display: none;
 }
 html[data-sidebar="collapsed"] .nav-machine {
