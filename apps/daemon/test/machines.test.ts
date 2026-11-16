@@ -44,9 +44,10 @@ test("reads who is signed in from the status probe", () => {
 });
 
 test("reads the workspaces found on a machine, and the one jin there uses", () => {
-  expect(readDetected("WS /home/me/composio-workspace\nWS /home/me/Workspace/composio-workspace\nWS /home/me/composio-workspace\nUSING /home/me/composio-workspace\n")).toEqual({
-    found: ["/home/me/composio-workspace", "/home/me/Workspace/composio-workspace"],
+  expect(readDetected("WS /home/me/composio-workspace\nCWS /home/me/Workspace/composio-workspace\nWS /home/me/composio-workspace\nUSING /home/me/composio-workspace\n")).toEqual({
+    found: ["/home/me/Workspace/composio-workspace", "/home/me/composio-workspace"], // cws's own first
     using: "/home/me/composio-workspace",
+    cws: "/home/me/Workspace/composio-workspace",
   });
-  expect(readDetected("")).toEqual({ found: [], using: null });
+  expect(readDetected("")).toEqual({ found: [], using: null, cws: null });
 });

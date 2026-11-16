@@ -64,6 +64,8 @@ export interface MachineView extends Omit<MachineRecord, "token"> {
   workspaceStep: Step | null;
   /** composio workspaces found on the machine (null: not looked yet). */
   workspaceCandidates: string[] | null;
+  /** The one the machine's `cws` command belongs to, when there is one. */
+  workspaceCws: string | null;
   auth: AuthState[];
 }
 
@@ -91,26 +93,42 @@ export const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/loca
 /** The usual places a composio workspace lives, under a home folder (its installer defaults to ~/composio-workspace). */
 export const WORKSPACE_PLACES = ["composio-workspace", "Workspace/composio-workspace", "workspace/composio-workspace", "code/composio-workspace", "src/composio-workspace", "dev/composio-workspace"];
 
-/** Lists composio workspaces in the usual places (`WS <path>`), and the one jin there already uses (`USING <path>`). */
+/**
+ * Lists composio workspaces: first the one `cws` on PATH points to (its setup links
+ * ~/.local/bin/cws to <workspace>/bin/cws; `CWS <path>`), then any in the usual places
+ * (`WS <path>`); and the one jin there already uses (`USING <path>`).
+ */
 export const DETECT_SCRIPT = `
-for d in ${WORKSPACE_PLACES.join(" ")}; do
-  p="$HOME/$d"
-  # One line per folder: two spellings of one folder (case-insensitive disks) share an inode.
-  if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "$(ls -di "$p" | awk '{print $1}') WS $(cd "$p" && pwd -P)"; fi
-done | awk '!seen[$1]++ { $1 = ""; sub(/^ /, ""); print }'
+${PATH_LINE}
+real() { readlink -f "$1" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
+{
+  if C=$(command -v cws 2>/dev/null); then
+    R=$(real "$C"); W="\${R%/bin/cws}"
+    if [ -n "$R" ] && [ "$W" != "$R" ] && [ -f "$W/workspace.yaml" ]; then echo "$(ls -di "$W" | awk '{print $1}') CWS $(cd "$W" && pwd -P)"; fi
+  fi
+  for d in ${WORKSPACE_PLACES.join(" ")}; do
+    p="$HOME/$d"
+    if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "$(ls -di "$p" | awk '{print $1}') WS $(cd "$p" && pwd -P)"; fi
+  done
+} | awk '!seen[$1]++ { $1 = ""; sub(/^ /, ""); print }'
+# (one line per folder: two spellings of one folder on a case-insensitive disk share an inode)
 if [ -f ~/.jin/workspaces/composio.yaml ]; then echo "USING $(sed -n 's/^root: *//p' ~/.jin/workspaces/composio.yaml | head -1)"; fi
 true
 `;
 
-/** What the detection script found. */
-export function readDetected(out: string): { found: string[]; using: string | null } {
+/** What the detection script found; `cws` is the workspace the machine's cws command belongs to. */
+export function readDetected(out: string): { found: string[]; using: string | null; cws: string | null } {
   const found: string[] = [];
   let using: string | null = null;
+  let cws: string | null = null;
   for (const line of stripAnsi(out).split("\n").map((l) => l.trim())) {
-    if (line.startsWith("WS ")) found.push(line.slice(3).trim());
+    if (line.startsWith("CWS ")) {
+      cws = line.slice(4).trim();
+      found.unshift(cws);
+    } else if (line.startsWith("WS ")) found.push(line.slice(3).trim());
     else if (line.startsWith("USING ")) using = line.slice(6).trim() || null;
   }
-  return { found: [...new Set(found)], using };
+  return { found: [...new Set(found)], using, cws };
 }
 
 export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
@@ -358,6 +376,7 @@ export class Machines {
   private steps = new Map<string, Step[]>();
   private workspaceSteps = new Map<string, Step>();
   private candidates = new Map<string, string[]>();
+  private cwsRoots = new Map<string, string | null>();
   private busy = new Set<string>();
   private tunnels = new Map<string, Tunnel>();
   private auth = new Map<string, Map<AuthTool, AuthState>>();
@@ -417,6 +436,7 @@ export class Machines {
       steps,
       workspaceStep: this.workspaceSteps.get(id) ?? null,
       workspaceCandidates: this.candidates.get(id) ?? null,
+      workspaceCws: this.cwsRoots.get(id) ?? null,
       auth: (["gh", "claude", "doppler"] as AuthTool[]).map((t) => this.authOf(id, t)),
     };
   }
@@ -739,8 +759,9 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
   async detectWorkspaces(id: string): Promise<string[]> {
     const m = this.record(id);
     const { out } = await this.ssh(m.host, DETECT_SCRIPT, () => {});
-    const { found, using } = readDetected(out);
+    const { found, using, cws } = readDetected(out);
     if (using && using !== m.workspace) this.update(id, { workspace: using });
+    this.cwsRoots.set(id, cws);
     this.candidates.set(id, found.filter((p) => p !== using));
     return found;
   }

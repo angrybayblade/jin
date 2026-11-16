@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 import { WORKSPACE_PLACES as PLACES, AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, defaultSpawn, driveSignIn, lines, PATH_LINE, readAuthStatus, SIGN_IN, type SignIn, type Spawn, type Step } from "./machines";
@@ -8,8 +8,10 @@ import { WORKSPACE_PLACES as PLACES, AUTH_STATUS_SCRIPT, type AuthState, type Au
 /** What jin needs on this machine before it is useful, and how far along it is. */
 export interface SetupView {
   workspaces: { id: string; root: string }[];
-  /** composio workspaces found on this machine that jin does not use yet. */
+  /** composio workspaces found on this machine that jin does not use yet (the one `cws` belongs to first). */
   candidates: string[];
+  /** The workspace this machine's `cws` command belongs to, when there is one. */
+  cws: string | null;
   auth: AuthState[];
   install: Step | null;
   /** A workspace, and gh and Claude Code signed in. */
@@ -43,6 +45,22 @@ export class LocalSetup {
     private home = homedir(),
   ) {}
 
+  /** The workspace `cws` belongs to: its setup links ~/.local/bin/cws to <workspace>/bin/cws. */
+  cwsRoot(): string | null {
+    const links = [join(this.home, ".local", "bin", "cws")];
+    if (this.home === homedir()) links.push(Bun.which("cws") ?? "");
+    for (const link of links.filter(Boolean)) {
+      try {
+        const target = realpathSync(link);
+        const root = dirname(dirname(target));
+        if (target.endsWith(join("bin", "cws")) && isComposioWorkspace(root)) return root;
+      } catch {
+        // not there
+      }
+    }
+    return null;
+  }
+
   candidates(): string[] {
     // realpath: macOS folders are case-insensitive, so two spellings can be one folder.
     const real = (d: string) => {
@@ -54,7 +72,8 @@ export class LocalSetup {
     };
     const seen = new Set(this.workspaces.map((w) => real(w.root)));
     const out: string[] = [];
-    for (const d of PLACES.map((p) => join(this.home, p))) {
+    const cws = this.cwsRoot();
+    for (const d of [...(cws ? [cws] : []), ...PLACES.map((p) => join(this.home, p))]) {
       if (!isComposioWorkspace(d) || seen.has(real(d))) continue;
       seen.add(real(d));
       out.push(d);
@@ -77,6 +96,7 @@ export class LocalSetup {
     return {
       workspaces: this.workspaces.map((w) => ({ id: w.id, root: w.root })),
       candidates: this.candidates(),
+      cws: this.cwsRoot(),
       auth,
       install: this.installStep,
       ready: this.workspaces.length > 0 && signedIn("gh") && signedIn("claude"),

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config, WorkspaceConfig } from "../src/config";
@@ -34,6 +34,19 @@ test("using a workspace writes its profile and makes it live at once", () => {
   expect(setup.candidates()).toEqual([]);
   expect(() => setup.useWorkspace(ws)).toThrow("already has a composio workspace");
   expect(workspaces).toHaveLength(1);
+});
+
+test("the workspace cws belongs to comes first, wherever it is", () => {
+  const { setup, ws } = fixture();
+  const home = join(ws, "..", "..");
+  const elsewhere = join(home, "projects", "cw");
+  mkdirSync(join(elsewhere, "bin"), { recursive: true });
+  writeFileSync(join(elsewhere, "workspace.yaml"), "repos: {}\n");
+  writeFileSync(join(elsewhere, "bin", "cws"), "#!/bin/sh\n");
+  mkdirSync(join(home, ".local", "bin"), { recursive: true });
+  symlinkSync(join(elsewhere, "bin", "cws"), join(home, ".local", "bin", "cws"));
+  expect(setup.cwsRoot()).toBe(realpathSync(elsewhere));
+  expect(setup.candidates()).toEqual([realpathSync(elsewhere), ws]);
 });
 
 test("refuses a folder that is not a composio workspace", () => {
