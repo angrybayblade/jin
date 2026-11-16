@@ -70,6 +70,22 @@
   --motion-fast: 0ms;
   --motion-normal: 0ms;
 
+  /* Density: comfortable by default here; compact (jin's default) overrides below. */
+  --d-sidebar-w: 232px;
+  --d-nav-h: 32px;
+  --d-header-h: 48px;
+  --d-control-h: 30px;
+  --d-tab-h: 34px;
+  --d-tree-row: 26px;
+  --d-editor-bar: 36px;
+  --d-pad: var(--space-5);
+  --d-text: 14px;
+  --d-chat-text: 15px;
+  --d-md-text: 14px;
+  --d-welcome: 34px;
+  --d-brand: 24px;
+  --d-row-pad: var(--space-3);
+
   /* Jin: orchestration states (light) */
   --state-running: #9d5034; /* copper: work in progress */
   --state-running-tint: #f6e6d9;
@@ -247,4 +263,29 @@
   --diff-add-ink: #2f6b3a;
   --diff-remove: #f6e2dd;
   --diff-remove-ink: #982f29;
+}
+
+/*
+ * Compact density (jin's default): smaller text and tighter rows, closer to an editor than
+ * a document. Set with <html data-density="compact">, or on a region.
+ */
+[data-density="compact"] {
+  --type-primary: 14px;
+  --type-secondary: 13px;
+  --type-meta: 11.5px;
+  --type-code: 12.5px;
+  --d-sidebar-w: 208px;
+  --d-nav-h: 27px;
+  --d-header-h: 38px;
+  --d-control-h: 26px;
+  --d-tab-h: 30px;
+  --d-tree-row: 22px;
+  --d-editor-bar: 30px;
+  --d-pad: var(--space-4);
+  --d-text: 13px;
+  --d-chat-text: 13.5px;
+  --d-md-text: 13px;
+  --d-welcome: 26px;
+  --d-brand: 20px;
+  --d-row-pad: 8px;
 }
