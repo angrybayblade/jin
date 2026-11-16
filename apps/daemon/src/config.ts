@@ -40,13 +40,16 @@ export function loadConfig(home = jinHome()): Config {
   const file = join(home, "config.yaml");
   const raw = existsSync(file) ? parse(file) : {};
   const mode = raw.mode === "vm" ? "vm" : "local";
-  const webOrigin = String(raw.webOrigin ?? "http://127.0.0.1:3917");
+  // webOrigins (a list) lets more than one jin use this daemon: a machine onboarded by your
+  // installed app and by a development copy; webOrigin is the single-origin form.
+  const listed = [raw.webOrigin, ...(Array.isArray(raw.webOrigins) ? raw.webOrigins : [])].filter(Boolean).map(String);
+  const webOrigin = listed[0] ?? "http://127.0.0.1:3917";
   const alias = (o: string) => (o.includes("//127.0.0.1") ? o.replace("//127.0.0.1", "//localhost") : o.replace("//localhost", "//127.0.0.1"));
   return {
     home,
     mode,
     webOrigin,
-    webOrigins: [...new Set([webOrigin, alias(webOrigin)])],
+    webOrigins: [...new Set((listed.length ? listed : [webOrigin]).flatMap((o) => [o, alias(o)]))],
     port: Number(process.env.JIN_PORT ?? raw.port ?? 7317),
     model: String(raw.model ?? "claude-opus-5-5"),
   };

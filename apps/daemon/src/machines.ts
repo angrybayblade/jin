@@ -174,14 +174,16 @@ true
 `;
 
 /** The machine's daemon: jin's config pointed at this web app, a user service (systemd when there is one), and its token. */
-const daemonScript = (port: number, origin: string) => `
+export const daemonScript = (port: number, origin: string) => `
 set -e
 ${PATH_LINE}
 mkdir -p ~/.jin/workspaces && chmod 700 ~/.jin
 CFG=~/.jin/config.yaml
 [ -f $CFG ] || printf 'mode: vm\\n' > $CFG
-grep -v -E '^(webOrigin|port):' $CFG > $CFG.tmp || true
-printf 'webOrigin: %s\\nport: %s\\n' '${origin}' '${port}' >> $CFG.tmp && mv $CFG.tmp $CFG
+# Keep the jin apps already allowed here, and add this one.
+ORIGINS=$( { grep -E '^webOrigins?:' $CFG | grep -oE 'https?://[^] ,"]+' ; echo '${origin}'; } | awk '!seen[$0]++' | paste -sd, - | sed 's/,/, /g')
+grep -v -E '^(webOrigins?|port):' $CFG > $CFG.tmp || true
+printf 'webOrigins: [%s]\\nport: %s\\n' "$ORIGINS" '${port}' >> $CFG.tmp && mv $CFG.tmp $CFG
 BUN="$HOME/.bun/bin/bun"; MAIN="$HOME/.jin/app/apps/daemon/src/main.ts"
 if systemctl --user show-environment >/dev/null 2>&1; then
   mkdir -p ~/.config/systemd/user
@@ -331,6 +333,7 @@ export class Machines {
   private auth = new Map<string, Map<AuthTool, AuthState>>();
   private signIns = new Map<string, SignIn>();
   private health: ReturnType<typeof setInterval> | null = null;
+  private relay: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private config: Config,
@@ -571,6 +574,31 @@ export class Machines {
     this.tunnels.delete(id);
   }
 
+  /**
+   * Collect each connected machine's notices (it has no desktop; it keeps them, after its own
+   * on-screen and repeat checks) and hand them to `show`, every few seconds.
+   */
+  relayNotices(show: (m: MachineRecord, n: { key: string; title: string; subtitle?: string; body: string; path: string; chat?: string; terminal?: string }) => void) {
+    const last = new Map<string, number>();
+    const tick = async () => {
+      for (const m of this.records()) {
+        if (!m.token || this.tunnels.get(m.id)?.state !== "up") continue;
+        try {
+          const res = await fetch(`http://127.0.0.1:${m.localPort}/api/notifications/outbox?after=${last.get(m.id) ?? -1}`, { headers: { authorization: `Bearer ${m.token}` }, signal: AbortSignal.timeout(3000) });
+          if (!res.ok) continue; // an older jin there has no outbox
+          const { seq, notices } = (await res.json()) as { seq: number; notices: { seq: number; key: string; title: string; subtitle?: string; body: string; path: string }[] };
+          // A restarted machine starts counting again: take its new count as the start.
+          if (seq < (last.get(m.id) ?? -1)) last.set(m.id, -1);
+          for (const n of notices) show(m, n);
+          last.set(m.id, seq);
+        } catch {
+          // offline for now; the tunnel reconnects
+        }
+      }
+    };
+    this.relay ??= setInterval(() => void tick(), 3000);
+  }
+
   /** Reopen tunnels to machines that finished onboarding (at start). */
   resume() {
     for (const m of this.records()) if (m.token) void this.openTunnel(m.id).catch(() => {});
@@ -578,6 +606,7 @@ export class Machines {
 
   stopAll() {
     if (this.health) clearInterval(this.health);
+    if (this.relay) clearInterval(this.relay);
     for (const id of [...this.tunnels.keys()]) this.closeTunnel(id);
     for (const s of this.signIns.values()) s.proc.kill();
   }
