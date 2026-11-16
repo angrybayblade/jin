@@ -264,7 +264,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, M
 
 export interface ClaudeLaunch {
   /** Extra arguments for `claude`: jin's settings file with its hooks, the model, and in a task its rules. */
-  args: (ctx?: { taskId?: string | null }) => string[];
+  args: (ctx?: { taskId?: string | null; taskRoot?: string; workspaceRoot?: string; parent?: string | null }) => string[];
   env: (workspace: WorkspaceConfig | undefined) => Record<string, string>;
 }
 
@@ -299,7 +299,7 @@ export function hasTranscript(sessionId: string, configDir?: string): boolean {
 export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: string; cols?: number; rows?: number } = {}): TerminalInfo {
   const t = deps.terminals.get(id);
   if (deps.terminals.isLive(id)) return t;
-  const { workspace } = place(deps, t.taskId);
+  const { workspace, task } = place(deps, t.taskId);
   if (t.kind === "shell") return deps.terminals.spawn(id, { cols: opts.cols, rows: opts.rows });
   // Claude Code saves a conversation only once something is sent, so a session that was
   // opened and left empty has nothing to resume: start a fresh one instead of failing.
@@ -307,7 +307,7 @@ export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: s
   if (t.claudeSessionId && !session) deps.terminals.setClaudeSession(id, null);
   const resume = session ? ["--resume", session] : [];
   const prompt = !session && opts.prompt?.trim() ? [opts.prompt.trim()] : [];
-  return deps.terminals.spawn(id, { argv: ["claude", ...deps.claude.args({ taskId: t.taskId }), ...resume, ...prompt], env: deps.claude.env(workspace), cols: opts.cols, rows: opts.rows });
+  return deps.terminals.spawn(id, { argv: ["claude", ...deps.claude.args({ taskId: t.taskId, taskRoot: task?.root, workspaceRoot: workspace?.root, parent: task?.parent }), ...resume, ...prompt], env: deps.claude.env(workspace), cols: opts.cols, rows: opts.rows });
 }
 
 /** A new tab running a shell or Claude Code, in a task's directory (or the workspace root without a task). */
