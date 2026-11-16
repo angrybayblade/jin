@@ -216,7 +216,14 @@ export function Sidebar({
               </span>
             </Link>
           ))}
-        {live.length === 0 && jobs.every((j) => j.state === "done") && <p className="sidebar-empty">Ask jin to start one, or press +.</p>}
+        {live.length === 0 && jobs.every((j) => j.state === "done") &&
+          (workspace === "no workspace" && machine === "local" ? (
+            <p className="sidebar-empty">
+              No workspace yet. <Link href="/setup">Set up jin</Link>
+            </p>
+          ) : (
+            <p className="sidebar-empty">Ask jin to start one, or press +.</p>
+          ))}
         {live.filter((t) => !jobs.some((j) => j.taskId === t.id && j.state === "running")).map(taskRow)}
         {archived.length > 0 && (
           <>

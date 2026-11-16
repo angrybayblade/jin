@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, MACHINE_COOKIE, type Machine, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, MACHINE_COOKIE, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -318,4 +318,50 @@ export async function switchMachine(id: string): Promise<void> {
   if (id === "local") jar.delete(MACHINE_COOKIE);
   else jar.set(MACHINE_COOKIE, id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
   revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------- first-run setup (this machine's daemon)
+
+export async function getSetup(): Promise<SetupState> {
+  return daemon<SetupState>("/api/setup", { local: true });
+}
+
+export async function checkSetupAuth(): Promise<void> {
+  await daemon("/api/setup/auth", { method: "POST", local: true });
+}
+
+export async function startSetupSignIn(tool: string): Promise<void> {
+  await daemon(`/api/setup/auth/${tool}`, { method: "POST", local: true });
+}
+
+export async function cancelSetupSignIn(tool: string): Promise<void> {
+  await daemon(`/api/setup/auth/${tool}`, { method: "DELETE", local: true });
+}
+
+export async function submitSetupSignInCode(tool: string, code: string): Promise<{ error: string } | null> {
+  try {
+    await daemon(`/api/setup/auth/${tool}/code`, { method: "POST", json: { code }, local: true });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function adoptSetupWorkspace(path: string): Promise<{ error: string } | null> {
+  try {
+    await daemon("/api/setup/workspace", { method: "POST", json: { path }, local: true });
+    revalidatePath("/", "layout");
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function installSetupWorkspace(): Promise<{ error: string } | null> {
+  try {
+    await daemon("/api/setup/install", { method: "POST", local: true });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
 }

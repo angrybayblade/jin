@@ -1,5 +1,5 @@
 "use client";
-import { Monitor, Plus, Server, Settings2 } from "lucide-react";
+import { Monitor, Plus, Server, Settings2, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { switchMachine } from "@/app/actions";
 import type { Machine } from "@/lib/daemon";
@@ -24,6 +24,7 @@ export function MachineSwitcher({ machines, current, workspace }: { machines: Ma
     }),
     { divider: true },
     { label: "Add a machine…", icon: Plus, run: () => router.push("/machines") },
+    { label: "Set up this machine", icon: Wrench, run: () => router.push("/setup") },
     ...(machines.length ? [{ label: "Manage machines", icon: Settings2, run: () => router.push(on ? `/machines?m=${on.id}` : "/machines") } satisfies MenuItem] : []),
   ];
   const tone = on ? machineState(on).tone : "ok";

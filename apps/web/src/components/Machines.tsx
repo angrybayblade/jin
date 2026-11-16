@@ -43,7 +43,7 @@ function StepIcon({ state }: { state: MachineStep["state"] }) {
   return <Circle size={14} className="step-pending" />;
 }
 
-function Steps({ steps }: { steps: MachineStep[] }) {
+export function Steps({ steps }: { steps: MachineStep[] }) {
   return (
     <ol className="machine-steps">
       {steps.map((s) => (
@@ -66,7 +66,7 @@ function Steps({ steps }: { steps: MachineStep[] }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
@@ -84,7 +84,17 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function SignIn({ machine, auth, refresh }: { machine: Machine; auth: MachineAuth; refresh: () => void }) {
+/** What a sign-in row can do: on a remote machine, or on this one. */
+export interface SignInActions {
+  /** Where the sign-in runs, for "Starting the sign-in on …". */
+  where: string;
+  start: (tool: string) => Promise<unknown>;
+  cancel: (tool: string) => Promise<unknown>;
+  code: (tool: string, code: string) => Promise<{ error: string } | null>;
+  dopplerToken?: (token: string) => Promise<{ error: string } | null>;
+}
+
+export function SignIn({ actions, auth, refresh }: { actions: SignInActions; auth: MachineAuth; refresh: () => void }) {
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -112,13 +122,13 @@ function SignIn({ machine, auth, refresh }: { machine: Machine; auth: MachineAut
           </span>
         </div>
         {auth.state === "waiting" ? (
-          <button type="button" className="button small quiet" onClick={() => act(cancelMachineSignIn(machine.id, auth.tool))}>
+          <button type="button" className="button small quiet" onClick={() => act(actions.cancel(auth.tool))}>
             Cancel
           </button>
         ) : (
           auth.state !== "missing" &&
           auth.state !== "unknown" && (
-            <button type="button" className={`button small ${signedIn ? "quiet" : ""}`} onClick={() => act(startMachineSignIn(machine.id, auth.tool))}>
+            <button type="button" className={`button small ${signedIn ? "quiet" : ""}`} onClick={() => act(actions.start(auth.tool))}>
               {signedIn ? "Sign in again" : "Sign in"}
             </button>
           )
@@ -126,7 +136,7 @@ function SignIn({ machine, auth, refresh }: { machine: Machine; auth: MachineAut
       </div>
       {auth.state === "waiting" && !auth.url && (
         <p className="meta machine-auth-body">
-          <LoaderCircle size={12} className="spin" /> Starting the sign-in on {machine.label}…
+          <LoaderCircle size={12} className="spin" /> Starting the sign-in on {actions.where}…
         </p>
       )}
       {auth.state === "waiting" && auth.url && (
@@ -151,7 +161,7 @@ function SignIn({ machine, auth, refresh }: { machine: Machine; auth: MachineAut
               className="machine-inline-form"
               onSubmit={(e) => {
                 e.preventDefault();
-                void submitMachineSignInCode(machine.id, auth.tool, code).then((r) => {
+                void actions.code(auth.tool, code).then((r) => {
                   if (r) setError(r.error);
                   else setCode("");
                   refresh();
@@ -168,14 +178,14 @@ function SignIn({ machine, auth, refresh }: { machine: Machine; auth: MachineAut
         </div>
       )}
       {auth.state === "failed" && auth.error && <p className="machine-error machine-auth-body">{auth.error}</p>}
-      {auth.tool === "doppler" && !signedIn && auth.state !== "missing" && (
+      {auth.tool === "doppler" && actions.dopplerToken && !signedIn && auth.state !== "missing" && (
         <div className="machine-auth-body">
           {showToken ? (
             <form
               className="machine-inline-form"
               onSubmit={(e) => {
                 e.preventDefault();
-                void setMachineDopplerToken(machine.id, token).then((r) => {
+                void actions.dopplerToken?.(token).then((r) => {
                   if (r) setError(r.error);
                   else {
                     setToken("");
@@ -259,6 +269,13 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
   const remove = { armed: confirm.armed === "forget", onClick: () => confirm.ask("forget") && void removeMachine(m.id).then(onRemoved) };
   const state = machineState(m);
   const ready = m.steps.every((s) => s.state === "done");
+  const signInActions: SignInActions = {
+    where: m.label,
+    start: (t) => startMachineSignIn(m.id, t),
+    cancel: (t) => cancelMachineSignIn(m.id, t),
+    code: (t, c) => submitMachineSignInCode(m.id, t, c),
+    dopplerToken: (tok) => setMachineDopplerToken(m.id, tok),
+  };
   return (
     <article className="machine-detail">
       <header className="machine-detail-head">
@@ -317,7 +334,7 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
             <p className="meta">Each runs on {m.label} and gives you a link and a code for your browser. jin copies no credentials across.</p>
             <ul className="machine-auths">
               {m.auth.map((a) => (
-                <SignIn key={a.tool} machine={m} auth={a} refresh={refresh} />
+                <SignIn key={a.tool} actions={signInActions} auth={a} refresh={refresh} />
               ))}
             </ul>
           </section>

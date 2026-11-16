@@ -234,6 +234,15 @@ export interface Machine {
   auth: MachineAuth[];
 }
 
+/** First-run setup for this machine (always this machine's daemon). */
+export interface SetupState {
+  workspaces: { id: string; root: string }[];
+  candidates: string[];
+  auth: MachineAuth[];
+  install: MachineStep | null;
+  ready: boolean;
+}
+
 export interface NotificationSettings {
   enabled: boolean;
   sound: boolean;

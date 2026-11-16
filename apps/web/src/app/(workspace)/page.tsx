@@ -1,7 +1,8 @@
 import { Chat } from "@/components/Chat";
 import { TodayPanel } from "@/components/TodayPanel";
 import { Panes } from "@/components/Panes";
-import { daemon, daemonWsBase, type Approval, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
+import { redirect } from "next/navigation";
+import { currentMachine, daemon, daemonWsBase, type Status, type Approval, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -12,11 +13,14 @@ const greeting = () => {
 
 /** Home: a chat with jin, with what is waiting on the right. */
 export default async function Home({ searchParams }: { searchParams: Promise<{ chat?: string }> }) {
-  const [sessions, approvals, feed] = await Promise.all([
+  const [sessions, approvals, feed, status] = await Promise.all([
     daemon<Session[]>("/api/sessions?kind=jin"),
     daemon<Approval[]>("/api/approvals?state=pending"),
     daemon<FeedItem[]>("/api/feed"),
+    daemon<Status>("/api/status"),
   ]);
+  // First run on this machine (no workspace, no chats yet): set jin up first.
+  if (status.workspaces.length === 0 && sessions.length === 0 && (await currentMachine()) === "local") redirect("/setup");
   // The open tab: ?chat=<id>, ?chat=new for a fresh one, else the newest chat.
   const want = (await searchParams).chat;
   const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
