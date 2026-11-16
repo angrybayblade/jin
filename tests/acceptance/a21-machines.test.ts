@@ -124,6 +124,21 @@ test("A21 a machine onboards over ssh, answers through its tunnel, relays its no
   expect(used).toMatchObject({ workspace: ws, workspaceCandidates: [] });
   await until(async () => (await remote("/api/status").then((r) => r.json()).catch(() => null))?.workspaces?.includes("composio"), 20_000, "machine's jin with the workspace");
 
+  // jin's chat here sees the machine and works on it through the tunnel.
+  const chat = await d.json("/api/chats", {
+    method: "POST",
+    json: {
+      kind: "jin",
+      prompt: JSON.stringify({ script: [{ jinTool: "jin_list_machines", input: {} }, { jinTool: "jin_list_repos", input: { machine: "stand-in" } }, { jinTool: "jin_list_tasks", input: {} }, { text: "done" }] }),
+    },
+  });
+  await until(async () => (await d.json(`/api/sessions/${chat.id}`)).state === "idle", 20_000, "chat turn");
+  const out = async (tool: string) => ((await d.json(`/api/sessions/${chat.id}/events`)) as { kind: string; payload: { tool?: string; output?: unknown } }[]).find((e) => e.kind === "tool.result" && e.payload.tool === `mcp__jin__${tool}`)?.payload.output;
+  expect(await out("jin_list_machines")).toEqual([expect.objectContaining({ id: "local" }), expect.objectContaining({ id: "stand-in", connected: true, workspace: ws })]);
+  expect(((await out("jin_list_repos")) as { name: string }[]).map((r) => r.name)).toEqual(["platform"]);
+  const listed = (await out("jin_list_tasks")) as { machine: string; error?: string }[];
+  expect(listed.filter((t) => t.error)).toEqual([]); // every machine answered (the stand-in has no tasks yet)
+
   // Forgetting it stops jin there and drops its record.
   expect(await d.json("/api/machines/stand-in", { method: "DELETE" })).toEqual({ removed: true });
   expect(existsSync(join(env.home, "machines/stand-in.json"))).toBe(false);

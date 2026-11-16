@@ -170,7 +170,13 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   A machine running an older jin is flagged; "Update jin there" brings it level. The sidebar
   lists every connected machine's tasks under its name (opening one switches to it), and a
   machine's notifications (it has no desktop: it keeps them) are collected and shown here.
-  More than one jin can use a machine (`webOrigins`).
+  More than one jin can use a machine (`webOrigins`). jin finds a workspace already on a
+  machine through its `cws` link (`~/.local/bin/cws` → `<workspace>/bin/cws`) or the usual
+  folders, and offers it before installing one.
+- **One orchestrator**: your Mac's jin is the one you talk to; each machine's daemon owns its
+  own tasks, sessions and approvals. jin's chat lists machines, lists tasks and catches you up
+  across all of them, and starts tasks or Claude Code sessions on a chosen machine through its
+  tunnel.
 
 ## Look and feel
 
