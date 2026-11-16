@@ -1,0 +1,141 @@
+/*
+ * Jin design tokens.
+ * Light workspace: Zero's design system as is (flat white surfaces, graphite action,
+ * thermal-metal identity, 8px rhythm, Instrument Sans).
+ * Added for jin: a dark set for coding views (sessions, diffs, terminal, editor) and
+ * the states an orchestrator needs (running, waiting, blocked, failed, CI).
+ */
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/fonts/InstrumentSans-Variable.ttf") format("truetype");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-code: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* Zero: surfaces and ink */
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --surface-subtle: #f7f7f7;
+  --surface-metal: #f8f6f2;
+  --ink: #29272b;
+  --secondary: #50515a;
+  --muted: #61626d;
+  --scroll-thumb: #b8b7bb;
+  --scroll-thumb-hover: #88878e;
+  --line: #e5e5e5;
+  --line-strong: #a5a5a5;
+  --ember: #a13e28;
+  --copper: #9d5034;
+  --cream: #f1d3ae;
+  --accent-tint: #f1f1f1;
+  --accent-ink: #29272b;
+  --success: #455569;
+  --success-tint: #dce3ed;
+  --danger: #982f29;
+  --danger-tint: #f0d9d1;
+  --thermal-amber: #df8d32;
+  --thermal-silver: #b9c2d6;
+  --action: #29272b;
+  --action-hover: #111113;
+  --on-action: #ffffff;
+  --hover: #f5f5f5;
+  --selected-hover: #e9e9e9;
+  --grain: url("/material-grain.svg");
+  --metal-control: var(--grain), linear-gradient(112deg, #eeeae3 0%, #faf7f0 55%, #eeeae5 100%);
+  --selected-control: var(--accent-tint);
+  --thermal-material: url("/thermal-metal.svg");
+
+  /* Zero: type, space, shape, motion */
+  --type-primary: 16px;
+  --type-secondary: 14px;
+  --type-meta: 12px;
+  --type-code: 13px;
+  --weight-primary: 600;
+  --weight-secondary: 500;
+  --weight-meta: 400;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-control: 4px;
+  --radius-panel: 6px;
+  --motion-fast: 0ms;
+  --motion-normal: 0ms;
+
+  /* Jin: orchestration states (light) */
+  --state-running: #9d5034; /* copper: work in progress */
+  --state-running-tint: #f6e6d9;
+  --state-waiting: #8a5a12; /* amber ink: waiting on you */
+  --state-waiting-tint: #f8ead2;
+  --state-blocked: #50515a;
+  --state-blocked-tint: #ececee;
+  --state-failed: var(--danger);
+  --state-failed-tint: var(--danger-tint);
+  --state-done: var(--success);
+  --state-done-tint: var(--success-tint);
+}
+
+/*
+ * Coding views: sessions, diffs, terminal and the embedded editor sit on a dark,
+ * graphite surface so they read as one piece with code-server and the terminal.
+ * Apply with [data-theme="dark"] on a region (or the root, later, for a dark workspace).
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #141316;
+  --surface: #1b1a1e;
+  --surface-subtle: #222126;
+  --surface-metal: #26241f;
+  --ink: #ecebef;
+  --secondary: #b9b8c1;
+  --muted: #8f8e99;
+  --line: #2f2e34;
+  --line-strong: #4a4952;
+  --scroll-thumb: #4a4952;
+  --scroll-thumb-hover: #66656f;
+  --accent-tint: #2a292f;
+  --accent-ink: #ecebef;
+  --hover: #24232a;
+  --selected-hover: #2e2d34;
+  --action: #ecebef;
+  --action-hover: #ffffff;
+  --on-action: #141316;
+  --success: #a8b8cf;
+  --success-tint: #233042;
+  --danger: #f09a8a;
+  --danger-tint: #3a1f1b;
+  --state-running: #e7a35a;
+  --state-running-tint: #3a2a1a;
+  --state-waiting: #f0c36d;
+  --state-waiting-tint: #3a311c;
+  --state-blocked: #b9b8c1;
+  --state-blocked-tint: #2a292f;
+
+  /* Code, diff and terminal, tuned to the thermal palette */
+  --code-fg: #e6e4ea;
+  --code-comment: #7d7b87;
+  --code-keyword: #e7952f;
+  --code-string: #b9c2d6;
+  --code-number: #f0c36d;
+  --code-function: #e4b07a;
+  --diff-add: #1e2a22;
+  --diff-add-ink: #9fd3a8;
+  --diff-remove: #33201d;
+  --diff-remove-ink: #f0a596;
+  --term-black: #141316;
+  --term-red: #e0715e;
+  --term-green: #9fd3a8;
+  --term-yellow: #f0c36d;
+  --term-blue: #9fb3d6;
+  --term-magenta: #d39bb4;
+  --term-cyan: #8fcac4;
+  --term-white: #ecebef;
+}
