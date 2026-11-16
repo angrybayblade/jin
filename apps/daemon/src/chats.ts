@@ -5,6 +5,7 @@ import { collectGithub, type Feed } from "./feed";
 import type { JinTool } from "./harness";
 import type { Sessions } from "./sessions";
 import type { Tasks } from "./tasks";
+import type { TaskJobs } from "./jobs";
 import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
 
 export const CHAT_KINDS = ["jin", "slack", "linear", "notion", "gmail", "github"] as const;
@@ -26,7 +27,7 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
         ws,
         "Your job: catch the user up, help them decide what matters, and hand work to task agents.",
         "- When asked to catch up (or at the start of a conversation), call jin_catch_up and give a short brief: what is blocked on them first (approvals, failing checks on their PRs, review requests), then what changed, then what can wait. Number the items so the user can say 'take 2'.",
-        "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task and hand off with jin_start_agent with a clear prompt. Coding happens in the task agent, not here.",
+        "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
         "- jin_update_feed snoozes, dismisses or marks items done once the user decides.",
         "Be brief and concrete. Link PRs and issues by URL.",
       ].join("\n");
@@ -51,8 +52,8 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces, terminals, claude } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs } = deps;
   return [
     {
       name: "jin_catch_up",
@@ -95,21 +96,27 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     },
     {
       name: "jin_start_task",
-      description: "Create a task: a branch and worktree per repo in the workspace (runs the workspace's own tooling). Confirm the id, type and repos with the user first.",
+      description:
+        "Create a task in the background: a branch and worktree per repo (the workspace's own tooling), then its setup. Returns at once; the task shows in jin's sidebar with live setup progress. With a prompt, Claude Code opens in the task with it once setup is done, so no separate hand-off is needed. Confirm the id, type and repos with the user first.",
       input: {
         taskId: z.string().describe("e.g. a Linear issue id like PLEN-123"),
         repos: z.array(z.string()).min(1),
         slug: z.string().describe("short title"),
         type: z.enum(["feature", "enhancement", "refactor", "patch", "bug"]).optional(),
+        prompt: z.string().optional().describe("what Claude Code should do once the task is ready"),
+        setup: z.boolean().optional().describe("run each repo's setup (installs); default true"),
         workspace: z.string().optional(),
         feedItemId: z.string().optional().describe("the feed item this task comes from, if any"),
       },
       run: async (a) => {
         const workspace = (a.workspace as string | undefined) ?? workspaces[0]?.id;
         if (!workspace) throw new Error("no workspace configured");
-        const task = await tasks.start(workspace, { id: a.taskId as string, repos: a.repos as string[], slug: a.slug as string, type: a.type as string | undefined }, a.feedItemId as string | undefined);
-        if (a.feedItemId) feed.setState(a.feedItemId as string, "promoted", { taskId: task.id });
-        return { id: task.id, root: task.root, repos: task.repos };
+        const job = await jobs.start(
+          workspace,
+          { id: a.taskId as string, repos: a.repos as string[], slug: a.slug as string, type: a.type as string | undefined },
+          { setup: a.setup as boolean | undefined, prompt: a.prompt as string | undefined, feedItemId: a.feedItemId as string | undefined },
+        );
+        return { setting_up: job.taskId, open: `/t/${job.taskId}`, note: "Setup runs in the background; the task page shows progress." };
       },
     },
     {
