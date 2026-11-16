@@ -55,11 +55,12 @@ const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | 
 const copy = (text: string) => void navigator.clipboard?.writeText(text);
 
 /** A machine's name above its tasks, when the sidebar lists more than one machine's. */
-function MachineLabel({ label, current = false }: { label: string; current?: boolean }) {
+function MachineLabel({ label, current = false, empty = false }: { label: string; current?: boolean; empty?: boolean }) {
   return (
-    <div className={`nav-machine ${current ? "is-current" : ""}`}>
-      {label === "This machine" ? <Monitor size={11} /> : <Server size={11} />}
-      <span>{label}</span>
+    <div className={`nav-machine ${current ? "is-current" : ""}`} title={current ? `${label}: the machine jin is showing` : `Tasks on ${label}`}>
+      <span className="nav-machine-icon">{label === "This machine" ? <Monitor size={12} /> : <Server size={12} />}</span>
+      <span className="nav-machine-name">{label}</span>
+      {empty && <span className="nav-machine-empty">no tasks</span>}
     </div>
   );
 }
@@ -220,7 +221,9 @@ export function Sidebar({
             {error}
           </p>
         )}
-        {elsewhere.length > 0 && <MachineLabel label={machines.find((m) => m.id === machine)?.label ?? "This machine"} current />}
+        {elsewhere.length > 0 && (
+          <MachineLabel label={machines.find((m) => m.id === machine)?.label ?? "This machine"} current empty={live.length === 0 && jobs.every((j) => j.state === "done")} />
+        )}
         {jobs
           .filter((j) => j.state !== "done" && !live.some((t) => t.id === j.taskId && j.state === "failed"))
           .map((j) => (
@@ -236,9 +239,9 @@ export function Sidebar({
             <p className="sidebar-empty">
               No workspace yet. <Link href="/setup">Set up jin</Link>
             </p>
-          ) : (
+          ) : elsewhere.length === 0 ? (
             <p className="sidebar-empty">Ask jin to start one, or press +.</p>
-          ))}
+          ) : null)}
         {live.filter((t) => !jobs.some((j) => j.taskId === t.id && j.state === "running")).map(taskRow)}
         {archived.length > 0 && (
           <>
