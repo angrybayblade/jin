@@ -29,6 +29,7 @@ const TOOL_WHY: Record<MachineAuth["tool"], string> = {
 export function machineState(m: Machine): { label: string; tone: "ok" | "busy" | "bad" | "idle" } {
   if (m.busy && m.steps.some((s) => s.state === "running")) return { label: "Setting up", tone: "busy" };
   if (m.steps.some((s) => s.state === "failed")) return { label: "Setup failed", tone: "bad" };
+  if (m.connected && m.outdated) return { label: "Update available", tone: "busy" };
   if (m.connected) return { label: "Connected", tone: "ok" };
   if (m.tunnel === "connecting") return { label: "Connecting", tone: "busy" };
   if (m.tunnel === "down") return { label: "Offline", tone: "bad" };
@@ -292,9 +293,14 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
           <RefreshCw size={12} /> {ready ? "Update jin there" : "Run setup again"}
         </button>
         <button type="button" className={`button small quiet ${remove.armed ? "is-armed" : ""}`} onClick={remove.onClick}>
-          <Trash2 size={12} /> {remove.armed ? "Forget this machine?" : "Forget"}
+          <Trash2 size={12} /> {remove.armed ? "Stop jin there and forget it?" : "Forget"}
         </button>
       </div>
+      {m.outdated && !m.busy && (
+        <p className="machine-notice">
+          {m.label} runs jin {m.version}; this machine runs a newer one. <strong>Update jin there</strong> copies it over and restarts it (Claude Code sessions there resume).
+        </p>
+      )}
       <section className="machine-section">
         <h3>Setup</h3>
         <Steps steps={m.steps} />

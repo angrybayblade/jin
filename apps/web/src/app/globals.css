@@ -2545,3 +2545,11 @@ p.machine-auth-body {
     border-bottom: 1px solid var(--line);
   }
 }
+.machine-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--state-waiting-tint);
+  font-size: var(--type-meta);
+  line-height: 1.45;
+}

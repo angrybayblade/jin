@@ -228,6 +228,7 @@ export interface Machine {
   connected: boolean;
   tunnel: "up" | "connecting" | "down" | "off";
   busy: boolean;
+  outdated: boolean;
   steps: MachineStep[];
   workspaceStep: MachineStep | null;
   auth: MachineAuth[];
