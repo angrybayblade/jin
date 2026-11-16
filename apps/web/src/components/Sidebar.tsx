@@ -3,7 +3,8 @@ import { BookOpen, GitPullRequest, Layers, Mail, MessageSquare, SquareKanban } f
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import type { AgentStatus, Session, Task, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, Session, Task, TaskJob, TerminalInfo } from "@/lib/daemon";
+import { NewTaskButton } from "./NewTaskDialog";
 import { StatusMark, ThermalMark } from "./ThermalMark";
 import { DensityToggle, SidebarToggle } from "./ShellControls";
 import { ThemeToggle } from "./ThemeToggle";
@@ -29,6 +30,7 @@ export function Sidebar({
   tasks,
   sessions,
   terminals,
+  jobs,
   pendingApprovals,
   workspace,
   mode,
@@ -36,6 +38,7 @@ export function Sidebar({
   tasks: Task[];
   sessions: Session[];
   terminals: TerminalInfo[];
+  jobs: TaskJob[];
   pendingApprovals: number;
   workspace: string;
   mode: string;
@@ -58,9 +61,22 @@ export function Sidebar({
           {pendingApprovals > 0 && <span className="nav-count" title="Approvals waiting">{pendingApprovals}</span>}
         </Link>
 
-        <div className="nav-section">Tasks</div>
-        {live.length === 0 && <p className="sidebar-empty">Ask jin to start one.</p>}
-        {live.map((t) => {
+        <div className="nav-section">
+          <span>Tasks</span>
+          <NewTaskButton />
+        </div>
+        {jobs
+          .filter((j) => j.state !== "done" && !live.some((t) => t.id === j.taskId && j.state === "failed"))
+          .map((j) => (
+            <Link key={j.id} href={`/t/${encodeURIComponent(j.taskId)}`} className={`nav-item task ${path === `/t/${j.taskId}` ? "active" : ""}`} title={j.slug}>
+              <StatusMark state={j.state === "running" ? "running" : "failed"} />
+              <span className="nav-label">
+                <span className="mono">{j.taskId}</span> <span className="nav-sub">{j.state === "running" ? "setting up…" : "setup failed"}</span>
+              </span>
+            </Link>
+          ))}
+        {live.length === 0 && jobs.every((j) => j.state === "done") && <p className="sidebar-empty">Ask jin to start one, or press +.</p>}
+        {live.filter((t) => !jobs.some((j) => j.taskId === t.id && j.state === "running")).map((t) => {
           // Claude Code's status (from its hooks), else the latest SDK session's.
           const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
           const s = latest((x) => x.taskId === t.id);

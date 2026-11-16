@@ -3,22 +3,23 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
-import { daemon, DaemonUnavailable, type Approval, type Session, type Status, type Task, type TerminalInfo } from "@/lib/daemon";
+import { daemon, DaemonUnavailable, type Approval, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
 /** The persistent workspace shell: sidebar, then each page's chat and side pane. */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
-  let shell: { status: Status; tasks: Task[]; sessions: Session[]; approvals: Approval[]; terminals: TerminalInfo[] };
+  let shell: { status: Status; tasks: Task[]; sessions: Session[]; approvals: Approval[]; terminals: TerminalInfo[]; jobs: TaskJob[] };
   try {
-    const [status, tasks, sessions, approvals, terminals] = await Promise.all([
+    const [status, tasks, sessions, approvals, terminals, jobs] = await Promise.all([
       daemon<Status>("/api/status"),
       daemon<Task[]>("/api/tasks"),
       daemon<Session[]>("/api/sessions"),
       daemon<Approval[]>("/api/approvals?state=pending"),
       daemon<TerminalInfo[]>("/api/terminals"),
+      daemon<TaskJob[]>("/api/task-jobs"),
     ]);
-    shell = { status, tasks, sessions, approvals, terminals };
+    shell = { status, tasks, sessions, approvals, terminals, jobs };
   } catch (err) {
     if (!(err instanceof DaemonUnavailable)) throw err;
     return (
@@ -35,6 +36,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         tasks={shell.tasks}
         sessions={shell.sessions}
         terminals={shell.terminals}
+        jobs={shell.jobs}
         pendingApprovals={shell.approvals.length}
         workspace={shell.status.workspaces.join(", ") || "no workspace"}
         mode={shell.status.mode}
