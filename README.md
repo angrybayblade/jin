@@ -7,45 +7,63 @@ your organisation's workspace. Single-user; runs locally or on a private VM.
 - [Security surfaces](docs/security.md): what the single-user version relies on, and
   everything a hosted, multi-tenant jin would have to handle.
 
-## Run
+## Install (macOS)
 
-Requirements: Bun 1.4 (daemon), Node 24 (Next.js), `gh` logged in, Claude Code logged in,
-and a workspace (composio-workspace installs to `~/composio-workspace`).
+Requirements: Bun 1.4, Node 24, git, and the hutch toolchain for the desktop build
+(`HUTCH_HOME`, default `~/.jin/toolchain/hutch`).
 
 ```bash
 bun install
+./scripts/release-local.sh   # builds this commit into ~/.jin/release/app, installs ~/Applications/jin.app
+```
 
-# 1. Your workspace (one file per organisation)
-mkdir -p ~/.jin/workspaces
-cat > ~/.jin/workspaces/composio.yaml <<'EOF'
+Open jin from Applications. It starts its daemon (127.0.0.1:7317) and web app
+(127.0.0.1:3917) when they are not running; logs go to `~/.jin/logs`. A fresh install opens
+**Set up jin**: pick or install a composio workspace, and sign in to gh and Claude Code (each
+sign-in opens your browser). Rerun the script to update; it restarts jin's services.
+
+**Machines** (sidebar footer → Add a machine): any host you reach with `ssh`. jin installs
+what it needs there, runs its own daemon, and switches the whole app to it through a tunnel.
+
+## Develop
+
+Run a development copy next to the installed app, with its own home and ports:
+
+```bash
+export JIN_HOME=/tmp/jin-dev && mkdir -p $JIN_HOME
+printf 'port: 7417\nwebOrigin: http://127.0.0.1:3937\n' > $JIN_HOME/config.yaml
+bun run --cwd apps/daemon start                                   # daemon on 7417
+(cd apps/web && JIN_WEB_DIST=.next-dev bunx next dev -H 127.0.0.1 -p 3937)
+# desktop window against it: (cd apps/desktop && JIN_URL=http://127.0.0.1:3937 hutch electrobun dev)
+```
+
+`$JIN_HOME/config.yaml` (all optional):
+
+```yaml
+mode: local              # vm on a machine without a desktop (no notifications); machines get this
+model: claude-opus-5-5   # jin's chats and the Claude Code sessions jin starts
+port: 7317               # the daemon's port
+webOrigin: http://127.0.0.1:3917   # the only browser origin the daemon accepts
+```
+
+Workspaces are `$JIN_HOME/workspaces/<id>.yaml` (the setup page writes one):
+
+```yaml
 id: composio
 adapter: composio
 root: /Users/you/composio-workspace
 github:
   owners: [ComposioHQ]
-EOF
-
-# 2. Daemon (loopback only; writes ~/.jin/daemon.json with its token)
-bun run --cwd apps/daemon start
-
-# 3. Web app on http://127.0.0.1:3917
-bun run --cwd apps/web dev
-# or: bun run --cwd apps/web build && PORT=3917 bun run --cwd apps/web start
-```
-
-`~/.jin/config.yaml` (all optional):
-
-```yaml
-mode: local              # or vm, for the always-on features (not built yet)
-model: claude-opus-5-5   # jin's chats and the Claude Code sessions jin starts
 ```
 
 ## Layout
 
 - `apps/daemon` (Bun): workspace adapters (composio over `cws` and `task.json`), the
-  GitHub feed, persistent terminals (Claude Code and shells), Claude Code hooks, Agent SDK
-  chats with approvals, policy, tickets, SQLite.
-- `apps/web` (Next.js): jin's chat, the task view (Claude Code tabs, editor, shells, diff),
-  desks, on Zero's design system with light/dark themes and compact density.
+  GitHub feed, persistent terminals (Claude Code and shells), Claude Code hooks, PRs on
+  tasks, notifications, Agent SDK chats with approvals, policy, tickets, first-run setup,
+  remote machines over ssh, SQLite.
+- `apps/web` (Next.js): jin's chat, the task view (Claude Code and shell tabs, files, PR
+  badges), desks, setup and machines, on Zero's design system with light/dark themes.
+- `apps/desktop` (Electrobun): the macOS window; starts jin's services from the release.
 - `tests/acceptance`: the v0 acceptance suite (`bun run acceptance`), black box, with fake
   `gh` and `cws`; runs on its own port next to a dev server. Unit tests: `bun test apps`.

@@ -14,7 +14,7 @@ ideas and drops the multi-tenant machinery.
 | | Decision |
 | --- | --- |
 | Users | Only me. No organisations, roles or sharing inside Jin. |
-| Where it runs | Local (laptop) or a private VM. Same build; the VM enables the always-on features (not built yet). |
+| Where it runs | Your Mac as a desktop app, and any machine you reach with `ssh` (a dev VM), each with its own daemon; the app switches between them. |
 | Workspaces | Pluggable through a workspace adapter. composio-workspace is the first; Jin's core knows nothing about Composio. |
 | Tasks | The workspace is the source of truth for its tasks (the adapter is the task provider); Jin keeps only its own metadata. |
 | Coding | Claude Code's own TUI, in persistent terminals in the browser. Jin's rules reach it through Claude Code hooks. |
@@ -125,9 +125,47 @@ Jin's rules apply to every agent it runs, whatever the workspace:
 
 - **Feed**: the GitHub collector (one `gh api graphql` query: review requests, failing
   checks on the user's PRs, mentions), split by each workspace's GitHub owners, de-duplicated.
-- **Bobby badges** on every pull request (feed, desks, chat links) open the PR's review in
-  Bobby (`~/bobby`) in a new tab, starting Bobby if it is not running. Bobby forbids framing
-  by design, so it is not embedded.
+- **Bobby badges** on every pull request (feed, desks, chat links, a task's PR badges) open
+  the PR's review in Bobby (`~/bobby`) in your browser, starting Bobby if it is not running.
+  The daemon opens the browser, since the desktop window cannot.
+
+## Pull requests on tasks
+
+- A task's PRs show as badges in its task bar (state, checks, review) and as a mark in the
+  sidebar. They get there three ways: Claude Code's PostToolUse hook sees `gh pr create` (or a
+  GitHub tool) and attaches the new PR; Claude Code is told, as a rule appended to its system
+  prompt, to run `jin-task attach-pr <url>`; and every few minutes the daemon looks up PRs
+  opened from each task's branches. Open PRs are refreshed from GitHub on the same timer.
+
+## Notifications
+
+- A desktop notification (with sound, if on) when a Claude Code turn or a chat finishes,
+  something needs you, or a task's setup ends. Not when you are looking at that very tab;
+  repeats are folded. Local mode only: a machine without a desktop has nobody to tell.
+
+## Desktop app
+
+- `apps/desktop` (Electrobun) is jin in a native window with jin's own title bar: the panes'
+  top bars move the window, the window buttons sit in the sidebar, double-click follows the
+  system setting.
+- `scripts/release-local.sh` builds a frozen copy of the current commit in
+  `~/.jin/release/app` (production web build) and installs `~/Applications/jin.app`. The app
+  starts the daemon (7317) and the web server (3917) from there with your login shell's PATH
+  when they are not running, and leaves them running when the window closes. Development uses
+  its own `JIN_HOME` and ports next to it.
+
+## Setup and machines
+
+- **This machine** (`/setup`, where a fresh install starts): find a composio workspace in the
+  usual places or install one with its own installer, and sign in to gh, Claude Code and
+  Doppler. A workspace added there is live at once.
+- **Remote machines** (`/machines`): add one by its ssh host. jin connects with your SSH keys
+  and config, installs git, Bun, gh and Claude Code, copies its committed daemon to
+  `~/.jin/app`, runs it as a systemd user service (or in the background without systemd), and
+  keeps an SSH tunnel to it. Sign-ins run there and hand you their link and code; the
+  workspace can be installed there or pointed at. The machine switcher (sidebar footer) points
+  the whole app at that machine's daemon through the tunnel; jin copies no credentials across.
+  A machine running an older jin is flagged; "Update jin there" brings it level.
 
 ## Look and feel
 
@@ -139,20 +177,22 @@ Jin's rules apply to every agent it runs, whatever the workspace:
 
 ## Data model (SQLite)
 
-`workspaces` · `feed_items` · `tasks` (Jin's metadata and removed tasks) · `sessions` (kind:
-jin, a desk, or task) · `events` · `approvals` · `terminals` (tabs, Claude Code session ids).
+`workspaces` · `feed_items` · `tasks` (Jin's metadata and removed tasks) · `task_meta` (titles,
+archive) · `task_prs` · `sessions` (kind: jin, a desk, or task) · `events` · `approvals` ·
+`terminals` (tabs, Claude Code session ids). Remote machines are files in
+`$JIN_HOME/machines` (mode 0600: each holds its daemon's token).
 
 ## Status and next
 
-Built: everything above. The v0 acceptance suite (`bun run acceptance`) passes 18/18 next to
-a running dev server; unit tests with `bun test apps`.
+Built: everything above. The acceptance suite (`bun run acceptance`) passes 20/20 next to a
+running dev server; unit tests with `bun run test`.
 
-Next:
+Before a release candidate:
 
-1. **New task** from the UI, with setup running in the background and live progress.
-2. **Desktop shell** with Electrobun: inset title bar, an Edit menu (paste needs it in
-   WebKit), Cmd+W/T/1-9 for Jin's tabs, the daemon in process, a Dock badge when an agent
-   waits. A spike confirmed xterm (WebGL), Monaco and the thermal shader work in its WebKit view.
-3. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
-4. **Feed**: snoozed items coming back, Linear in the feed, a ranking pass.
-5. **VM mode**: scheduled briefs and PR watches.
+1. **Remote machines in daily use**: local and remote tasks in one sidebar; notifications
+   from a machine reaching your Mac; an end-to-end test against a stand-in host.
+2. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
+3. **Desktop**: Cmd+W/T/1-9 for jin's tabs, a Dock badge when an agent waits, signing.
+
+Later: feed (snoozed items coming back, Linear, a ranking pass); a plain-git workspace
+adapter; scheduled briefs and PR watches on an always-on machine.

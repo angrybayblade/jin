@@ -144,17 +144,35 @@ that persist (logs, workspace files, model context, workflow history).
 
 - **Single-user today:** jin links pull requests to their review in Bobby
   (`~/bobby`), found through Bobby's own lock file and started with
-  `bobby start` if needed. Reviews open in Bobby's own tab: Bobby forbids
+  `bobby start` if needed. Reviews open in your browser (the daemon runs
+  `open` on the review URL, nothing else): Bobby forbids
   framing (`frame-ancestors 'none'`) so another page cannot steer a click onto
   Approve, and its page asks before building a review it has never seen.
 - **Multi-tenant needs:** per-user companion processes inside the user's
   sandbox, never a shared one holding a person's `gh` login; any embedding
   allowed only for the exact app origin.
 
+### 8b. Remote machines
+
+- **Single-user today:** jin reaches a machine with your own `ssh` (keys,
+  agent, `~/.ssh/config`; BatchMode, so it never prompts and never stores a
+  password). Its daemon listens on that machine's loopback only, and this
+  machine reaches it through an SSH tunnel bound to this machine's loopback.
+  The remote daemon's token is kept in `$JIN_HOME/machines/<id>.json` (mode
+  0600) and read only by jin's web server. The remote daemon accepts only this
+  jin's web origin. Sign-ins (gh, Claude Code, Doppler) run on the machine and
+  their credentials stay there; jin copies none across. A Doppler service token,
+  when used, travels over ssh's stdin, never on a command line. gh on a Linux
+  machine without a keyring keeps its token in a plain file, as gh does.
+- **Multi-tenant needs:** machines are per user and never shared; tunnels
+  authenticated per user; no stored daemon tokens outside the user's own
+  machine.
+
 ### 9. Network
 
-- **Single-user today:** VM firewall allows SSH/Tailscale only; Jin and
-  code-server on loopback; agents have the VM's outbound access.
+- **Single-user today:** jin listens on loopback only, on your Mac and on each
+  machine; machines are reached over SSH. Agents have the machine's outbound
+  access.
 - **Multi-tenant needs:** egress policy per sandbox (deny by default, allow
   package registries and required APIs), no access to cloud metadata
   endpoints or internal networks, port exposure only through an authenticated
