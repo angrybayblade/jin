@@ -6,54 +6,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { setupEnv, startDaemon, until, type Daemon, type Env as TestEnv } from "./helpers";
+import { FAKE_SSH, setupEnv, startDaemon, until, type Daemon, type Env as TestEnv } from "./helpers";
 
 let env: TestEnv;
 let d: Daemon;
 let remoteHome: string;
 const notices = () => (existsSync(join(env.home, "notifications.log")) ? readFileSync(join(env.home, "notifications.log"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
 
-const FAKE_SSH = `#!/usr/bin/env bun
-// Stand-in ssh: options are skipped, -L is forwarded here, the command runs with the "remote" HOME.
-const args = process.argv.slice(2);
-let forward = null;
-const rest = [];
-for (let i = 0; i < args.length; i++) {
-  const a = args[i];
-  if (a === "-o") { i++; continue; }
-  if (a === "-L") { forward = args[++i]; continue; }
-  if (a === "-tt" || a === "-N") continue;
-  rest.push(a);
-}
-const [host, ...command] = rest;
-// A real ssh starts a fresh login: none of this jin's own variables reach the far side.
-const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("JIN_")));
-Object.assign(env, { HOME: process.env.FAKE_SSH_HOME, BUN_INSTALL_CACHE_DIR: process.env.REAL_BUN_CACHE });
-if (forward) {
-  const [, lport, , rport] = forward.split(":");
-  Bun.listen({
-    hostname: "127.0.0.1",
-    port: Number(lport),
-    socket: {
-      async open(client) {
-        client.data = { queue: [] };
-        client.data.upstream = await Bun.connect({ hostname: "127.0.0.1", port: Number(rport), socket: {
-          data(_s, chunk) { client.write(chunk); },
-          close() { client.end(); },
-          error() { client.end(); },
-        } }).catch(() => (client.end(), null));
-        for (const c of client.data.queue) client.data.upstream?.write(c);
-      },
-      data(client, chunk) { client.data.upstream ? client.data.upstream.write(chunk) : client.data.queue.push(chunk); },
-      close(client) { client.data.upstream?.end(); },
-    },
-  });
-  await new Promise(() => {});
-}
-if (!host) process.exit(255);
-const proc = Bun.spawn(["bash", "-c", command.join(" ")], { env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
-process.exit(await proc.exited);
-`;
 
 beforeAll(async () => {
   env = setupEnv();
