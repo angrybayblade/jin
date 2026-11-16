@@ -507,68 +507,137 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   padding: var(--d-pad);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-5);
 }
-.message {
-  margin-bottom: var(--space-3);
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   min-width: 0;
 }
-.message-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  font-size: var(--type-meta);
-  color: var(--muted);
+.message {
+  min-width: 0;
 }
-.message-meta strong {
-  color: var(--ink);
-  font-weight: var(--weight-secondary);
-}
-.message.user .message-body {
+/* Your message: a quiet bubble on the right. */
+.message.user {
+  align-self: flex-end;
+  max-width: min(80%, 640px);
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--surface-subtle);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: var(--d-chat-text);
 }
-.tool-row {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 2px var(--space-2);
+/* "Worked for 2m 31s ›": the turn's work, folded. */
+.work-toggle {
+  display: flex;
   align-items: center;
-  padding: 6px 10px;
-  border-radius: var(--radius-control);
-  background: var(--surface-subtle);
-  font-size: var(--type-meta);
-}
-.tool-icon {
-  display: inline-flex;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
   color: var(--muted);
+  font: inherit;
+  font-size: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
 }
-.tool-row.is-done .tool-icon {
-  color: var(--success);
+.work-toggle:hover {
+  color: var(--ink);
 }
-.tool-row.is-denied {
-  background: var(--state-failed-tint);
-}
-.tool-row.is-denied .tool-icon,
-.tool-row.is-denied .tool-reason {
-  color: var(--state-failed);
-}
-.tool-row.is-waiting {
-  background: var(--state-waiting-tint);
-}
-.tool-row.is-waiting .tool-reason {
+.work-flag {
   color: var(--state-waiting);
 }
-.tool-line {
+.step-chevron {
+  flex: none;
+  transition: transform 120ms ease;
+}
+.step-chevron.is-open {
+  transform: rotate(90deg);
+}
+.work {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+.step-text .message-markdown {
+  color: var(--secondary);
+  font-size: var(--type-meta);
+}
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.step-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--type-meta);
+  text-align: left;
+}
+button.step-line {
+  cursor: pointer;
+  width: fit-content;
+}
+button.step-line:hover {
+  color: var(--ink);
+}
+.step-line > svg,
+.step-line > canvas,
+.step-line > span:first-child {
+  flex: none;
+}
+.step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-line.is-live .step-label {
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+.step-line.is-denied {
+  color: var(--state-waiting);
+}
+.step-line.is-waiting {
+  color: var(--state-waiting);
+}
+.tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 4px 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+.tool-call {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+}
+.tool-call > svg {
+  flex: none;
+}
+.tool-call code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--secondary);
-}
-.tool-reason {
-  grid-column: 2;
-  font-size: var(--type-meta);
+  font-size: 11px;
 }
 .chat-note {
   font-size: var(--type-meta);
@@ -576,13 +645,6 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
 }
 .chat-note.is-error {
   color: var(--state-failed);
-}
-.working-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--muted);
-  font-size: var(--type-meta);
 }
 .composer-area {
   padding: var(--space-2) var(--d-pad) var(--space-3);
