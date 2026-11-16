@@ -28,6 +28,7 @@ export interface TerminalInfo {
   claudeSessionId: string | null;
   createdAt: string;
   clients: number;
+  archived: boolean;
 }
 
 export type AttachSocket = ServerWebSocket<{ type: "attach"; terminalId: string }>;
@@ -50,6 +51,7 @@ interface TerminalRow {
   claude_session_id: string | null;
   created_at: string;
   closed_at: string | null;
+  archived_at: string | null;
 }
 
 const SCROLLBACK = 5000;
@@ -91,16 +93,32 @@ export class Terminals {
       claudeSessionId: r.claude_session_id,
       createdAt: r.created_at,
       clients: l?.clients.size ?? 0,
+      archived: Boolean(r.archived_at),
     };
   }
 
-  list(filter: { taskId?: string } = {}): TerminalInfo[] {
+  /** Open tabs (or, with archived, the archived ones that can be restored). */
+  list(filter: { taskId?: string; archived?: boolean } = {}): TerminalInfo[] {
+    const which = filter.archived ? "archived_at is not null" : "archived_at is null";
     const rows = (
       filter.taskId
-        ? this.db.query("select * from terminals where task_id = ? and closed_at is null order by created_at").all(filter.taskId)
-        : this.db.query("select * from terminals where closed_at is null order by created_at").all()
+        ? this.db.query(`select * from terminals where task_id = ? and closed_at is null and ${which} order by created_at`).all(filter.taskId)
+        : this.db.query(`select * from terminals where closed_at is null and ${which} order by created_at`).all()
     ) as TerminalRow[];
     return rows.map((r) => this.info(r));
+  }
+
+  /** Archive a tab: its process stops and it leaves the tab bar, but Claude Code's session can be restored. */
+  archive(id: string, archived: boolean) {
+    this.row(id);
+    if (archived) this.stop(id);
+    this.db.query("update terminals set archived_at = ? where id = ?").run(archived ? now() : null, id);
+  }
+
+  /** Stop the tab's process (it can be started again in place). */
+  restartable(id: string) {
+    this.row(id);
+    this.stop(id);
   }
 
   get(id: string): TerminalInfo {
@@ -285,7 +303,7 @@ export function openTerminal(deps: TerminalDeps, b: { taskId?: string; kind?: Te
 export function terminalRoutes(router: Router, deps: TerminalDeps) {
   const { terminals } = deps;
   router
-    .on("GET", "/api/terminals", (_req, _p, url) => json(terminals.list({ taskId: url.searchParams.get("task") ?? undefined })))
+    .on("GET", "/api/terminals", (_req, _p, url) => json(terminals.list({ taskId: url.searchParams.get("task") ?? undefined, archived: url.searchParams.get("archived") === "1" })))
     .on("GET", "/api/terminals/:id", (_req, p) => json(terminals.get(p.id!)))
     .on("POST", "/api/terminals", async (req) => {
       const b = await body<{ taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number }>(req);
@@ -296,10 +314,19 @@ export function terminalRoutes(router: Router, deps: TerminalDeps) {
       return json(startTerminal(deps, p.id!, b));
     })
     .on("PATCH", "/api/terminals/:id", async (req, p) => {
-      const { title } = await body<{ title?: string }>(req);
-      if (!title?.trim()) throw new HttpError(400, "title is required");
-      terminals.rename(p.id!, title.trim());
+      const { title, archived } = await body<{ title?: string; archived?: boolean }>(req);
+      if (title !== undefined) {
+        if (!title.trim()) throw new HttpError(400, "title cannot be empty");
+        terminals.rename(p.id!, title.trim());
+      }
+      if (archived !== undefined) terminals.archive(p.id!, archived);
       return json(terminals.get(p.id!));
+    })
+    .on("POST", "/api/terminals/:id/restart", async (req, p) => {
+      // Stop and start again in place: Claude Code resumes its conversation.
+      const b = await body<{ cols?: number; rows?: number }>(req);
+      terminals.restartable(p.id!);
+      return json(startTerminal(deps, p.id!, b));
     })
     .on("DELETE", "/api/terminals/:id", (_req, p) => {
       terminals.close(p.id!);
