@@ -208,7 +208,7 @@ export class Sessions {
     const task = this.tasks.get(session.taskId);
     const workspace = this.workspaces.find((w) => w.id === task.workspace);
     if (!workspace) throw new Error(`workspace ${task.workspace} is not configured`);
-    const env: Record<string, string> = { CLAUDE_CONFIG_DIR: workspace.profile.claudeConfigDir };
+    const env: Record<string, string> = workspace.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: workspace.profile.claudeConfigDir } : {};
     const controller = new AbortController();
     this.running.set(sessionId, controller);
     // Only the profile variable is recorded, never the rest of the environment.

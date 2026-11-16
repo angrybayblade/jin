@@ -18,7 +18,12 @@ export interface WorkspaceConfig {
   adapter: "composio" | "git";
   root: string;
   github: { owners: string[] };
-  profile: { claudeConfigDir: string; codexHome?: string };
+  /**
+   * Harness config per organisation. Unset means the machine's default Claude login;
+   * set it to keep one organisation's connectors and logins apart from another's
+   * (each such directory needs its own `claude` login).
+   */
+  profile: { claudeConfigDir?: string; codexHome?: string };
 }
 
 export function jinHome(): string {
@@ -57,9 +62,7 @@ export function loadWorkspaces(home = jinHome()): WorkspaceConfig[] {
         root: String(raw.root),
         github: { owners: (raw.github?.owners ?? []).map(String) },
         profile: {
-          // Each workspace gets its own harness config, so one organisation's
-          // connectors and logins never reach another organisation's sessions.
-          claudeConfigDir: String(raw.profile?.claudeConfigDir ?? join(home, "profiles", id, "claude")),
+          claudeConfigDir: raw.profile?.claudeConfigDir ? String(raw.profile.claudeConfigDir) : undefined,
           codexHome: raw.profile?.codexHome ? String(raw.profile.codexHome) : undefined,
         },
       };
