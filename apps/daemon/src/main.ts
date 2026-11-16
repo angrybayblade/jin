@@ -60,7 +60,7 @@ taskRoutes(app.router, tasks, adapters);
 feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
 finderRoutes(app.router, new Finder(tasks));
-bobbyRoutes(app.router, config.webOrigins);
+bobbyRoutes(app.router);
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
