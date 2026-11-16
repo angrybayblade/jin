@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import type { Config, WorkspaceConfig } from "./config";
-import { HttpError, json, Router } from "./http";
+import { body, HttpError, json, Router } from "./http";
+import type { Tickets } from "./tickets";
 
 /** Everything a route needs. */
 export interface App {
@@ -10,6 +11,7 @@ export interface App {
   token: string;
   workspaces: WorkspaceConfig[];
   router: Router;
+  tickets: Tickets;
   /** Timers registered by the scheduler; always 0 in local mode. */
   jobs(): number;
 }
@@ -32,6 +34,11 @@ export function guard(app: App, req: Request, url: URL): Response | undefined {
   if (url.pathname === "/health") return undefined;
   const origin = req.headers.get("origin");
   if (origin && !app.config.webOrigins.includes(origin)) return json({ error: "origin not allowed" }, 403);
+  // A browser websocket may present a one-time ticket instead of the token.
+  const ticket = url.searchParams.get("ticket");
+  if (ticket && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+    return app.tickets.redeem(ticket, url.pathname) ? undefined : json({ error: "invalid or expired ticket" }, 401);
+  }
   const token = presentedToken(req, url);
   if (!token || !sameToken(token, app.token)) return json({ error: "missing or invalid token" }, 401);
   return undefined;
@@ -57,6 +64,11 @@ export function coreRoutes(app: App) {
     .on("GET", "/api/status", () =>
       json({ mode: app.config.mode, jobs: app.jobs(), workspaces: app.workspaces.map((w) => w.id) }),
     )
+    .on("POST", "/api/tickets", async (req) => {
+      const { path } = await body<{ path?: string }>(req);
+      if (!path || !/^\/api\/(sessions\/[^/]+\/stream|terminal)$/.test(path)) throw new HttpError(400, "tickets are for /api/sessions/:id/stream and /api/terminal");
+      return json(app.tickets.issue(path), 201);
+    })
     .on("POST", "/api/schedules", () => {
       // Scheduled work needs a machine that stays on. Local mode never registers timers.
       if (app.config.mode !== "vm") throw new HttpError(409, "schedules need the VM (mode: vm); this jin runs in local mode");
