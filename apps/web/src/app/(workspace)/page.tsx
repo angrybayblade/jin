@@ -34,7 +34,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         title="Jin"
         subtitle="your orchestrator"
         welcome={{
-          overline: "Jin",
           heading: greeting(),
           body: "Ask me to catch you up. I can start tasks, hand them to coding agents and keep track of what needs you.",
           suggestions: ["Catch me up", "What's blocked on me?", "Refresh GitHub and tell me what changed"],

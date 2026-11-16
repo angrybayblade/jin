@@ -109,7 +109,7 @@ export interface ChatProps {
   wsBase: string;
   title: string;
   subtitle?: ReactNode;
-  welcome: { overline: string; heading: string; body: string; suggestions: string[] };
+  welcome: { overline?: string; heading: string; body: string; suggestions: string[] };
   placeholder: string;
   /** Every open chat of this kind, shown as tabs in the top bar (jin's chat and the desks). */
   chats?: Session[];
@@ -231,7 +231,7 @@ export function Chat(props: ChatProps) {
       <div className="chat-scroll" ref={scroller} data-scroll="y">
         {items.length === 0 ? (
           <div className="chat-welcome">
-            <div className="welcome-overline">{props.welcome.overline}</div>
+            {props.welcome.overline && <div className="welcome-overline">{props.welcome.overline}</div>}
             <h1>{props.welcome.heading}</h1>
             <p>{props.welcome.body}</p>
             <div className="suggestions">
