@@ -38,6 +38,8 @@ export function claudeHookRoutes(router: Router, terminals: Terminals, adapters:
   router.on("POST", "/api/hooks/claude", async (req) => {
     const { event, terminalId, input } = await body<{ event: string; terminalId: string | null; input: Record<string, any> }>(req);
     if (terminalId) {
+      // Claude Code's session id (new on /clear) lets the tab resume after a restart.
+      if (typeof input.session_id === "string" && input.session_id) terminals.setClaudeSession(terminalId, input.session_id);
       if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse") terminals.setStatus(terminalId, "working");
       else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting");
       else if (event === "Stop" || event === "SessionStart") terminals.setStatus(terminalId, "idle");
