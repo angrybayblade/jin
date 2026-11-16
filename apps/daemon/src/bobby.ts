@@ -5,7 +5,7 @@ import { body, HttpError, json, type Router } from "./http";
 
 /**
  * Bobby (a focus-first PR reviewer, ~/bobby) as a companion app: jin links PRs to their review
- * in the Bobby running on this machine, starting it if needed. Reviews open in Bobby's own tab;
+ * in the Bobby running on this machine, starting it if needed. Reviews open in your browser;
  * Bobby forbids framing by design, and its page asks before building a PR it has never seen.
  */
 const LOCK = join(homedir(), ".bobby", "state", "app.lock");
@@ -61,6 +61,12 @@ export async function ensureBobby(): Promise<string> {
   throw new HttpError(504, "Bobby did not come up in 15s; see `bobby logs`");
 }
 
+/** Open a URL in the default browser on this machine. */
+export async function openInBrowser(url: string, run = (cmd: string[]) => Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited) {
+  const code = await run([process.platform === "darwin" ? "open" : "xdg-open", url]);
+  if (code !== 0) throw new HttpError(502, `could not open a browser for ${url}`);
+}
+
 /** owner/repo/number of a GitHub pull request URL. */
 export function parsePr(url: string): { owner: string; repo: string; number: number } | null {
   const m = url.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:[/?#].*)?$/);
@@ -71,11 +77,14 @@ export function bobbyRoutes(router: Router) {
   router
     .on("GET", "/api/bobby", async () => json({ installed: Boolean(bobbyBinary()), url: await runningBobby() }))
     .on("POST", "/api/bobby/open", async (req) => {
-      const { pr } = await body<{ pr?: string }>(req);
+      const { pr, browser } = await body<{ pr?: string; browser?: boolean }>(req);
       const parsed = pr ? parsePr(pr) : null;
       if (!parsed) throw new HttpError(400, "pr must be a GitHub pull request URL");
       const base = await ensureBobby();
       // Bobby's review page: it reopens a review seen before and asks before building a new one.
-      return json({ url: `${base}/r/${parsed.owner}/${parsed.repo}/${parsed.number}` });
+      const url = `${base}/r/${parsed.owner}/${parsed.repo}/${parsed.number}`;
+      // In your default browser, from here: jin's desktop window cannot open one itself.
+      if (browser) await openInBrowser(url);
+      return json({ url });
     });
 }
