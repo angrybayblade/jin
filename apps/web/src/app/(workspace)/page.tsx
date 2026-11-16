@@ -11,18 +11,21 @@ const greeting = () => {
 };
 
 /** Home: a chat with jin, with what is waiting on the right. */
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ chat?: string }> }) {
   const [sessions, approvals, feed] = await Promise.all([
     daemon<Session[]>("/api/sessions?kind=jin"),
     daemon<Approval[]>("/api/approvals?state=pending"),
     daemon<FeedItem[]>("/api/feed"),
   ]);
-  const session = sessions[0] ?? null;
+  // The open tab: ?chat=<id>, ?chat=new for a fresh one, else the newest chat.
+  const want = (await searchParams).chat;
+  const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
     <Panes id="home" defaultSplit={70} left={<>
       <Chat
         key={session?.id ?? "new"}
+        chats={sessions}
         kind="jin"
         session={session}
         initialEvents={events}

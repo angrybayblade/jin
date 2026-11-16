@@ -195,3 +195,7 @@ export async function restartTerminal(id: string): Promise<TerminalInfo> {
 export async function archivedTerminals(taskId: string): Promise<TerminalInfo[]> {
   return daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}&archived=1`);
 }
+
+export async function archivedChats(kind: string): Promise<Session[]> {
+  return daemon<Session[]>(`/api/sessions?kind=${encodeURIComponent(kind)}&archived=1`);
+}

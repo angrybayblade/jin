@@ -1,10 +1,11 @@
 "use client";
-import { ArrowUp, Check, ChevronRight, Plus, Square, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowUp, Check, ChevronRight, Square, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
 import type { Approval, ChatKind, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
 import { Approvals } from "./Approvals";
+import { ChatTabs } from "./ChatTabs";
 import { Markdown } from "./Markdown";
 import { StatusMark, ThermalMark } from "./ThermalMark";
 
@@ -110,10 +111,13 @@ export interface ChatProps {
   subtitle?: ReactNode;
   welcome: { overline: string; heading: string; body: string; suggestions: string[] };
   placeholder: string;
+  /** Every open chat of this kind, shown as tabs in the top bar (jin's chat and the desks). */
+  chats?: Session[];
 }
 
 export function Chat(props: ChatProps) {
   const router = useRouter();
+  const path = usePathname();
   const [sessionId, setSessionId] = useState(props.session?.id ?? null);
   const [events, setEvents] = useState<SessionEvent[]>(props.initialEvents);
   const [draft, setDraft] = useState("");
@@ -125,8 +129,6 @@ export function Chat(props: ChatProps) {
   const lastSeq = useRef(props.initialEvents.at(-1)?.seq ?? 0);
 
   const state = stateFrom(events, props.session?.state ?? "idle");
-  // A chat's own title (its first message, or what it was renamed to), else the desk's subtitle.
-  const subtitle = sessionId && props.session?.id === sessionId && props.session.title && props.kind !== "task" ? props.session.title : props.subtitle;
   const items = useMemo(() => toItems(events), [events]);
   const working = state === "running" || state === "waiting_approval";
 
@@ -188,6 +190,8 @@ export function Chat(props: ChatProps) {
           lastSeq.current = 0;
           setEvents([]);
           setSessionId(s.id);
+          // The new chat becomes a tab of its own.
+          if (props.chats) router.replace(`${path}?chat=${encodeURIComponent(s.id)}`);
         } else {
           await sendMessage(sessionId, prompt);
         }
@@ -198,7 +202,7 @@ export function Chat(props: ChatProps) {
         setBusySending(false);
       }
     },
-    [busySending, sessionId, props.taskId, props.kind],
+    [busySending, sessionId, props.taskId, props.kind, props.chats, path, router],
   );
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -208,36 +212,21 @@ export function Chat(props: ChatProps) {
     }
   };
 
-  const newChat = useCallback(() => {
-    setSessionId(null);
-    setEvents([]);
-    setStreaming("");
-    lastSeq.current = 0;
-  }, []);
-
-  // "New chat" from the sidebar's context menu.
-  useEffect(() => {
-    const onNew = (e: Event) => {
-      if ((e as CustomEvent<{ kind: string }>).detail.kind === props.kind) newChat();
-    };
-    window.addEventListener("jin:new-chat", onNew);
-    return () => window.removeEventListener("jin:new-chat", onNew);
-  }, [props.kind, newChat]);
-
   return (
     <section className="chat-panel" aria-label={props.title}>
-      <header className="pane-header">
-        <div className="pane-title">
-          {sessionId ? <StatusMark state={state} /> : null}
-          <span className="pane-name">{props.title}</span>
-          {subtitle && <span className="meta">{subtitle}</span>}
-        </div>
-        {sessionId && !props.taskId && (
-          <button type="button" className="button quiet" onClick={newChat}>
-            <Plus size={14} /> New chat
-          </button>
-        )}
-      </header>
+      {props.chats && props.kind !== "task" ? (
+        <header className="pane-header has-tabs">
+          <ChatTabs kind={props.kind as ChatKind} chats={props.chats} activeId={sessionId} activeState={state} />
+        </header>
+      ) : (
+        <header className="pane-header">
+          <div className="pane-title">
+            {sessionId ? <StatusMark state={state} /> : null}
+            <span className="pane-name">{props.title}</span>
+            {props.subtitle && <span className="meta">{props.subtitle}</span>}
+          </div>
+        </header>
+      )}
 
       <div className="chat-scroll" ref={scroller} data-scroll="y">
         {items.length === 0 ? (

@@ -40,7 +40,7 @@ const DESK: Record<Exclude<ChatKind, "jin">, { label: string; body: string; sugg
 };
 
 /** A knowledge desk: a chat with its own instructions and tools, plus context on the right. */
-export default async function DeskPage({ params }: { params: Promise<{ kind: string }> }) {
+export default async function DeskPage({ params, searchParams }: { params: Promise<{ kind: string }>; searchParams: Promise<{ chat?: string }> }) {
   const { kind } = await params;
   if (!(kind in DESK)) notFound();
   const desk = DESK[kind as keyof typeof DESK];
@@ -49,12 +49,15 @@ export default async function DeskPage({ params }: { params: Promise<{ kind: str
     daemon<Approval[]>("/api/approvals?state=pending"),
     kind === "github" ? daemon<FeedItem[]>("/api/feed") : Promise.resolve([] as FeedItem[]),
   ]);
-  const session = sessions[0] ?? null;
+  // The open tab: ?chat=<id>, ?chat=new for a fresh one, else the newest chat.
+  const want = (await searchParams).chat;
+  const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
     <Panes id="desk" defaultSplit={70} left={<>
       <Chat
-        key={session?.id ?? `new-${kind}`}
+        key={session?.id ?? "new"}
+        chats={sessions}
         kind={kind as ChatKind}
         session={session}
         initialEvents={events}
