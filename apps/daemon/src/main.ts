@@ -11,6 +11,7 @@ import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
 import { machineRoutes, Machines } from "./machines";
+import { LocalSetup, setupRoutes } from "./setup";
 import { claudeHarness } from "./harness";
 import { Router } from "./http";
 import { join } from "node:path";
@@ -103,6 +104,13 @@ setTimeout(() => void syncPrs(), 5_000);
 const machines = new Machines(config, app.workspaces);
 machineRoutes(app.router, machines);
 machines.resume();
+// First-run setup for this machine; a workspace added there is live at once.
+const setup = new LocalSetup(config, app.workspaces, (w) => {
+  app.workspaces.push(w);
+  adapters.set(w.id, createAdapter(w));
+  upsertWorkspace.run(w.id, w.adapter, w.root, now());
+});
+setupRoutes(app.router, setup);
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
 type SocketData = StreamSocket["data"] | AttachSocket["data"];
@@ -162,6 +170,7 @@ console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, m
 function shutdown() {
   clearInterval(prTimer);
   machines.stopAll();
+  setup.stopAll();
   terminals.stopAll();
   server.stop(true);
   db.close();
