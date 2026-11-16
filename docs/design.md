@@ -85,7 +85,14 @@ interface WorkspaceAdapter {
   `claude --resume <id>`.
 - **The browser side** is xterm.js with the WebGL renderer, Unicode 11 widths, OSC 52
   clipboard, clickable links, Shift+Enter as a newline and Cmd+C on a selection.
-- **Claude Code is launched by Jin** as `claude --settings ~/.jin/claude/settings.json --model <model>`.
+- **Claude Code is launched by Jin** as `claude --settings ~/.jin/claude/settings.json --model <model>`,
+  in the task's folder (its worktrees and TASK.md: `cws` finds the task from there, and each
+  task keeps its own conversations) with `--add-dir <workspace root>` so the whole workspace
+  (CLAUDE.md, docs/map, other repos) is readable; jin's appended prompt names the task, the
+  workspace, and its rules (attach PRs, never edit `repos/<x>`).
+- **Sub-tasks**: Claude Code can split work into its own task and PR with `jin-task spawn <ID>
+  --repos … --slug … --prompt …` (asks the user first); jin records the parent, nests it in the
+  sidebar, and `jin-task subtasks` reports each one's setup, Claude Code status and PRs.
   The settings add only Jin's hooks (merged with the user's own), so nothing is written into
   the repos.
 - **Editor**: file tree and Monaco with tabs (remembered per task), Cmd+S saves into the
