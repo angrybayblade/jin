@@ -3,7 +3,8 @@
 // already running, and leaves them running when the window closes (Claude Code sessions
 // live in the daemon). In development, JIN_URL points the window at a running dev server
 // and JIN_SERVICES=0 leaves the services to you.
-import { existsSync, mkdirSync } from "node:fs";
+import { dlopen, FFIType, ptr } from "bun:ffi";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ApplicationMenu, BrowserWindow } from "electrobun/main";
@@ -137,5 +138,64 @@ function toggleZoom() {
 const syncFullScreen = () => win.webview.executeJavascript(`document.documentElement.toggleAttribute("data-fullscreen", ${win.isFullScreen()})`);
 win.on("resize", () => setTimeout(syncFullScreen, 60));
 win.webview.on("dom-ready", syncFullScreen);
+
+// ---------------------------------------------------------------- Dock badge
+
+/**
+ * The Dock icon's badge: NSApp.dockTile.badgeLabel, through the Objective-C runtime (Electrobun
+ * has no API for it), set on the main thread. Null when the runtime is not there.
+ */
+function dockBadge(): ((label: string) => void) | null {
+  if (process.platform !== "darwin") return null;
+  try {
+    const objc = "/usr/lib/libobjc.A.dylib";
+    const { symbols: rt } = dlopen(objc, {
+      objc_getClass: { args: [FFIType.cstring], returns: FFIType.ptr },
+      sel_registerName: { args: [FFIType.cstring], returns: FFIType.ptr },
+    });
+    // objc_msgSend, typed once per shape it is called with.
+    const send0 = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr } }).symbols.objc_msgSend;
+    const sendP = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr, FFIType.ptr], returns: FFIType.ptr } }).symbols.objc_msgSend;
+    const sendMain = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.bool], returns: FFIType.void } }).symbols.objc_msgSend;
+    const c = (s: string) => ptr(Buffer.from(`${s}\0`));
+    const sel = (s: string) => rt.sel_registerName(c(s));
+    const app = send0(rt.objc_getClass(c("NSApplication")), sel("sharedApplication"));
+    const tile = send0(app, sel("dockTile"));
+    const NSString = rt.objc_getClass(c("NSString"));
+    if (!app || !tile || !NSString) return null;
+    let last = "";
+    return (label: string) => {
+      if (label === last) return;
+      last = label;
+      const str = sendP(NSString, sel("stringWithUTF8String:"), c(label));
+      sendMain(tile, sel("performSelectorOnMainThread:withObject:waitUntilDone:"), sel("setBadgeLabel:"), str, false);
+    };
+  } catch (err) {
+    console.error(`no Dock badge: ${err}`);
+    return null;
+  }
+}
+
+/** How many Claude Code sessions wait on you, plus approvals waiting, from this machine's daemon. */
+async function waitingOnYou(): Promise<number> {
+  try {
+    const d = JSON.parse(readFileSync(join(HOME, "daemon.json"), "utf8")) as { host: string; port: number; token: string };
+    const get = (path: string) => fetch(`http://${d.host}:${d.port}${path}`, { headers: { authorization: `Bearer ${d.token}` }, signal: AbortSignal.timeout(2000) }).then((r) => (r.ok ? r.json() : []));
+    const [terminals, approvals] = (await Promise.all([get("/api/terminals"), get("/api/approvals?state=pending")])) as [{ kind: string; status: string }[], unknown[]];
+    return terminals.filter((t) => t.kind === "claude" && t.status === "waiting").length + approvals.length;
+  } catch {
+    return 0;
+  }
+}
+
+const badge = dockBadge();
+if (badge) {
+  const update = async () => {
+    const n = process.env.JIN_BADGE ?? (await waitingOnYou()); // JIN_BADGE: show a fixed label (to check the badge)
+    badge(String(n) === "0" ? "" : String(n));
+  };
+  void update();
+  setInterval(() => void update(), 3000);
+}
 
 console.log(`jin window: ${URL}${MANAGE ? ` (services from ${APP})` : ""}`);
