@@ -5,6 +5,7 @@ import { collectGithub, type Feed } from "./feed";
 import type { JinTool } from "./harness";
 import type { Sessions } from "./sessions";
 import type { Tasks } from "./tasks";
+import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
 
 export const CHAT_KINDS = ["jin", "slack", "linear", "notion", "gmail", "github"] as const;
 export type ChatKind = (typeof CHAT_KINDS)[number];
@@ -50,8 +51,8 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[] }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, claude } = deps;
   return [
     {
       name: "jin_catch_up",
@@ -63,10 +64,10 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           .list()
           .filter((i) => i.state === "new")
           .map((i) => ({ id: i.id, kind: i.kind, title: i.title, summary: i.summary, url: i.externalRef, workspace: i.workspace })),
-        agents: sessions
+        agents: terminals
           .list()
-          .filter((s) => s.kind === "task" && (s.state === "running" || s.state === "waiting_approval"))
-          .map((s) => ({ sessionId: s.id, taskId: s.taskId, state: s.state, title: s.title })),
+          .filter((t) => t.kind === "claude" && t.status !== "exited")
+          .map((t) => ({ terminalId: t.id, taskId: t.taskId, status: t.status })),
       }),
     },
     {
@@ -113,11 +114,11 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     },
     {
       name: "jin_start_agent",
-      description: "Start a coding agent in a task's worktree with a prompt. Its commands are checked by jin; pushes and PRs wait for the user's approval.",
+      description: "Open Claude Code in a task's worktree, started with a prompt. The user watches and steers it in jin's task view; jin blocks deploys and pushes or PRs need the user's approval.",
       input: { taskId: z.string(), prompt: z.string() },
       run: async (a) => {
-        const s = sessions.startTask(a.taskId as string, a.prompt as string);
-        return { sessionId: s.id, taskId: s.taskId, open: `/t/${s.taskId}` };
+        const t = openTerminal({ terminals, tasks, workspaces, claude }, { taskId: a.taskId as string, kind: "claude", prompt: a.prompt as string });
+        return { terminalId: t.id, taskId: t.taskId, open: `/t/${t.taskId}` };
       },
     },
     {

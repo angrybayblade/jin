@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
+import { claudeHookRoutes, claudeLaunch, writeClaudeSettings } from "./claude-cli";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
 import { Tickets } from "./tickets";
 
@@ -49,12 +50,14 @@ taskRoutes(app.router, tasks, adapters);
 feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
-sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces }));
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals();
-terminalRoutes(app.router, terminals, tasks, app.workspaces, {
-  args: () => [],
-  env: (w): Record<string, string> => (w?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: w.profile.claudeConfigDir } : {}),
+const claude = claudeLaunch(config, writeClaudeSettings(config));
+terminalRoutes(app.router, terminals, tasks, app.workspaces, claude);
+sessions.provideJinTools(() => jinTools({ feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude }));
+claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
+  const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
+  return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
 });
 
 const STREAM = /^\/api\/sessions\/([^/]+)\/stream$/;
