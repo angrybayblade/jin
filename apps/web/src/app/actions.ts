@@ -1,8 +1,10 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { daemon } from "@/lib/daemon";
+import { daemon, type ChatKind, type FileEntry, type RepoDiff, type Session } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
+
+// ---------------------------------------------------------------- approvals and feed (forms)
 
 export async function decideApproval(form: FormData) {
   const id = text(form, "approvalId");
@@ -14,7 +16,7 @@ export async function decideApproval(form: FormData) {
 
 export async function collectGithub() {
   await daemon("/api/collect/github", { method: "POST" });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function feedAction(form: FormData) {
@@ -25,29 +27,60 @@ export async function feedAction(form: FormData) {
     const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     await daemon(`/api/feed/${id}/snooze`, { method: "POST", json: { until } });
   } else throw new Error(`unknown feed action ${action}`);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
-export async function promoteItem(form: FormData) {
-  const repos = text(form, "repos")
-    .split(",")
-    .map((r) => r.trim())
-    .filter(Boolean);
-  await daemon(`/api/feed/${encodeURIComponent(text(form, "itemId"))}/promote`, {
-    method: "POST",
-    json: { taskId: text(form, "taskId"), type: text(form, "type") || undefined, repos, slug: text(form, "slug") || undefined },
-  });
-  revalidatePath("/");
+// ---------------------------------------------------------------- chats
+
+export async function createChat(kind: ChatKind, prompt: string): Promise<Session> {
+  const s = await daemon<Session>("/api/chats", { method: "POST", json: { kind, prompt } });
+  revalidatePath("/", "layout");
+  return s;
 }
 
-export async function startSession(form: FormData) {
-  const taskId = text(form, "taskId");
-  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/sessions`, { method: "POST", json: { prompt: text(form, "prompt") } });
-  revalidatePath("/");
+export async function startTaskSession(taskId: string, prompt: string): Promise<Session> {
+  const s = await daemon<Session>(`/api/tasks/${encodeURIComponent(taskId)}/sessions`, { method: "POST", json: { prompt } });
+  revalidatePath("/", "layout");
+  return s;
 }
 
-export async function sendMessage(form: FormData) {
-  const sessionId = text(form, "sessionId");
-  await daemon(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", json: { prompt: text(form, "prompt") } });
-  revalidatePath(`/sessions/${sessionId}`);
+export async function sendMessage(sessionId: string, prompt: string): Promise<Session> {
+  return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", json: { prompt } });
+}
+
+export async function stopSession(sessionId: string): Promise<Session> {
+  return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" });
+}
+
+/** A one-time ticket for the browser to open a websocket to the daemon. */
+export async function streamTicket(sessionId: string): Promise<string> {
+  const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: `/api/sessions/${sessionId}/stream` } });
+  return ticket;
+}
+
+export async function terminalTicket(): Promise<string> {
+  const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: "/api/terminal" } });
+  return ticket;
+}
+
+// ---------------------------------------------------------------- workspace pane
+
+export async function listFiles(taskId: string, path: string): Promise<FileEntry[]> {
+  return daemon<FileEntry[]>(`/api/tasks/${encodeURIComponent(taskId)}/files?path=${encodeURIComponent(path)}`);
+}
+
+export async function readFile(taskId: string, path: string): Promise<{ content: string } | { error: string }> {
+  try {
+    return await daemon<{ content: string }>(`/api/tasks/${encodeURIComponent(taskId)}/file?path=${encodeURIComponent(path)}`);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.replace(/^GET \S+: /, "") : String(err) };
+  }
+}
+
+export async function writeFile(taskId: string, path: string, content: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/file`, { method: "PUT", json: { path, content } });
+}
+
+export async function getDiff(taskId: string): Promise<RepoDiff[]> {
+  return daemon<RepoDiff[]>(`/api/tasks/${encodeURIComponent(taskId)}/diff`);
 }
