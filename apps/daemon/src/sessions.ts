@@ -143,6 +143,14 @@ export class Sessions {
     return event;
   }
 
+  /** Live-only event for open streams (no seq, not persisted): readers that reconnect get the completed message instead. */
+  publish(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    const subs = this.subscribers.get(sessionId);
+    if (!subs?.size) return;
+    const msg = JSON.stringify({ ephemeral: true, sessionId, kind, payload });
+    for (const ws of subs) ws.send(msg);
+  }
+
   subscribe(ws: StreamSocket) {
     const { sessionId, after } = ws.data;
     // Replay and subscribe in the same tick: SQLite reads are synchronous, so no event
@@ -268,6 +276,7 @@ export class Sessions {
         tools: session.kind === "jin" ? this.deps.jinTools?.() : undefined,
         gate: this.gate(sessionId, session.workspace),
         emit: (kind, payload) => this.emit(sessionId, kind, payload),
+        stream: (kind, payload) => this.publish(sessionId, kind, payload),
         signal: controller.signal,
       });
       this.db.query("update sessions set harness_session_id = ? where id = ?").run(harnessSessionId, sessionId);

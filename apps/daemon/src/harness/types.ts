@@ -28,6 +28,8 @@ export interface HarnessRun {
   gate: ToolGate;
   /** Record a session event (persisted and streamed by the session manager). */
   emit(kind: string, payload: Record<string, unknown>): void;
+  /** Send a live-only event to open streams, not persisted (e.g. text deltas while a message is written). */
+  stream?(kind: string, payload: Record<string, unknown>): void;
   signal: AbortSignal;
 }
 

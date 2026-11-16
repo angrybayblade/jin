@@ -63,7 +63,8 @@ export class ClaudeHarness implements Harness {
         // User settings bring the user's MCP servers (Slack, Linear, Notion...); project
         // settings bring the workspace's CLAUDE.md and skills, as in Claude Code.
         settingSources: ["user", "project"],
-        includePartialMessages: false,
+        // Text deltas stream live to the chat; the complete message is still recorded at the end.
+        includePartialMessages: true,
         hooks: { PreToolUse: [{ hooks: [preToolUse], onFailure: "block", timeout: 24 * 60 * 60 }] },
         canUseTool: async (tool, input, options) => {
           if (options.toolUseID && cleared.has(options.toolUseID)) return { behavior: "allow", updatedInput: input };
@@ -76,6 +77,11 @@ export class ClaudeHarness implements Harness {
     try {
       for await (const message of session) {
         if ("session_id" in message && message.session_id) sessionId = message.session_id;
+        if (message.type === "stream_event") {
+          const ev = message.event;
+          if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") run.stream?.("message.delta", { text: ev.delta.text });
+          continue;
+        }
         if (message.type === "assistant") {
           for (const block of message.message.content) {
             if (block.type === "text" && block.text.trim()) run.emit("message", { text: block.text });
