@@ -215,7 +215,7 @@ function Events({ s, refresh }: { s: LiveStatus; refresh: () => void }) {
                 <input
                   type="checkbox"
                   checked={e.on}
-                  disabled={busy !== null || !connected.has(e.toolkit)}
+                  disabled={busy !== null || (!e.native && !connected.has(e.toolkit))}
                   onChange={() => (e.kind === "linear" && !e.on ? setTeams(true) : void set(e.kind, !e.on))}
                 />
                 <span className="live-switch-track" />
@@ -223,7 +223,19 @@ function Events({ s, refresh }: { s: LiveStatus; refresh: () => void }) {
               <div className="machine-auth-name">
                 <span className="machine-auth-tool">{e.label}</span>
                 <span className="meta machine-auth-state">
-                  {busy === e.kind ? "updating…" : !connected.has(e.toolkit) ? `connect ${NAME[e.toolkit]} first` : e.on ? `${e.triggers} trigger${e.triggers === 1 ? "" : "s"} on` : ""}
+                  {busy === e.kind
+                    ? "updating…"
+                    : e.native
+                      ? e.on
+                        ? s.github?.error
+                          ? `gh: ${s.github.error}`
+                          : `watching ${e.triggers} PR${e.triggers === 1 ? "" : "s"} with gh${s.github?.lastCheck ? `, checked ${ago(s.github.lastCheck)} ago` : ""}`
+                        : "with gh on the home, every 2 minutes"
+                      : !connected.has(e.toolkit)
+                        ? `connect ${NAME[e.toolkit]} first`
+                        : e.on
+                          ? `${e.triggers} trigger${e.triggers === 1 ? "" : "s"} on`
+                          : ""}
                 </span>
               </div>
               {e.kind === "linear" && e.on && (

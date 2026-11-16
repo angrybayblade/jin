@@ -305,7 +305,8 @@ export interface LiveStatus {
   project: { id: string; name: string; orgId: string } | null;
   userId: string;
   accounts: { toolkit: string; id: string | null; status: string | null }[];
-  events: { kind: string; label: string; toolkit: string; on: boolean; triggers: number }[];
+  events: { kind: string; label: string; toolkit: string; on: boolean; triggers: number; native?: boolean }[];
+  github?: { watching: number; lastCheck: string | null; error: string | null } | null;
   linearTeams: string[];
   listener: { state: "off" | "starting" | "running" | "down"; since: string | null; error: string | null };
   recent: { id: string; at: string; toolkit: string; trigger: string; title: string; summary: string; url: string | null; actor: string | null; forYou: boolean }[];
