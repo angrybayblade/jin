@@ -51,9 +51,12 @@ export function Setup({ initial }: { initial: SetupState }) {
       <div className="machines-body is-single" data-scroll="y">
         <main className="machines-main">
           <article className="machine-detail">
-            <section className="machine-section">
-              <h3>Workspace</h3>
-              <p className="meta">jin runs coding agents in your organisation's workspace. composio-workspace keeps every platform repo and the cws tooling.</p>
+            <section className="md-card">
+              <div className="md-card-head is-static">
+                <h3>Workspace</h3>
+                <span className="meta">where jin's coding agents work: every platform repo and the cws tooling</span>
+              </div>
+              <div className="md-card-body">
               {s.workspaces.map((w) => (
                 <p key={w.id} className="setup-done">
                   <Check size={14} className="step-done" /> {w.id} at {w.root}
@@ -103,15 +106,16 @@ export function Setup({ initial }: { initial: SetupState }) {
                 </div>
               )}
               {error && <p className="machine-error">{error}</p>}
+              </div>
             </section>
-            <section className="machine-section">
-              <div className="machine-section-head">
+            <section className="md-card">
+              <div className="md-card-head is-static">
                 <h3>Sign-ins</h3>
-                <button type="button" className="button small quiet" onClick={() => void checkSetupAuth().then(refresh)}>
-                  <RefreshCw size={12} /> Check
+                <span className="meta">signing in opens your browser; any code shows here</span>
+                <button type="button" className="button small quiet md-card-action" onClick={() => void checkSetupAuth().then(refresh)} title="Check again">
+                  <RefreshCw size={12} />
                 </button>
               </div>
-              <p className="meta">Signing in opens your browser; a code to enter shows here too.</p>
               <ul className="machine-auths">
                 {s.auth.map((a) => (
                   <SignIn key={a.tool} actions={actions} auth={a} refresh={refresh} />

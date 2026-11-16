@@ -1,5 +1,5 @@
 "use client";
-import { Check, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -47,22 +47,30 @@ function StepIcon({ state }: { state: MachineStep["state"] }) {
 export function Steps({ steps }: { steps: MachineStep[] }) {
   return (
     <ol className="machine-steps">
-      {steps.map((s) => (
-        <li key={s.id} className={`machine-step is-${s.state}`}>
-          <StepIcon state={s.state} />
-          <div className="machine-step-body">
-            <span>{s.label}</span>
-            {s.error && <p className="machine-error">{s.error}</p>}
-            {s.log.length > 0 && (s.state === "running" || s.state === "failed") && <pre className="machine-log">{s.log.slice(-8).join("\n")}</pre>}
-            {s.log.length > 0 && s.state === "done" && (
+      {steps.map((s) => {
+        const last = s.log.at(-1);
+        const line = (
+          <>
+            <StepIcon state={s.state} />
+            <span className="machine-step-label">{s.label}</span>
+            {last && s.state !== "running" && s.state !== "failed" && <span className="machine-step-detail">{last}</span>}
+          </>
+        );
+        return (
+          <li key={s.id} className={`machine-step is-${s.state}`}>
+            {s.state === "done" && s.log.length > 1 ? (
               <details>
-                <summary className="meta">{s.log.at(-1)}</summary>
+                <summary className="machine-step-line">{line}</summary>
                 <pre className="machine-log">{s.log.join("\n")}</pre>
               </details>
+            ) : (
+              <div className="machine-step-line">{line}</div>
             )}
-          </div>
-        </li>
-      ))}
+            {s.error && <p className="machine-error">{s.error}</p>}
+            {s.log.length > 0 && (s.state === "running" || s.state === "failed") && <pre className="machine-log">{s.log.slice(-8).join("\n")}</pre>}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -107,8 +115,8 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
       <div className="machine-auth-head">
         <span className={`machine-dot is-${signedIn ? "ok" : auth.state === "waiting" ? "busy" : auth.state === "failed" ? "bad" : "idle"}`} />
         <div className="machine-auth-name">
-          <span>{TOOL_NAME[auth.tool]}</span>
-          <span className="meta">
+          <span className="machine-auth-tool">{TOOL_NAME[auth.tool]}</span>
+          <span className="meta machine-auth-state">
             {signedIn
               ? `Signed in${auth.account ? ` as ${auth.account}` : ""}`
               : auth.state === "missing"
@@ -122,6 +130,11 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
                       : TOOL_WHY[auth.tool]}
           </span>
         </div>
+        {auth.tool === "doppler" && actions.dopplerToken && !signedIn && auth.state !== "missing" && auth.state !== "waiting" && !showToken && (
+          <button type="button" className="button small quiet" onClick={() => setShowToken(true)} title="Set a Doppler service token instead of signing in">
+            Use a token
+          </button>
+        )}
         {auth.state === "waiting" ? (
           <button type="button" className="button small quiet" onClick={() => act(actions.cancel(auth.tool))}>
             Cancel
@@ -179,33 +192,30 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
         </div>
       )}
       {auth.state === "failed" && auth.error && <p className="machine-error machine-auth-body">{auth.error}</p>}
-      {auth.tool === "doppler" && actions.dopplerToken && !signedIn && auth.state !== "missing" && (
+      {auth.tool === "doppler" && actions.dopplerToken && showToken && (
         <div className="machine-auth-body">
-          {showToken ? (
-            <form
-              className="machine-inline-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void actions.dopplerToken?.(token).then((r) => {
-                  if (r) setError(r.error);
-                  else {
-                    setToken("");
-                    setShowToken(false);
-                  }
-                  refresh();
-                });
-              }}
-            >
-              <input className="machine-input" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="dp.st.dev.…" autoComplete="off" />
-              <button type="submit" className="button small primary" disabled={!token.trim()}>
-                Save
-              </button>
-            </form>
-          ) : (
-            <button type="button" className="button small quiet" onClick={() => setShowToken(true)}>
-              Use a service token instead
+          <form
+            className="machine-inline-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void actions.dopplerToken?.(token).then((r) => {
+                if (r) setError(r.error);
+                else {
+                  setToken("");
+                  setShowToken(false);
+                }
+                refresh();
+              });
+            }}
+          >
+            <input className="machine-input" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Doppler service token: dp.st.dev.…" autoComplete="off" autoFocus />
+            <button type="submit" className="button small primary" disabled={!token.trim()}>
+              Save
             </button>
-          )}
+            <button type="button" className="button small quiet" onClick={() => setShowToken(false)}>
+              Cancel
+            </button>
+          </form>
         </div>
       )}
       {error && <p className="machine-error machine-auth-body">{error}</p>}
@@ -241,15 +251,17 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
     </form>
   );
   return (
-    <section className="machine-section">
-      <div className="machine-section-head">
+    <section className="md-card">
+      <div className="md-card-head is-static">
         <h3>Workspace</h3>
+        {!machine.workspace && <span className="meta">jin's tasks there run in it</span>}
         {!machine.workspace && step?.state !== "running" && (
-          <button type="button" className="button small quiet" onClick={() => void detectMachineWorkspaces(machine.id).then(refresh)}>
-            <RefreshCw size={12} /> Look again
+          <button type="button" className="button small quiet md-card-action" onClick={() => void detectMachineWorkspaces(machine.id).then(refresh)} title="Look again">
+            <RefreshCw size={12} />
           </button>
         )}
       </div>
+      <div className="md-card-body">
       {machine.workspace && step?.state !== "running" && (
         <p className="setup-done">
           <Check size={14} className="step-done" /> composio workspace at {machine.workspace}
@@ -290,6 +302,7 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
       )}
       {!machine.workspace && !looking && found.length === 0 && gh?.state !== "signed-in" && <p className="meta">Sign in to GitHub first to install: the workspace's repos are private.</p>}
       {error && <p className="machine-error">{error}</p>}
+      </div>
     </section>
   );
 }
@@ -317,62 +330,104 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
     code: (t, c) => submitMachineSignInCode(m.id, t, c),
     dopplerToken: (tok) => setMachineDopplerToken(m.id, tok),
   };
+  const [showSteps, setShowSteps] = useState(!ready);
+  // Onboarding shows its steps; once everything is done they fold into one line.
+  useEffect(() => setShowSteps(!ready), [ready]);
+  const doneSteps = m.steps.filter((x) => x.state === "done").length;
+  const tunnelPort = m.localPort ? `127.0.0.1:${m.localPort}` : null;
   return (
     <article className="machine-detail">
-      <header className="machine-detail-head">
-        <Server size={18} />
-        <div className="machine-detail-title">
-          <h2>{m.label}</h2>
-          <span className="meta">
-            ssh {m.host}
-            {m.system ? ` · ${m.system}` : ""}
-            {m.version ? ` · jin ${m.version}` : ""}
-          </span>
+      <header className="md-head">
+        <span className="md-icon">
+          <Server size={16} />
+        </span>
+        <div className="md-title">
+          <div className="md-name">
+            <h2>{m.label}</h2>
+            <span className={`machine-pill is-${state.tone}`}>{state.label}</span>
+          </div>
+          <span className="meta">ssh {m.host}</span>
         </div>
-        <span className={`machine-pill is-${state.tone}`}>{state.label}</span>
-      </header>
-      <div className="machine-actions">
-        {m.connected && !current && (
-          <button
-            type="button"
-            className="button small primary"
-            onClick={() =>
-              void switchMachine(m.id).then(() => {
-                router.push("/");
-                router.refresh();
-              })
-            }
-          >
-            Open {m.label}
+        <div className="md-actions">
+          {current ? (
+            <span className="meta">Showing this machine</span>
+          ) : (
+            m.connected && (
+              <button
+                type="button"
+                className="button small primary"
+                onClick={() =>
+                  void switchMachine(m.id).then(() => {
+                    router.push("/");
+                    router.refresh();
+                  })
+                }
+              >
+                Open
+              </button>
+            )
+          )}
+          <button type="button" className="button small" disabled={m.busy} onClick={() => void rerunMachineSetup(m.id).then(refresh)} title="Runs every step again; also updates jin there to this jin's commit">
+            <RefreshCw size={12} /> {ready ? "Update jin" : "Retry setup"}
           </button>
-        )}
-        {current && <span className="meta">You're on this machine</span>}
-        <button type="button" className="button small" disabled={m.busy} onClick={() => void rerunMachineSetup(m.id).then(refresh)} title="Runs every step again; also updates jin there to this jin's commit">
-          <RefreshCw size={12} /> {ready ? "Update jin there" : "Run setup again"}
-        </button>
-        <button type="button" className={`button small quiet ${remove.armed ? "is-armed" : ""}`} onClick={remove.onClick}>
-          <Trash2 size={12} /> {remove.armed ? "Stop jin there and forget it?" : "Forget"}
-        </button>
-      </div>
+          <button type="button" className={`button small quiet icon-only ${remove.armed ? "is-armed" : ""}`} onClick={remove.onClick} title={remove.armed ? "Click again: stop jin there and forget this machine" : "Forget this machine"} aria-label="Forget this machine">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </header>
+      {remove.armed && <p className="machine-notice is-danger">Click the bin again to stop jin on {m.label} and forget it. Its files stay in ~/.jin there.</p>}
       {m.outdated && !m.busy && (
         <p className="machine-notice">
-          {m.label} runs jin {m.version}; this machine runs a newer one. <strong>Update jin there</strong> copies it over and restarts it (Claude Code sessions there resume).
+          {m.label} runs jin {m.version}; this machine runs a newer one. <strong>Update jin</strong> copies it over and restarts it (Claude Code sessions there resume).
         </p>
       )}
-      <section className="machine-section">
-        <h3>Setup</h3>
-        <Steps steps={m.steps} />
+
+      {ready && (
+        <dl className="md-facts">
+          <div>
+            <dt>System</dt>
+            <dd>{m.system ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>jin</dt>
+            <dd className="mono">{m.version ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Tunnel</dt>
+            <dd>
+              <span className={`machine-dot is-${m.tunnel === "up" ? "ok" : m.tunnel === "connecting" ? "busy" : "bad"}`} /> {m.tunnel === "up" ? tunnelPort : m.tunnel}
+            </dd>
+          </div>
+          <div>
+            <dt>Workspace</dt>
+            <dd className="md-ellipsis" title={m.workspace ?? undefined}>
+              {m.workspace ?? "none yet"}
+            </dd>
+          </div>
+        </dl>
+      )}
+
+      <section className="md-card">
+        <button type="button" className="md-card-head" onClick={() => setShowSteps((v) => !v)} aria-expanded={showSteps}>
+          {showSteps ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <h3>Setup</h3>
+          <span className="meta">
+            {ready ? "done" : m.busy ? `step ${Math.min(doneSteps + 1, m.steps.length)} of ${m.steps.length}` : m.steps.some((x) => x.state === "failed") ? "stopped" : `${doneSteps} of ${m.steps.length}`}
+          </span>
+        </button>
+        {(showSteps || !ready) && <Steps steps={m.steps} />}
       </section>
+
       {ready && (
         <>
-          <section className="machine-section">
-            <div className="machine-section-head">
+          <section className="md-card">
+            <div className="md-card-head is-static">
               <h3>Sign-ins</h3>
-              <button type="button" className="button small quiet" onClick={() => void checkMachineAuth(m.id).then(refresh)}>
-                <RefreshCw size={12} /> Check
+              <span className="meta">run on {m.label}; no credentials are copied</span>
+              <button type="button" className="button small quiet md-card-action" onClick={() => void checkMachineAuth(m.id).then(refresh)} title="Check again">
+                <RefreshCw size={12} />
               </button>
             </div>
-            <p className="meta">Each runs on {m.label} and gives you a link and a code for your browser. jin copies no credentials across.</p>
             <ul className="machine-auths">
               {m.auth.map((a) => (
                 <SignIn key={a.tool} actions={signInActions} auth={a} refresh={refresh} />
