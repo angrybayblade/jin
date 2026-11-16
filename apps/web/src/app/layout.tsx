@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import type { ReactNode } from "react";
+import { DesktopShell } from "@/components/DesktopShell";
 import { AnimatedFavicon } from "@/components/AnimatedFavicon";
 import { LAYOUT_BOOT } from "@/lib/layout";
 import "@/design/tokens.css";
@@ -25,6 +26,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body>
         <AnimatedFavicon />
+        <DesktopShell />
         {children}
       </body>
     </html>

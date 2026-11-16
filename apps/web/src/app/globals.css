@@ -1832,6 +1832,14 @@ html[data-shell="desktop"] .traffic-gap {
   display: block !important;
   width: 70px;
   flex: none;
+  transition: width 220ms ease;
+}
+/* Full screen hides the window buttons: the bar's controls slide left into their place. */
+html[data-shell="desktop"][data-fullscreen] .traffic-gap {
+  width: 0;
+}
+html[data-shell="desktop"][data-fullscreen][data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 52px minmax(0, 1fr);
 }
 html[data-shell="desktop"][data-sidebar="collapsed"] .app-shell {
   grid-template-columns: 76px minmax(0, 1fr);
