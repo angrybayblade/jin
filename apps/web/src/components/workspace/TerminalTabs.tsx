@@ -1,11 +1,13 @@
 "use client";
-import { Play, Plus, X } from "lucide-react";
+import { Archive, ArchiveRestore, ClipboardCopy, Pencil, Play, Plus, RotateCcw, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { closeTerminal, openTerminal, startTerminal } from "@/app/actions";
+import { archivedTerminals, closeTerminal, openTerminal, restartTerminal, startTerminal, updateTerminal } from "@/app/actions";
 import type { AgentStatus, TerminalInfo } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
+import { contextMenu, openContextMenu, type MenuItem } from "../ContextMenu";
+import { RenameInput } from "../RenameInput";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { TerminalView } from "./TerminalView";
 
@@ -133,21 +135,102 @@ export function TerminalTabs({
   }, [visible, current?.id, current?.status]);
 
   const confirmClose = useArmedConfirm();
-  const close = async (t: TerminalInfo) => {
+  const close = async (t: TerminalInfo, confirmed = false) => {
     // A running Claude Code session ends when its tab closes: the first click asks, the second closes.
-    if (kind === "claude" && running(t) && !confirmClose.ask(t.id)) return;
+    if (!confirmed && kind === "claude" && running(t) && !confirmClose.ask(t.id)) return;
     setClosed((c) => new Set(c).add(t.id));
     await closeTerminal(t.id).catch(() => {});
     router.refresh();
+  };
+
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const rename = async (t: TerminalInfo, title: string) => {
+    setRenaming(null);
+    remember(await updateTerminal(t.id, { title }));
+    router.refresh();
+  };
+  const hide = async (t: TerminalInfo) => {
+    setClosed((c) => new Set(c).add(t.id));
+    await updateTerminal(t.id, { archived: true }).catch(() => {});
+    router.refresh();
+  };
+
+  const tabMenu = (t: TerminalInfo): MenuItem[] => [
+    { header: kind === "claude" ? `${t.title} · Claude Code` : t.title },
+    { label: "Rename", icon: Pencil, run: () => setRenaming(t.id) },
+    {
+      label: kind === "claude" ? (t.claudeSessionId ? "Restart (resume conversation)" : "Restart") : "Restart shell",
+      icon: RotateCcw,
+      run: async () => {
+        setSelected(t.id);
+        started.current.add(t.id);
+        remember(await restartTerminal(t.id));
+      },
+    },
+    ...(kind === "claude"
+      ? ([
+          { label: "Archive", icon: Archive, hint: "stop, keep the session", run: () => hide(t) },
+          ...(t.claudeSessionId ? [{ label: "Copy session id", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(t.claudeSessionId!) }] : []),
+        ] satisfies MenuItem[])
+      : []),
+    { divider: true },
+    { label: "Close", icon: X, ...(kind === "claude" && running(t) ? { danger: true, confirm: "Close and end the session?" } : {}), run: () => close(t, true) },
+    {
+      label: "Close others",
+      icon: XCircle,
+      disabled: tabs.length < 2,
+      ...(kind === "claude" ? { danger: true, confirm: "Close the other sessions?" } : {}),
+      run: async () => {
+        for (const o of tabs) if (o.id !== t.id) await close(o, true);
+        setSelected(t.id);
+      },
+    },
+  ];
+
+  /** Right-click "+": restore an archived Claude Code session (it resumes where it left off). */
+  const newMenu = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const point = { clientX: e.clientX, clientY: e.clientY };
+    const items: MenuItem[] = [{ label: kind === "claude" ? "New Claude Code session" : "New terminal", icon: Plus, run: () => void create() }];
+    if (kind === "claude") {
+      const old = await archivedTerminals(taskId).catch(() => [] as TerminalInfo[]);
+      const restorable = old.filter((t) => t.kind === "claude");
+      if (restorable.length) {
+        items.push({ divider: true }, { header: "Archived sessions" });
+        for (const t of restorable)
+          items.push({
+            label: t.title,
+            icon: ArchiveRestore,
+            hint: new Date(t.createdAt).toLocaleDateString(),
+            run: async () => {
+              const back = await updateTerminal(t.id, { archived: false });
+              // It was hidden when archived; show it again.
+              setClosed((c) => {
+                const next = new Set(c);
+                next.delete(back.id);
+                return next;
+              });
+              remember(back);
+              setSelected(back.id);
+              router.refresh();
+            },
+          });
+      }
+    }
+    openContextMenu(point, items);
   };
 
   return (
     <div className="terminal-tabs">
       <div className="term-tabbar" role="tablist" aria-label={kind === "claude" ? "Claude Code sessions" : "Terminals"}>
         {tabs.map((t) => (
-          <div key={t.id} role="tab" aria-selected={t.id === current?.id} className={`term-tab ${t.id === current?.id ? "is-active" : ""}`} onClick={() => setSelected(t.id)}>
+          <div key={t.id} role="tab" tabIndex={0} aria-selected={t.id === current?.id} className={`term-tab ${t.id === current?.id ? "is-active" : ""}`} onClick={() => setSelected(t.id)} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => tabMenu(t))}>
             {kind === "claude" && <StatusMark state={MARK[t.status]} />}
-            <span className="term-tab-name">{t.title}</span>
+            {renaming === t.id ? (
+              <RenameInput value={t.title} label={`Rename ${t.title}`} onCancel={() => setRenaming(null)} onSave={(v) => void rename(t, v)} />
+            ) : (
+              <span className="term-tab-name">{t.title}</span>
+            )}
             <button
               type="button"
               className={`file-tab-close ${confirmClose.armed === t.id ? "is-armed" : ""}`}
@@ -162,7 +245,7 @@ export function TerminalTabs({
             </button>
           </div>
         ))}
-        <button type="button" className="term-tab-new" onClick={() => void create()} title={kind === "claude" ? "New Claude Code session" : "New terminal"} aria-label={kind === "claude" ? "New Claude Code session" : "New terminal"}>
+        <button type="button" className="term-tab-new" onClick={() => void create()} onContextMenu={(e) => void newMenu(e)} title={kind === "claude" ? "New Claude Code session (right-click to restore an archived one)" : "New terminal"} aria-label={kind === "claude" ? "New Claude Code session" : "New terminal"}>
           <Plus size={14} />
         </button>
       </div>
