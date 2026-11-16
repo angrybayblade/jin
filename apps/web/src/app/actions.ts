@@ -235,12 +235,3 @@ export async function refreshTaskPrs(taskId: string): Promise<void> {
   await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs/refresh`, { method: "POST" });
   revalidatePath("/", "layout");
 }
-
-/** A Bobby review for a task tab: its URL, and whether the running Bobby lets jin frame it. */
-export async function bobbyEmbed(pr: string): Promise<{ url: string; embeddable: boolean } | { error: string }> {
-  try {
-    return await daemon<{ url: string; embeddable: boolean }>("/api/bobby/embed", { method: "POST", json: { pr } });
-  } catch (err) {
-    return { error: err instanceof Error ? err.message.replace(/^POST \S+: /, "") : String(err) };
-  }
-}
