@@ -1,238 +1,158 @@
-# Jin: design (v0 draft)
+# Jin: design
 
-Jin is a personal orchestrator for one engineer's work: it catches you up, helps
-you decide what matters, and runs coding agents on the chosen work inside your
-organisation's workspace. It runs on your own machine or on a private VM you
-control. It is single-user by design; what a hosted, multi-tenant Jin would have
-to add is in [security.md](security.md).
+Jin is a personal orchestrator for one engineer's work: it catches you up, helps you decide
+what matters, and runs coding agents on the chosen work inside your organisation's workspace.
+It runs on your own machine or on a private VM you control. It is single-user by design; what
+a hosted, multi-tenant Jin would have to add is in [security.md](security.md).
 
-Inspired by ComposioHQ/zen, but deliberately not a copy: Zen is a hosted,
-multi-tenant platform (E2B sandboxes, Temporal, PostgreSQL, KMS, a GitHub App,
-OIDC). Jin keeps the product ideas and drops the multi-tenant machinery, which
-is most of Zen's code.
+Inspired by ComposioHQ/zen, but deliberately not a copy: Zen is a hosted, multi-tenant
+platform (E2B sandboxes, Temporal, PostgreSQL, KMS, a GitHub App, OIDC). Jin keeps the product
+ideas and drops the multi-tenant machinery.
 
 ## Decisions
 
 | | Decision |
 | --- | --- |
 | Users | Only me. No organisations, roles or sharing inside Jin. |
-| Where it runs | Local (laptop) or a private VM. Same build; the VM enables the always-on features. |
-| Hosting | Private VMs only for now. Multi-tenant hosting is out of scope and documented in security.md. |
-| Workspaces | Pluggable. composio-workspace is the first adapter; another organisation's workspace is another adapter. Jin's core knows nothing about Composio. |
-| Agents | Claude first (Claude Agent SDK). Codex runs in the background for tasks that need no plugins or integrations. |
-| Credentials | Jin stores none. Integrations come from the agent harness's own connectors; GitHub from the machine's `gh` login; secrets from the workspace's own tooling (Doppler for Composio). |
-| Repo | `angrybayblade/jin`, private, separate from any organisation's workspace. |
-| UI | Next.js (App Router, React) for the web app; a separate daemon owns every long-lived process. |
-
-## Non-goals (v0)
-
-- Multi-user anything: sharing, teams, ACLs, tenancy.
-- Sandboxing agents from the machine. On a private VM the VM is the boundary;
-  on a laptop the agent runs as you, the same as Claude Code does today.
-- Replacing the workspace's own tooling. Jin calls `cws`; it does not
-  reimplement tasks, review, the map or the local stack.
-- A custom editor or terminal. Jin embeds an existing one.
+| Where it runs | Local (laptop) or a private VM. Same build; the VM enables the always-on features (not built yet). |
+| Workspaces | Pluggable through a workspace adapter. composio-workspace is the first; Jin's core knows nothing about Composio. |
+| Tasks | The workspace is the source of truth for its tasks (the adapter is the task provider); Jin keeps only its own metadata. |
+| Coding | Claude Code's own TUI, in persistent terminals in the browser. Jin's rules reach it through Claude Code hooks. |
+| Chat | Jin's own chat and knowledge desks run on the Claude Agent SDK, with jin's tools and approvals. |
+| Model | `claude-opus-5-5` by default for both (`model:` in `~/.jin/config.yaml`). |
+| Credentials | Jin stores none. GitHub through the machine's `gh`; integrations through the user's Claude MCP servers; secrets through the workspace's own tooling. |
+| UI | Next.js (App Router) on Zero's design system; a Bun daemon owns every long-lived process. |
+| Repo | `angrybayblade/jin`, private. |
 
 ## Shape
 
 ```
-                       Browser (localhost, or the VM over SSH tunnel / Tailscale)
+              Browser (or the desktop shell), on loopback; a VM over SSH tunnel / Tailscale
                                           │
-┌──────────────────────────────── apps/web (Next.js) ─────────────────────────────────┐
-│ Command center ── catch-up feed, priorities, approvals, tasks, sessions, editor,    │
-│ terminal (Monaco, xterm.js, embedded code-server)                                   │
-└──────────────────────────────────────────┬──────────────────────────────────────────┘
+┌──────────────────────────────── apps/web (Next.js) ───────────────────────────────────┐
+│ Sidebar: Jin · Tasks (Claude Code status) · Desks (GitHub, Slack, Linear, Notion, Gmail) │
+│ Jin's chat + Today feed · Task view: Claude Code tabs | editor, shell and diff tabs      │
+│ Server components and actions talk to the daemon with its token; the browser gets       │
+│ one-time tickets for websockets (live chat, terminals) and never sees the token.        │
+└──────────────────────────────────────────┬────────────────────────────────────────────┘
                                 HTTP + websockets (loopback)
-┌──────────────────────────────── apps/daemon (Bun) ──────────────────────────────────┐
-│ Feed collectors        Task runner               Session manager       Scheduler    │
-│ (gh, Claude+MCP)       (workspace adapter)       (Claude SDK, Codex)   (VM only)    │
-│                                                                                     │
-│ Policy (hooks, deny rules, approvals)        SQLite (feed, tasks, sessions, events) │
-└──────────────┬───────────────────────────────┬──────────────────────┬───────────────┘
-               │                               │                      │
-     Workspace adapter                 Agent harnesses          Editor + terminal
-     (composio: cws CLI)               claude / codex           code-server on a task dir
+┌──────────────────────────────── apps/daemon (Bun) ────────────────────────────────────┐
+│ Workspace adapters (composio: cws, task.json)   Feed (GitHub collector)                │
+│ Terminals: PTYs + headless xterm, saved tabs     Sessions: Agent SDK chats + approvals  │
+│ Claude Code hooks: policy + status               Files and diffs, confined to the task  │
+│ Policy (deny, ask)   Tickets   Bobby companion   SQLite (feed, tasks, sessions, events,  │
+│                                                  approvals, terminals)                  │
+└───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-No queue or workflow engine. Durable state is SQLite rows; long-running work
-is agent processes Jin supervises and can reattach to after a restart
-(sessions are resumable by id).
+No queue or workflow engine. Durable state is SQLite; long-running work is processes the
+daemon owns.
 
-### Two apps
-
-| | `apps/web` | `apps/daemon` |
-| --- | --- | --- |
-| What | Next.js (App Router): command center, tasks, sessions, approvals, editor and terminal views | Sessions (Agent SDK, Codex), PTYs, websockets, code-server proxy, collectors, scheduler, SQLite |
-| Why separate | UI that is complex enough to need React: Monaco, xterm.js, live streams | Next.js route handlers have no websockets and are not a place for long-lived processes |
-| Talks to the other | Typed HTTP API plus one websocket per view (session stream, terminal) | Serves the API and websockets on loopback |
-
-- **Editor:** code-server embedded for full editing (extensions, git, its own
-  terminal); Monaco in the web app for diffs and quick file views of what an
-  agent changed.
-- **Terminal:** xterm.js in the browser, a PTY in the daemon, over a
-  websocket. To verify before building: `node-pty` is a native Node addon and
-  may not load under Bun; the daemon either runs on Node or uses a PTY that
-  Bun supports.
-- **Shared contracts:** `packages/contract` (Zod schemas) used by both, so
-  the API and websocket messages are validated at both ends.
-
-## Deployment modes
-
-| Feature | Local | Private VM |
-| --- | --- | --- |
-| Command center, catch-up on demand | yes | yes |
-| Start tasks, agent sessions, editor, terminal | yes | yes |
-| Scheduled briefs (e.g. 08:30 every weekday) | off | yes |
-| PR watches that wake a session | off | yes |
-| Background Codex queue running unattended | off, or only while Jin is open | yes |
-
-`mode: local | vm` in Jin's config. Local mode never registers timers, so a
-sleeping laptop cannot leave half-finished scheduled work; anything scheduled
-shows as "needs the VM". On the VM Jin binds to 127.0.0.1 only and is reached
-over an SSH tunnel or Tailscale; it never listens on a public interface.
-
-## Workspace adapters (plug and play)
-
-Jin's core works with a small interface; each organisation's workspace
-provides an adapter. Adapters are configuration first and code only where
-needed, so pointing Jin at a new organisation does not mean changing Jin or the
-organisation's repos.
+## Workspaces and tasks
 
 ```ts
 interface WorkspaceAdapter {
-  id: string;                         // "composio"
-  root: string;                       // ~/composio-workspace
-  repos(): Promise<Repo[]>;           // name, path, branch, description
-  startTask(t: { id: string; type?: string; repos: string[]; slug: string }): Promise<TaskDirs>;
-  removeTask(id: string): Promise<void>;
-  check?(taskId: string): Promise<CommandResult>;    // lint/typecheck/test
-  review?(taskId: string): Promise<ReviewResult>;    // contextual review
-  stack?: { up(taskId?: string): Promise<void>; down(): Promise<void> };
-  context?(): Promise<ContextFiles>;  // map, skills, instructions for the agent
-  policy(): Policy;                   // deny rules + outward actions needing approval
+  config: WorkspaceConfig;            // ~/.jin/workspaces/<id>.yaml
+  repos(): Promise<Repo[]>;
+  listTasks(): ProviderTask[];        // the task provider: the workspace's own tasks
+  startTask(spec): Promise<TaskDirs>; // composio: cws task new ... --setup
+  removeTask(id): Promise<void>;      // composio: cws task rm
+  policy(): PolicyRules;              // extra deny/ask rules
 }
 ```
 
-- **composio adapter**: wraps `cws` (`cws task new ... --setup`,
-  `cws task rm`, `cws check`, `cws review --task`, `cws up --task`,
-  `docs/map/`, `.claude/skills/composio-platform`). Its policy is the deploy
-  and publish rules in `cli/src/adapters.ts` plus CLAUDE.md's outward actions.
-- **git adapter** (fallback for an organisation without a workspace): a
-  directory of clones; a task is a branch plus `git worktree` per repo; no
-  check, review or stack unless configured as commands.
-- Adapters are declared in `~/.jin/workspaces/<id>.yaml` (command templates
-  for the config-only case, or a module path for a code adapter).
+- **composio adapter**: repos from `workspace.yaml` and `.gitmodules`; tasks from
+  `tasks/*/task.json` exactly as `cws task list` reads them (title from the branch); creation
+  and removal through the workspace's own `bin/cws`. Tasks made with `cws` in a terminal show
+  up in Jin; tasks removed there drop out.
+- Jin's `tasks` table keeps only Jin's metadata (the feed item a task came from) and records
+  of removed tasks.
+- A future provider (plain git, another organisation's tooling, Linear-backed tasks)
+  implements the same surface; `listTasks()` is synchronous for local files and would serve a
+  cached snapshot for a remote provider.
+- Each workspace may set `profile.claudeConfigDir` to keep its connectors and logins apart
+  (that directory needs its own `claude` login); unset means the machine's default login.
 
-**Organisation isolation.** Each workspace profile gets its own harness
-config directory (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), so one organisation's
-Slack, Linear or Gmail connectors and logins are never visible to sessions
-working on another organisation's code. Feed items, tasks and sessions carry
-their workspace id and are filtered by the active profile.
+## Task view: Claude Code in the browser
 
-## Command center
+- **Terminals are daemon-owned tabs.** Each is a SQLite record plus, while running, a PTY
+  (Bun's built-in terminal) and a headless xterm that keeps the screen. Closing or reloading
+  the page only detaches; re-attaching replays the screen, then streams.
+- **Several per task:** Claude Code sessions (Claude 1, 2, ...) in the main pane, shells
+  (Terminal 1, 2, ...) and open files in the workspace pane.
+- **Resume after restarts.** Claude Code's hooks report its session id (it changes on
+  `/clear`). A daemon restart stops the processes but keeps the tabs; showing one again starts
+  `claude --resume <id>`.
+- **The browser side** is xterm.js with the WebGL renderer, Unicode 11 widths, OSC 52
+  clipboard, clickable links, Shift+Enter as a newline and Cmd+C on a selection.
+- **Claude Code is launched by Jin** as `claude --settings ~/.jin/claude/settings.json --model <model>`.
+  The settings add only Jin's hooks (merged with the user's own), so nothing is written into
+  the repos.
+- **Editor**: file tree and Monaco with tabs (remembered per task), Cmd+S saves into the
+  worktree. **Diff**: uncommitted changes per repo.
+- The daemon drops a parent Claude Code session's variables at start (child-session marker,
+  messaging token), which would otherwise turn transcript saving off in every session it runs.
 
-The core of Jin: open it and know what to do next.
+## Chat and desks (Agent SDK)
 
-**Catch-up feed.** Collectors produce normalized items:
-
-| Source | How | Examples |
-| --- | --- | --- |
-| GitHub | `gh` directly (cheap, deterministic) | reviews requested, your PRs with red CI or new comments, mentions |
-| Linear | Claude session with the Linear connector | assigned issues, cycle changes, comments on your issues |
-| Slack | Claude + Slack connector | DMs and mentions since you last looked, threads you're in |
-| Gmail | Claude + Gmail connector | mail needing a reply, calendar-related |
-| Notion | Claude + Notion connector | comments and mentions |
-| Jin itself | local | finished/blocked sessions, approvals waiting, failed checks |
-
-```ts
-type FeedItem = {
-  id: string; workspace: string; source: "github" | "linear" | "slack" | "gmail" | "notion" | "jin";
-  externalRef: string;          // URL or id, for dedupe and "open"
-  title: string; summary: string;
-  receivedAt: string; seenAt?: string;
-  priority?: { score: number; why: string };   // from the ranking pass
-  state: "new" | "snoozed" | "done" | "dismissed" | "promoted";
-  taskId?: string;              // when promoted to a task
-};
-```
-
-**Ranking.** One Claude pass over new items with your context (current tasks,
-cycle, what you dismissed before) produces a score and a one-line reason. The
-reason is shown, so a ranking can be corrected rather than trusted blindly.
-
-**Actions from an item.** Start a task (Linear issue → `startTask` with repos
-suggested from the map, then a session), draft a reply (Slack/Gmail/Linear;
-sending is an approval, below), snooze, dismiss, open the source.
-
-**Catch-up brief.** "Catch me up" renders the top items as a short brief:
-what changed since you last looked, what is blocked on you, what can wait.
-On the VM it can be generated on a schedule so it is ready when you open Jin.
-
-## Agent sessions
-
-- **Claude (interactive and integration work).** Started through the Claude
-  Agent SDK in the task's directory, with the workspace profile's config dir
-  (its connectors) and Jin's policy hooks. Streamed into the session view;
-  resumable by session id after Jin restarts.
-- **Codex (background, no integrations).** `codex exec` for well-specified
-  code-only work: fix lint, write tests for a module, apply a mechanical
-  refactor, address review comments already captured in the task. Jin only
-  routes a task to Codex when it needs no MCP tools; the session gets no
-  connector access by construction.
-- **Routing.** Explicit by default (you choose); Jin suggests Codex when the
-  task is code-only. A Codex result comes back as a diff in the task, never as
-  a pushed branch.
+- **Jin's chat** (home) has Jin's own tools as an in-process MCP server: catch up, refresh
+  GitHub, list repos and tasks, start a task, hand it to Claude Code (opens a Claude Code tab
+  with the prompt), and update feed items.
+- **Desks** (GitHub, Slack, Linear, Notion, Gmail) are chats with their own instructions.
+  GitHub uses `gh`; the others use the user's MCP servers (claude.ai connectors do not load in
+  SDK sessions, so they come from `cws connect`, i.e. user-level servers). Gmail has none yet.
+- Replies stream live: text deltas go to open websockets and are not stored; the complete
+  message is recorded at the end of the turn.
 
 ## Policy and approvals
 
-The workspace's rules must hold even when an agent runs commands natively.
-Today `cws` refuses deploys only for commands that go through `cws`; an agent
-can still run `pulumi up` directly. Jin closes that gap:
+Jin's rules apply to every agent it runs, whatever the workspace:
 
-- **Deny hooks.** A PreToolUse hook on every Claude session checks shell
-  commands against the adapter's deny rules (deploy, publish, release,
-  `pulumi up`, `vercel --prod`, workflow triggers, Doppler writes) and blocks
-  them. Codex runs with its sandbox in workspace-write mode and no network
-  beyond what the task needs where possible.
-- **Approvals.** Outward actions are not denied but held: `git push`, opening
-  or commenting on PRs, Slack and Gmail sends, Linear updates. The session
-  pauses, the command center shows the exact action, and it runs only after
-  you approve it.
-- **Audit.** Every tool call, approval and denial is an event row, so "what
-  did the agent do while I was away" has an answer.
+- **deny**: deploys, releases, publishing, production and secret changes (Pulumi, Terraform,
+  Vercel, wrangler, kubectl, helm, docker push, `gh workflow run`, `gh release`, Doppler
+  writes, package publishing, deploy-like package scripts). Checked per simple command,
+  looking through `sh -c`, `eval`, `npx`/`bunx`/`dlx` and env assignments.
+- **ask**: outward actions: `git push`, PR and issue writes, GitHub API writes, MCP tools that
+  send or change something.
+- **SDK chats**: a PreToolUse hook (blocking on failure) plus `canUseTool` route every call
+  through the gate; "ask" holds the call as an approval in the UI.
+- **Claude Code**: Jin's PreToolUse hook denies what Jin never runs, answers "ask" for
+  outward actions (Claude Code shows its own permission prompt), and otherwise stays silent so
+  Claude Code's own permission rules apply, exactly as in a terminal. If the daemon cannot be
+  reached, shell commands are blocked.
 
-## Editor and terminal
+## Command center
 
-Embed code-server (or openvscode-server) instead of building an editor. One
-instance per Jin, bound to localhost, proxied by Jin under its own auth, and
-opened on the task's directory (`tasks/<ID>/` for Composio). It brings the
-editor, terminal, git and extensions. The session view also links to the files
-the agent changed.
+- **Feed**: the GitHub collector (one `gh api graphql` query: review requests, failing
+  checks on the user's PRs, mentions), split by each workspace's GitHub owners, de-duplicated.
+- **Bobby badges** on every pull request (feed, desks, chat links) open the PR's review in
+  Bobby (`~/bobby`) in a new tab, starting Bobby if it is not running. Bobby forbids framing
+  by design, so it is not embedded.
+
+## Look and feel
+
+- Zero's design system and thermal WebGL marks (logo, favicon, status and loading).
+- Light and dark themes app-wide (System/Light/Dark, cookie, no flash) and per pane.
+  Terminals and the editor have both palettes and follow their pane.
+- Density: compact (default) or comfortable. Collapsible sidebar (Cmd+B), resizable sidebar
+  and panes, hideable side pane, remembered per browser and applied before first paint.
 
 ## Data model (SQLite)
 
-`workspaces` (id, adapter, root, profile dirs) · `feed_items` · `tasks` (id,
-workspace, source item, repos, dirs, state) · `sessions` (id, task, harness,
-harness session id, state, cost) · `events` (session, kind, payload, at) ·
-`approvals` (session, action, state, decided_at) · `schedules` (VM only) ·
-`watches` (VM only: PR url, filter, expires).
+`workspaces` · `feed_items` · `tasks` (Jin's metadata and removed tasks) · `sessions` (kind:
+jin, a desk, or task) · `events` · `approvals` · `terminals` (tabs, Claude Code session ids).
 
-## Milestones
+## Status and next
 
-- **v0: command center + start a task.** GitHub and Linear collectors, Slack
-  and Gmail next; ranking; promote an item to a composio task; one Claude
-  session per task with deny hooks and approvals; local mode only.
-- **v1: editor and terminal**, per task; the git adapter so a second
-  organisation can be plugged in; Codex background sessions.
-- **v2: always-on.** VM mode: scheduled briefs, PR watches that wake a
-  session, the unattended Codex queue; sending replies from the feed (always
-  through approvals).
+Built: everything above. The v0 acceptance suite (`bun run acceptance`) passes 18/18 next to
+a running dev server; unit tests with `bun test apps`.
 
-## Open questions
+Next:
 
-- Daemon runtime: Bun or Node, decided by PTY support (see Two apps).
-- How much catch-up runs through Claude with connectors vs direct APIs: the
-  connector route keeps Jin credential-free but costs a model call per refresh.
-- Whether Jin should read Zen-style durable instructions per workspace (an
-  `AGENTS.md`-like file in the adapter) or rely on each workspace's own
-  CLAUDE.md and skills. Leaning on the workspace's own files.
+1. **New task** from the UI, with setup running in the background and live progress.
+2. **Desktop shell** with Electrobun: inset title bar, an Edit menu (paste needs it in
+   WebKit), Cmd+W/T/1-9 for Jin's tabs, the daemon in process, a Dock badge when an agent
+   waits. A spike confirmed xterm (WebGL), Monaco and the thermal shader work in its WebKit view.
+3. **Desks that work**: a setup check and one-click connect per desk; a Gmail MCP server.
+4. **Feed**: snoozed items coming back, Linear in the feed, a ranking pass.
+5. **VM mode**: scheduled briefs and PR watches.

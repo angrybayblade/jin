@@ -24,8 +24,13 @@ that persist (logs, workspace files, model context, workflow history).
 
 ### 1. Identity and authentication
 
-- **Single-user today:** Jin binds to 127.0.0.1; access is SSH tunnel or
-  Tailscale plus a local token. Being on the VM is the authentication.
+- **Single-user today:** the daemon and the web server bind to 127.0.0.1 only
+  (`next start -H 127.0.0.1`: without it Next listens on every interface).
+  The daemon requires a token from `~/.jin/daemon.json` (mode 0600) and refuses
+  browser origins other than the web app's. The web app talks to the daemon
+  from its server; the browser never holds the token and opens websockets with
+  one-time tickets (one connection, one path, within a minute). Access to a VM
+  is an SSH tunnel or Tailscale. Being on the machine is the authentication.
 - **Multi-tenant needs:** a real identity provider (OIDC), sessions, MFA and
   recovery delegated to it; service-to-service auth between UI, API and
   workers; no development bypass outside a dev environment, failing closed.
@@ -106,9 +111,14 @@ that persist (logs, workspace files, model context, workflow history).
 
 ### 7. Production and deployment safety
 
-- **Single-user today:** deny hooks with the workspace adapter's rules (for
-  Composio, the deploy/publish patterns from `cws`), because `cws` itself only
-  refuses commands that go through it.
+- **Single-user today:** jin's deny rules (deploy, release, publish,
+  production and secret changes; per simple command, looking through `sh -c`,
+  `eval` and `npx`/`bunx`/`dlx`) apply to every agent: SDK chats through a
+  PreToolUse hook that blocks on failure plus `canUseTool`, and Claude Code
+  through a PreToolUse command hook (from `claude --settings`) that fails
+  closed for shell commands when the daemon cannot be reached. Outward actions
+  are approvals (SDK chats) or Claude Code's own permission prompt. `cws`
+  itself only refuses commands that go through it.
 - **Multi-tenant needs:** the same rules enforced outside the agent (in the
   broker: the GitHub App cannot trigger workflows or push to protected
   branches; secrets brokers expose no production configs); per-organisation
@@ -116,13 +126,30 @@ that persist (logs, workspace files, model context, workflow history).
 
 ### 8. The editor and terminal
 
-- **Single-user today:** code-server bound to localhost behind Jin's auth.
-  An editor with a terminal is remote code execution by design; acceptable
-  only because the only user is the owner.
+- **Single-user today:** daemon-owned PTYs (shells and Claude Code) over
+  ticketed websockets, and a file API confined to the task directory (paths
+  resolved through symlinks; files over 1 MB and binaries refused). A
+  terminal is remote code execution by design; acceptable only because the
+  only user is the owner and everything is on loopback. Terminals do not run
+  jin's agent policy (the user is typing); Claude Code in them gets jin's rules
+  through its hooks. The daemon drops a parent Claude Code session's variables
+  at start, including its messaging token, so they never reach these
+  processes.
 - **Multi-tenant needs:** the editor runs inside the user's sandbox, never
   on a shared host; per-session auth on the editor's websocket; no shared
   extension directory; extension allowlist (Open VSX supply chain); CSRF and
   origin checks on the proxy.
+
+### 8a. Companion apps (Bobby)
+
+- **Single-user today:** jin links pull requests to their review in Bobby
+  (`~/bobby`), found through Bobby's own lock file and started with
+  `bobby start` if needed. Reviews open in Bobby's own tab: Bobby forbids
+  framing (`frame-ancestors 'none'`) so another page cannot steer a click onto
+  Approve, and its page asks before building a review it has never seen.
+- **Multi-tenant needs:** per-user companion processes inside the user's
+  sandbox, never a shared one holding a person's `gh` login; any embedding
+  allowed only for the exact app origin.
 
 ### 9. Network
 
