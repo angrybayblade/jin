@@ -1,0 +1,19 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: #141416;
+  color: #9a9aa0;
+  font: 13px -apple-system, system-ui, sans-serif;
+}
+body {
+  display: grid;
+  place-items: center;
+}
+@media (prefers-color-scheme: light) {
+  html,
+  body {
+    background: #fafafa;
+    color: #6b6b70;
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@jin/desktop",
+  "private": true,
+  "description": "jin in a native macOS window (Electrobun, built with hutch)",
+  "devDependencies": {
+    "@types/bun": "1.4.4"
+  }
+}
