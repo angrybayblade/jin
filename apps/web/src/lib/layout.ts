@@ -45,7 +45,10 @@ export function updateLayout(patch: (l: Layout) => Layout) {
 }
 
 /** Inline, before first paint (kept tiny and dependency-free). */
-export const LAYOUT_BOOT = `try{var l=JSON.parse(localStorage.getItem("${KEY}")||"{}"),r=document.documentElement;if(l.sidebarW)r.style.setProperty("--sidebar-w",l.sidebarW+"px");if(l.sidebarCollapsed)r.dataset.sidebar="collapsed";for(var k in l.split||{})r.style.setProperty("--split-"+k,l.split[k]+"%");for(var a in l.asideHidden||{})if(l.asideHidden[a])r.setAttribute("data-aside-"+a,"hidden")}catch(e){}`;
+/** In jin's desktop window (Electrobun), jin draws the title bar: html[data-shell="desktop"]. */
+const SHELL_BOOT = `try{var d=document.documentElement;if(window.__electrobun||window.__electrobunWindowId!=null||/[?&]shell=desktop/.test(location.search)){d.dataset.shell="desktop";sessionStorage.setItem("jin-shell","desktop")}else if(sessionStorage.getItem("jin-shell")==="desktop")d.dataset.shell="desktop"}catch(e){}`;
+
+export const LAYOUT_BOOT = SHELL_BOOT + `try{var l=JSON.parse(localStorage.getItem("${KEY}")||"{}"),r=document.documentElement;if(l.sidebarW)r.style.setProperty("--sidebar-w",l.sidebarW+"px");if(l.sidebarCollapsed)r.dataset.sidebar="collapsed";for(var k in l.split||{})r.style.setProperty("--split-"+k,l.split[k]+"%");for(var a in l.asideHidden||{})if(l.asideHidden[a])r.setAttribute("data-aside-"+a,"hidden")}catch(e){}`;
 
 export type Density = "compact" | "comfortable";
 export const DENSITY_COOKIE = "jin-density";
