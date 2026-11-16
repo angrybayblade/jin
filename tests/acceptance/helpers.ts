@@ -93,6 +93,7 @@ fi
     `#!/bin/sh
 printf '%s\\n' "$*" >> "${base}/gh.log"
 if [ "$1" = api ] && [ "$2" = graphql ]; then cat "${base}/gh-graphql.json"; exit 0; fi
+if [ "$1" = pr ] && [ "$2" = view ]; then n=\${3##*/}; printf '{"number":%s,"title":"PR %s","state":"OPEN","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"conclusion":"SUCCESS"}],"headRefName":"fix/x"}' "$n" "$n"; exit 0; fi
 echo "fake gh: unsupported: $*" >&2; exit 1
 `,
   );
