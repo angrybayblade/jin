@@ -58,6 +58,8 @@ export interface MachineView extends Omit<MachineRecord, "token"> {
   connected: boolean;
   tunnel: "up" | "connecting" | "down" | "off";
   busy: boolean;
+  /** The machine runs a different jin than this one: "Update jin there" brings it level. */
+  outdated: boolean;
   steps: Step[];
   workspaceStep: Step | null;
   auth: AuthState[];
@@ -71,6 +73,15 @@ const STEPS: { id: StepId; label: string }[] = [
   { id: "tunnel", label: "Open the tunnel" },
 ];
 const LOG_LINES = 300;
+
+let headCache: { at: number; sha: string | null } | null = null;
+/** This jin's commit (short), as onboarding records it on a machine; cached for a few seconds. */
+function localVersion(): string | null {
+  if (headCache && Date.now() - headCache.at < 5000) return headCache.sha;
+  const r = Bun.spawnSync(["git", "-C", resolve(import.meta.dir, "../../.."), "rev-parse", "--short", "HEAD"]);
+  headCache = { at: Date.now(), sha: r.exitCode === 0 ? r.stdout.toString().trim() || null : null };
+  return headCache.sha;
+}
 const REPO = resolve(import.meta.dir, "../../..");
 // Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
 const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
@@ -329,6 +340,7 @@ export class Machines {
       connected: Boolean(token) && tunnel?.state === "up",
       tunnel: tunnel ? tunnel.state : "off",
       busy: this.busy.has(id),
+      outdated: Boolean(token && m.version && localVersion() && m.version !== localVersion()),
       steps,
       workspaceStep: this.workspaceSteps.get(id) ?? null,
       auth: (["gh", "claude", "doppler"] as AuthTool[]).map((t) => this.authOf(id, t)),
@@ -530,9 +542,15 @@ export class Machines {
     for (const s of this.signIns.values()) s.proc.kill();
   }
 
-  remove(id: string) {
-    this.record(id);
+  /** Forget a machine; with `stop`, also stop jin's daemon there (its files stay in ~/.jin on the machine). */
+  async remove(id: string, opts: { stop?: boolean } = {}) {
+    const m = this.record(id);
     this.closeTunnel(id);
+    if (opts.stop && m.token) {
+      await this.ssh(m.host, `${PATH_LINE}
+if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user disable --now jin-daemon >/dev/null 2>&1 || true; fi
+pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}).catch(() => {});
+    }
     for (const t of ["gh", "claude", "doppler"] as AuthTool[]) this.signIns.get(`${id}:${t}`)?.proc.kill();
     rmSync(this.file(id), { force: true });
     this.steps.delete(id);
@@ -714,8 +732,8 @@ export function machineRoutes(router: Router, machines: Machines) {
       return json(machines.add(host, label), 201);
     })
     .on("GET", "/api/machines/:id", (_req, p) => json(machines.view(p.id!)))
-    .on("DELETE", "/api/machines/:id", (_req, p) => {
-      machines.remove(p.id!);
+    .on("DELETE", "/api/machines/:id", async (_req, p, url) => {
+      await machines.remove(p.id!, { stop: url.searchParams.get("stop") !== "0" });
       return json({ removed: true });
     })
     .on("POST", "/api/machines/:id/setup", (_req, p) => {
