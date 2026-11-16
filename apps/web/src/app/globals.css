@@ -1,8 +1,8 @@
 /*
  * Jin workspace styles, on Zero's design system (ComposioHQ/zero docs/design-system.md):
  * a persistent shell (sidebar + work area), flat white surfaces, graphite emphasis, an
- * 8px rhythm, one named scroll region per area, no page-level overflow. The workspace
- * pane (editor, terminal, diff) uses the dark coding tokens ([data-theme="dark"]).
+ * 8px rhythm, one named scroll region per area, no page-level overflow. Every surface
+ * follows the theme (tokens.css): app-wide light/dark/system, and a pane may override it.
  */
 *,
 *::before,
@@ -182,8 +182,17 @@ button {
   font-size: var(--type-meta);
 }
 .sidebar-bottom {
-  padding: var(--space-3) 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0 8px;
   border-top: 1px solid var(--line);
+}
+.button.icon-only {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
 }
 .work-area {
   min-width: 0;
@@ -995,4 +1004,107 @@ button {
 .terminal-view .xterm-viewport {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) transparent;
+  /* xterm.css paints it black; the strip below the last row should match the theme. */
+  background-color: transparent !important;
+}
+
+/* ------------------------------------------------------------------ tabs (Claude Code sessions, shells, files) */
+.terminal-tabs {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-tabbar,
+.file-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--canvas);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.term-tab,
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 0 4px 0 10px;
+  border-bottom: 2px solid transparent;
+  color: var(--secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.term-tab:hover,
+.file-tab:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.term-tab.is-active,
+.file-tab.is-active {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+.term-tab-name,
+.file-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-tab-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.term-tab:hover .file-tab-close,
+.file-tab:hover .file-tab-close,
+.term-tab.is-active .file-tab-close,
+.file-tab.is-active .file-tab-close {
+  opacity: 1;
+}
+.file-tab-close:hover {
+  background: var(--selected-hover);
+  color: var(--ink);
+}
+.term-tab-new {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.term-tab-new:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.term-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.term-body .editor-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.term-body .editor-empty p {
+  margin: 0;
 }
