@@ -2,29 +2,55 @@
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { attachTicket } from "@/app/actions";
+import { useResolvedTheme } from "@/lib/theme";
 
-const THEME = {
-  background: "#1b1a1e",
-  foreground: "#e6e4ea",
-  cursor: "#e7a35a",
-  cursorAccent: "#1b1a1e",
-  selectionBackground: "#5a3d22",
-  black: "#141316",
-  red: "#e0715e",
-  green: "#9fd3a8",
-  yellow: "#f0c36d",
-  blue: "#9fb3d6",
-  magenta: "#d39bb4",
-  cyan: "#8fcac4",
-  white: "#ecebef",
-  brightBlack: "#66656f",
-  brightRed: "#f09a8a",
-  brightGreen: "#b6e2bd",
-  brightYellow: "#f5d48f",
-  brightBlue: "#b9c2d6",
-  brightMagenta: "#e2b4c8",
-  brightCyan: "#a9dbd5",
-  brightWhite: "#ffffff",
+const THEMES = {
+  dark: {
+    background: "#1b1a1e",
+    foreground: "#e6e4ea",
+    cursor: "#e7a35a",
+    cursorAccent: "#1b1a1e",
+    selectionBackground: "#5a3d22",
+    black: "#141316",
+    red: "#e0715e",
+    green: "#9fd3a8",
+    yellow: "#f0c36d",
+    blue: "#9fb3d6",
+    magenta: "#d39bb4",
+    cyan: "#8fcac4",
+    white: "#ecebef",
+    brightBlack: "#66656f",
+    brightRed: "#f09a8a",
+    brightGreen: "#b6e2bd",
+    brightYellow: "#f5d48f",
+    brightBlue: "#b9c2d6",
+    brightMagenta: "#e2b4c8",
+    brightCyan: "#a9dbd5",
+    brightWhite: "#ffffff",
+  },
+  light: {
+    background: "#ffffff",
+    foreground: "#29272b",
+    cursor: "#9d5034",
+    cursorAccent: "#ffffff",
+    selectionBackground: "#f1d3ae",
+    black: "#29272b",
+    red: "#a13e28",
+    green: "#2f6b3a",
+    yellow: "#8a5a12",
+    blue: "#3d5a80",
+    magenta: "#8e3b6b",
+    cyan: "#2c6e6a",
+    white: "#b8b7bb",
+    brightBlack: "#61626d",
+    brightRed: "#c2533a",
+    brightGreen: "#3f8a4d",
+    brightYellow: "#a8721c",
+    brightBlue: "#4f72a0",
+    brightMagenta: "#a8507f",
+    brightCyan: "#3a8a85",
+    brightWhite: "#e5e5e5",
+  },
 };
 
 export type TerminalState = "connecting" | "attached" | "detached" | "exited";
@@ -54,6 +80,10 @@ export function TerminalView({
   const [state, setState] = useState<TerminalState>("connecting");
   const stateRef = useRef(onState);
   stateRef.current = onState;
+  const theme = useResolvedTheme(host);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  const termRef = useRef<{ options: { theme?: unknown } } | null>(null);
 
   useEffect(() => {
     const report = (s: TerminalState) => {
@@ -80,7 +110,7 @@ export function TerminalView({
         fontSize: 13,
         lineHeight: 1.15,
         cursorBlink: true,
-        theme: THEME,
+        theme: THEMES[themeRef.current],
         allowProposedApi: true,
         scrollback: 10000,
         macOptionIsMeta: true,
@@ -93,6 +123,7 @@ export function TerminalView({
       term.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, "_blank", "noopener")));
       term.loadAddon(new ClipboardAddon());
       term.open(host.current);
+      termRef.current = term;
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => webgl.dispose());
@@ -149,7 +180,7 @@ export function TerminalView({
         };
         ws.onclose = (ev) => {
           if (disposed) return;
-          if (ev.code === 1000 || ev.code === 1011) return report("exited");
+          if (ev.code === 1000 || ev.code === 1011 || ev.code === 4404) return report("exited");
           report("detached");
           retry = setTimeout(connect, 1500);
         };
@@ -179,6 +210,11 @@ export function TerminalView({
       cleanup();
     };
   }, [terminalId, wsBase, autoFocus]);
+
+  // Follow the theme where the terminal sits (the app's, or its pane's override).
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = THEMES[theme];
+  }, [theme]);
 
   // Fit and focus when the tab becomes visible (it was measured while hidden).
   useEffect(() => {
