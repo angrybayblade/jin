@@ -1,4 +1,4 @@
-// The v0 metric: how many of the 22 acceptance checks (A01..A22) pass.
+// The v0 metric: how many of the 23 acceptance checks (A01..A23) pass.
 // Each check is one test named "Annn ..."; a check that is missing counts as failing.
 // Results come from bun's JUnit report: outside a terminal, bun test prints no line per passing test.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -31,7 +31,7 @@ for (const m of xml.matchAll(/<testcase\b[^>]*\bname="(A\d{2})[^"]*"[^>]*?(\/>|>
   else passed.add(id);
 }
 for (const id of failed) passed.delete(id);
-const all = Array.from({ length: 22 }, (_, i) => `A${String(i + 1).padStart(2, "0")}`);
+const all = Array.from({ length: 23 }, (_, i) => `A${String(i + 1).padStart(2, "0")}`);
 for (const id of all) if (!passed.has(id)) failed.add(id);
 console.log(`failing: ${[...failed].sort().join(" ") || "none"}`);
 console.log(`ACCEPTANCE ${passed.size}/${all.length}`);
