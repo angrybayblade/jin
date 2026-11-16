@@ -176,30 +176,37 @@ export interface ClaudeLaunch {
   env: (workspace: WorkspaceConfig | undefined) => Record<string, string>;
 }
 
+/** Open a shell or Claude Code in a task's directory (or the workspace root without a task). */
+export function openTerminal(
+  deps: { terminals: Terminals; tasks: Tasks; workspaces: WorkspaceConfig[]; claude: ClaudeLaunch },
+  b: { taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number },
+): TerminalInfo {
+  const kind: TerminalKind = b.kind === "claude" ? "claude" : "shell";
+  const task = b.taskId ? deps.tasks.get(b.taskId) : undefined;
+  if (task && task.state !== "ready") throw new HttpError(409, `task ${task.id} is ${task.state}`);
+  const workspace = deps.workspaces.find((w) => w.id === task?.workspace) ?? deps.workspaces[0];
+  const cwd = task?.root ?? workspace?.root;
+  if (!cwd) throw new HttpError(400, "no task or workspace to open a terminal in");
+  const argv = kind === "claude" ? ["claude", ...deps.claude.args(), ...(b.prompt?.trim() ? [b.prompt.trim()] : [])] : undefined;
+  return deps.terminals.start({
+    kind,
+    taskId: task?.id,
+    cwd,
+    title: kind === "claude" ? "Claude Code" : "Terminal",
+    argv,
+    env: kind === "claude" ? deps.claude.env(workspace) : {},
+    cols: b.cols,
+    rows: b.rows,
+  });
+}
+
 export function terminalRoutes(router: Router, terminals: Terminals, tasks: Tasks, workspaces: WorkspaceConfig[], claude: ClaudeLaunch) {
   router
     .on("GET", "/api/terminals", (_req, _p, url) => json(terminals.list({ taskId: url.searchParams.get("task") ?? undefined })))
     .on("GET", "/api/terminals/:id", (_req, p) => json(terminals.get(p.id!)))
     .on("POST", "/api/terminals", async (req) => {
       const b = await body<{ taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number }>(req);
-      const kind: TerminalKind = b.kind === "claude" ? "claude" : "shell";
-      const task = b.taskId ? tasks.get(b.taskId) : undefined;
-      if (task && task.state !== "ready") throw new HttpError(409, `task ${task.id} is ${task.state}`);
-      const workspace = workspaces.find((w) => w.id === task?.workspace) ?? workspaces[0];
-      const cwd = task?.root ?? workspace?.root;
-      if (!cwd) throw new HttpError(400, "no task or workspace to open a terminal in");
-      const argv = kind === "claude" ? ["claude", ...claude.args(), ...(b.prompt?.trim() ? [b.prompt.trim()] : [])] : undefined;
-      const info = terminals.start({
-        kind,
-        taskId: task?.id,
-        cwd,
-        title: kind === "claude" ? "Claude Code" : "Terminal",
-        argv,
-        env: kind === "claude" ? claude.env(workspace) : {},
-        cols: b.cols,
-        rows: b.rows,
-      });
-      return json(info, 201);
+      return json(openTerminal({ terminals, tasks, workspaces, claude }, b), 201);
     })
     .on("DELETE", "/api/terminals/:id", (_req, p) => {
       terminals.kill(p.id!);
