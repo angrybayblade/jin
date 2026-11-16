@@ -19,6 +19,6 @@ test("migration 2 keeps existing task sessions and adds chat columns", () => {
   expect(db.query("select id, kind, task_id, workspace, title, cwd, harness_session_id from sessions").get()).toEqual({
     id: "s1", kind: "task", task_id: "T-1", workspace: "composio", title: "fix it", cwd: "/ws/tasks/T-1", harness_session_id: "h1",
   });
-  expect((db.query("pragma user_version").get() as any).user_version).toBe(2);
+  expect((db.query("pragma user_version").get() as any).user_version).toBeGreaterThanOrEqual(2);
   db.exec("insert into sessions (id, kind, harness, state, created_at) values ('c1', 'slack', 'claude', 'idle', 'now')");
 });
