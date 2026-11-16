@@ -55,7 +55,8 @@ export interface WorkspaceAdapter {
    * provider would serve a cached snapshot.
    */
   listTasks(): ProviderTask[];
-  startTask(spec: TaskSpec): Promise<TaskDirs>;
+  /** Create a task; `onOutput` receives the workspace tooling's output line by line (for live progress). */
+  startTask(spec: TaskSpec, opts?: { setup?: boolean; onOutput?: (line: string) => void }): Promise<TaskDirs>;
   removeTask(id: string): Promise<void>;
   policy(): PolicyRules;
 }

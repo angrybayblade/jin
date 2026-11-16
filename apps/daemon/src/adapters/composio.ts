@@ -35,11 +35,31 @@ export class ComposioAdapter implements WorkspaceAdapter {
     return existsSync(local) ? local : "cws";
   }
 
-  private async run(args: string[]): Promise<string> {
-    const proc = Bun.spawn([this.cws(), ...args], { cwd: this.root, env: process.env, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    if (code !== 0) throw new AdapterError(`cws ${args.join(" ")} failed (${code}): ${(err || out).trim().slice(-2000)}`);
-    return out;
+  /** Run the workspace's cws, passing its output on line by line (stdout and stderr, colours stripped). */
+  private async run(args: string[], onOutput?: (line: string) => void): Promise<string> {
+    const proc = Bun.spawn([this.cws(), ...args], { cwd: this.root, env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" }, stdout: "pipe", stderr: "pipe" });
+    const tail: string[] = [];
+    const pump = async (stream: ReadableStream<Uint8Array>) => {
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for await (const chunk of stream) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split(/\r?\n|\r/);
+        buffer = lines.pop() ?? "";
+        for (const raw of lines) emit(raw);
+      }
+      if (buffer) emit(buffer);
+    };
+    const emit = (raw: string) => {
+      const line = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trimEnd();
+      if (!line) return;
+      tail.push(line);
+      if (tail.length > 200) tail.shift();
+      onOutput?.(line);
+    };
+    const [, , code] = await Promise.all([pump(proc.stdout), pump(proc.stderr), proc.exited]);
+    if (code !== 0) throw new AdapterError(`cws ${args.join(" ")} failed (${code}): ${tail.slice(-20).join("\n").slice(-2000)}`);
+    return tail.join("\n");
   }
 
   async repos(): Promise<Repo[]> {
@@ -87,11 +107,12 @@ export class ComposioAdapter implements WorkspaceAdapter {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  async startTask(spec: TaskSpec): Promise<TaskDirs> {
+  async startTask(spec: TaskSpec, opts: { setup?: boolean; onOutput?: (line: string) => void } = {}): Promise<TaskDirs> {
     const args = ["task", "new", spec.id];
     if (spec.type) args.push("--type", spec.type);
-    args.push("--repos", spec.repos.join(","), "--slug", spec.slug, "--setup");
-    await this.run(args);
+    args.push("--repos", spec.repos.join(","), "--slug", spec.slug);
+    if (opts.setup !== false) args.push("--setup");
+    await this.run(args, opts.onOutput);
     const root = join(this.root, "tasks", spec.id);
     return { root, dirs: Object.fromEntries(spec.repos.map((r) => [r, join(root, r)])) };
   }
