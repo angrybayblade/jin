@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
 import type { AgentStatus, Session, Task, TerminalInfo } from "@/lib/daemon";
 import { StatusMark, ThermalMark } from "./ThermalMark";
+import { ThemeToggle } from "./ThemeToggle";
 
 export const DESKS: { kind: "slack" | "linear" | "notion" | "gmail" | "github"; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { kind: "github", label: "GitHub", icon: GitPullRequest },
@@ -20,6 +21,7 @@ const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | 
   waiting: "waiting_approval",
   idle: "idle",
   exited: "interrupted",
+  interrupted: "interrupted",
 };
 
 export function Sidebar({
@@ -85,8 +87,11 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="sidebar-bottom meta">
-        {workspace} · {mode === "vm" ? "always on" : "local"}
+      <div className="sidebar-bottom">
+        <span className="meta">
+          {workspace} · {mode === "vm" ? "always on" : "local"}
+        </span>
+        <ThemeToggle />
       </div>
     </aside>
   );
