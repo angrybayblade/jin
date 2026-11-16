@@ -314,7 +314,7 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
 function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
   const router = useRouter();
   const [key, setKey] = useState<string | null>(null);
-  const [moved, setMoved] = useState<{ history: { sessions: number; events: number; feed: number }; machines: { id: string; ok: boolean; error?: string }[] } | null>(null);
+  const [moved, setMoved] = useState<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async <T,>(p: Promise<T | { error: string }>, done: (v: T) => void) => {
@@ -384,7 +384,7 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
           {moved && (
             <div className="home-result">
               <p className="meta">
-                Moved {moved.history.sessions} chats and {moved.history.feed} feed items.
+                Moved {moved.history.sessions} chats ({moved.history.transcripts ?? 0} with Claude's memory of them, so they continue where they left off) and {moved.history.feed} feed items.
               </p>
               {moved.machines.map((r) => (
                 <p key={r.id} className={r.ok ? "meta setup-done" : "machine-error"}>

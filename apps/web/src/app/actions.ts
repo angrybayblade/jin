@@ -418,9 +418,9 @@ export async function hubKey(id: string): Promise<{ publicKey: string } | { erro
 }
 
 /** Copy this machine's chats and feed to the home, and ask the home to reach the other machines itself. */
-export async function moveToHome(id: string): Promise<{ history: { sessions: number; events: number; feed: number }; machines: { id: string; ok: boolean; error?: string }[] } | { error: string }> {
+export async function moveToHome(id: string): Promise<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] } | { error: string }> {
   try {
-    const r = await daemon<{ history: { sessions: number; events: number; feed: number }; machines: { id: string; ok: boolean; error?: string }[] }>(machinePath(id, "/move"), { method: "POST", local: true });
+    const r = await daemon<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] }>(machinePath(id, "/move"), { method: "POST", local: true });
     revalidatePath("/", "layout");
     return r;
   } catch (err) {

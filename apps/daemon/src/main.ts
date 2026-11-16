@@ -112,8 +112,10 @@ setTimeout(() => void syncPrs(), 5_000);
 
 // Remote machines over SSH: each runs its own jin daemon, reached through a tunnel.
 const machines = new Machines(config, app.workspaces);
-machineRoutes(app.router, machines, () => exportHistory(db));
-historyRoutes(app.router, db);
+// Chats run with the first workspace's Claude profile (if it has one), so their transcripts are there.
+const chatClaudeDir = () => app.workspaces[0]?.profile.claudeConfigDir;
+machineRoutes(app.router, machines, () => exportHistory(db, { claudeDir: chatClaudeDir() }));
+historyRoutes(app.router, db, { home: config.home, claudeDir: chatClaudeDir });
 // What a machine's agents want you to know shows here, under its name; a click opens it there.
 // With a home (hub), only the home is collected: it gathers its machines' notices itself, so
 // nothing arrives twice. A hub does not collect from machines attached to it (they show their own).
