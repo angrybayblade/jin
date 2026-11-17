@@ -37,7 +37,7 @@ export interface Task {
   /** The task this one was spawned from (jin-task spawn). */
   parent?: string | null;
   /** A change from a Linear issue, or a review of pull requests. */
-  kind?: "linear" | "review";
+  kind?: "change" | "review";
   prs?: { repo: string; number: number; head?: string; title?: string; url?: string }[];
 }
 
@@ -329,6 +329,17 @@ export interface Machine {
   workspaceCandidates: DetectedWorkspace[] | null;
   providers: WorkspaceProviderView[];
   auth: MachineAuth[];
+}
+
+/** A kind of task a workspace runs (from its provider). */
+export interface TaskKindSpec {
+  id: "change" | "review";
+  label: string;
+  autoId: boolean;
+  idHint?: string;
+  types?: string[];
+  prs?: boolean;
+  note?: string;
 }
 
 /** A workspace found on a machine, of one of the kinds jin knows. */

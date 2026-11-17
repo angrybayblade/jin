@@ -170,7 +170,7 @@ test("A26 a task's Activity: its Linear issue, and the Slack thread and channel 
   // Claude Code in the task asks for its context (jin-task context / the task_context tool).
   const term = await d.json("/api/terminals", { method: "POST", json: { taskId: "PLEN-77", kind: "shell" } });
   const ctx = await (await d.api(`/api/terminals/${term.id}/context`)).text();
-  expect(ctx).toContain("Task PLEN-77 (linear): limiter");
+  expect(ctx).toContain("Task PLEN-77 (change): limiter");
   expect(ctx).toContain("https://acme.slack.com/archives/C77/p1700000000123456");
   expect(ctx).toContain("rolling out the limiter");
   expect(ctx).toContain("Bea commented: looks good");

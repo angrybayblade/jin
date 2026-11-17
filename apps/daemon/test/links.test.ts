@@ -25,7 +25,7 @@ test("a task's Activity: its PRs, its issue, and what it links, by exact thread"
   links.add("PLEN-244", "https://acme.slack.com/archives/C1/p1700000000123456");
   links.add("PLEN-244", "https://www.notion.so/acme/Plan-1a2b3c4d5e6f40718293a4b5c6d7e8f9");
   const chan = links.add("PLEN-244", "https://acme.slack.com/archives/C2");
-  const own = ownLinks({ id: "PLEN-244", kind: "linear", createdAt: "t" }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]);
+  const own = ownLinks({ id: "PLEN-244", kind: "change", createdAt: "t" }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]);
   expect(own.map((l) => [l.key, l.how])).toEqual([["linear:PLEN-244", "issue"], ["github:composiohq/platform#12", "pr"]]);
   const all = [...own, ...links.list("PLEN-244")];
   const item = (key: string, at = "2026-11-17T12:00:00Z") => ({ id: key, thread: { key, title: "", ref: null, url: null }, receivedAt: at }) as any;
@@ -61,18 +61,18 @@ test("the context Claude Code asks for: PRs, what the task follows with how to r
   const { renderContext } = await import("../src/links");
   const at = Date.parse("2026-11-17T12:00:00Z");
   const links = [
-    ...ownLinks({ id: "PLEN-244", kind: "linear", createdAt: "t" }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]),
+    ...ownLinks({ id: "PLEN-244", kind: "change", createdAt: "t" }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]),
     { taskId: "PLEN-244", key: "slack:C1:1700000000.123456", kind: "slack-thread" as const, url: "https://acme.slack.com/archives/C1/p1700000000123456", label: "Slack thread in C1", since: null, how: "manual" as const, addedAt: "t" },
   ];
   const item = (key: string, title: string, actor: string, summary: string, mins: number) => ({ id: `${key}${mins}`, kind: "x", actor, title, summary, receivedAt: new Date(at - mins * 60_000).toISOString(), thread: { key, title: key.startsWith("slack") ? "Thread in #eng" : "Limiter", ref: key.startsWith("linear") ? "PLEN-244" : null, url: null } }) as any;
   const text = renderContext(
-    { id: "PLEN-244", kind: "linear", title: null, slug: "limiter" },
+    { id: "PLEN-244", kind: "change", title: null, slug: "limiter" },
     links,
     [{ url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry", state: "OPEN", draft: false, checks: "failing", review: "CHANGES_REQUESTED" }],
     [item("slack:C1:1700000000.123456", "wrote", "Bob", "we agreed on 100 rps", 30), item("linear:PLEN-244", "commented", "Bea", "scope is personal routes only", 120), item("slack:C9:1.0", "wrote", "X", "unrelated", 5)],
     { at },
   );
-  expect(text).toContain("Task PLEN-244 (linear): limiter");
+  expect(text).toContain("Task PLEN-244 (change): limiter");
   expect(text).toContain("https://github.com/ComposioHQ/platform/pull/12  open, checks failing, changes requested  Retry");
   expect(text).toContain("read: the Slack tools: read the thread (channel C1, thread ts 1700000000.123456)");
   expect(text).toContain("read: the Linear tools: the issue PLEN-244 and its comments");

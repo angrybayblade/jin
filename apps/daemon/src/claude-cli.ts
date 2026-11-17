@@ -91,7 +91,7 @@ export function taskRules(ctx: TaskContext | string): string {
     "and check that it printed \"attached to the task\". Do the same when you push to, or take over, an existing pull request for this task.",
     "`jin-task prs` lists what is attached. Never skip this step, and tell the user if attaching fails.",
     "SUB-TASKS: when part of the work belongs in its own branch and pull request (an independent change, another repo's part, a prerequisite), you may split it off as a sub-task:",
-    '  jin-task spawn <ID> --repos <repo,repo> --slug "<short title>" --prompt "<what its Claude Code should do>" [--type feature|enhancement|refactor|patch|bug] [--no-setup]',
+    '  jin-task spawn <ID> --repos <repo,repo> --slug "<short title>" --prompt "<what its Claude Code should do>" [--type <change type>] [--no-setup]',
     "It creates the task with the workspace's tooling and opens Claude Code there with your prompt; the user approves it first. Use an id like " +
       `${c.taskId}-a. Give the prompt everything the sub-task needs (it does not see this conversation). \`jin-task subtasks\` shows each one's state, its Claude Code status and its pull requests. For research inside this task, use your own subagents instead.`,
     c.journal

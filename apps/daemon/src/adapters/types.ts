@@ -9,8 +9,11 @@ export interface Repo {
   github?: string;
 }
 
-/** A change from a Linear issue (the default), or a review of pull requests. */
-export type TaskKind = "linear" | "review";
+/** A change to make (the default), or a review of pull requests. */
+export type TaskKind = "change" | "review";
+
+/** Older names for a kind (jin used to call a change "linear"). */
+export const taskKindOf = (k: unknown): TaskKind => (k === "review" ? "review" : "change");
 
 export interface TaskSpec {
   id: string;
@@ -185,6 +188,8 @@ export interface TaskKindSpec {
   types?: string[];
   /** It checks out pull requests (and takes no repos or slug). */
   prs?: boolean;
+  /** One line for the form, about how the workspace handles it (its numbering, what comes with it). */
+  note?: string;
 }
 
 export class AdapterError extends Error {}

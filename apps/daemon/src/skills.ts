@@ -28,10 +28,11 @@ export interface SkillBody {
 /** The tags each kind of task asks for; `every-task` goes to all of them. */
 export const TASK_TAGS: Record<string, string[]> = {
   review: ["pr-review"],
-  linear: ["linear-task"],
+  // linear-task: what change tasks asked for when jin called them "linear".
+  change: ["change-task", "linear-task"],
 };
 export const EVERY_TASK = "every-task";
-export const tagsFor = (kind: string | null | undefined) => [...(TASK_TAGS[kind ?? "linear"] ?? []), EVERY_TASK];
+export const tagsFor = (kind: string | null | undefined) => [...(TASK_TAGS[kind === "review" ? "review" : "change"] ?? []), EVERY_TASK];
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const TAG = /^[a-z0-9][a-z0-9:-]{0,63}$/;

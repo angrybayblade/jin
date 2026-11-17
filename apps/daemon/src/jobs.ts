@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { TaskSpec } from "./adapters";
+import { taskKindOf, type TaskSpec } from "./adapters";
 import type { Feed } from "./feed";
 import { body, HttpError, json, type Router } from "./http";
 import type { Tasks } from "./tasks";
@@ -133,13 +133,13 @@ export function jobRoutes(router: Router, jobs: TaskJobs) {
     .on("GET", "/api/task-jobs", () => json(jobs.list()))
     .on("GET", "/api/task-jobs/:id", (_req, p) => json(jobs.get(p.id!)))
     .on("POST", "/api/task-jobs", async (req) => {
-      const b = await body<{ workspace?: string; id?: string; kind?: "linear" | "review"; type?: string; repos?: string[]; prs?: string[]; slug?: string; setup?: boolean; prompt?: string; feedItemId?: string; links?: string[] }>(req);
+      const b = await body<{ workspace?: string; id?: string; kind?: string; type?: string; repos?: string[]; prs?: string[]; slug?: string; setup?: boolean; prompt?: string; feedItemId?: string; links?: string[] }>(req);
       const workspace = b.workspace ?? jobs.defaultWorkspace;
       if (!workspace) throw new HttpError(400, "no workspace configured");
-      const review = b.kind === "review";
+      const review = taskKindOf(b.kind) === "review";
       const spec: TaskSpec = review
         ? { id: b.id ?? "", kind: "review", prs: b.prs ?? [], repos: (b.prs ?? []).map((p) => p.split("#")[0]!), slug: b.slug ?? "" }
-        : { id: b.id ?? "", kind: "linear", type: b.type, repos: b.repos ?? [], slug: b.slug ?? "" };
+        : { id: b.id ?? "", kind: "change", type: b.type, repos: b.repos ?? [], slug: b.slug ?? "" };
       return json(await jobs.start(workspace, spec, { setup: review ? b.setup === true : b.setup, prompt: b.prompt, feedItemId: b.feedItemId, links: b.links }), 202);
     });
 }

@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { currentMachine, daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -124,6 +124,11 @@ export async function openInBobby(pr: string): Promise<{ url: string } | { error
 }
 
 // ---------------------------------------------------------------- new tasks
+
+/** The kinds of task the (first) workspace runs, for the new-task form. */
+export async function listTaskKinds(): Promise<TaskKindSpec[]> {
+  return (await daemon<{ id: string; taskKinds?: TaskKindSpec[] }[]>("/api/workspaces"))[0]?.taskKinds ?? [];
+}
 
 export async function listRepos(workspace?: string): Promise<Repo[]> {
   const ws = workspace ?? (await daemon<{ id: string }[]>("/api/workspaces"))[0]?.id;

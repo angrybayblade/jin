@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { AdapterError, type ProviderTask, type ReviewedPR, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./adapters";
+import { AdapterError, provider, type ProviderTask, type ReviewedPR, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./adapters";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -52,7 +52,7 @@ const toTask = (r: any): Task => {
     title: null,
     archived: false,
     parent: null,
-    kind: r.type === "review" ? "review" : "linear",
+    kind: r.type === "review" ? "review" : "change",
     prs: [],
   };
 };
@@ -72,7 +72,7 @@ const fromProvider = (workspace: string, t: ProviderTask, sourceItem: string | n
   title: null,
   archived: false,
   parent: null,
-  kind: t.kind ?? (t.type === "review" ? "review" : "linear"),
+  kind: t.kind ?? (t.type === "review" ? "review" : "change"),
   prs: t.prs ?? [],
 });
 
@@ -252,7 +252,8 @@ export class Tasks {
 export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, WorkspaceAdapter>) {
   router
     .on("GET", "/api/workspaces", () =>
-      json([...adapters.values()].map((a) => ({ id: a.config.id, adapter: a.config.adapter, root: a.config.root }))),
+      // With the kinds of task each one runs (from its provider), for the new-task form.
+      json([...adapters.values()].map((a) => ({ id: a.config.id, adapter: a.config.adapter, root: a.config.root, taskKinds: provider(a.config.adapter).taskKinds }))),
     )
     .on("GET", "/api/workspaces/:id/repos", async (_req, p) => json(await tasks.adapter(p.id!).repos()))
     .on("POST", "/api/workspaces/:id/tasks", async (req, p) => json(await tasks.start(p.id!, await body<TaskSpec>(req)), 201))

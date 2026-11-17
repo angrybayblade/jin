@@ -2,10 +2,8 @@
 import { Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { listRepos, startReview, startTaskJob } from "@/app/actions";
-import type { Repo } from "@/lib/daemon";
-
-const TYPES = ["bug", "feature", "enhancement", "refactor", "patch"] as const;
+import { listRepos, listTaskKinds, startReview, startTaskJob } from "@/app/actions";
+import type { Repo, TaskKindSpec } from "@/lib/daemon";
 
 /** "+" next to Tasks: create a task with the workspace's own tooling, set up in the background. */
 export function NewTaskButton() {
@@ -42,13 +40,16 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
   const idInput = useRef<HTMLInputElement>(null);
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [kind, setKind] = useState<"linear" | "review">("linear");
+  // The kinds of task the workspace runs (its provider says), the first by default.
+  const [kinds, setKinds] = useState<TaskKindSpec[] | null>(null);
+  const [kind, setKind] = useState<"change" | "review">("change");
+  const spec = kinds?.find((k) => k.id === kind);
   const [prLinks, setPrLinks] = useState("");
   const [reviewSetup, setReviewSetup] = useState(false);
   const [links, setLinks] = useState("");
   const [id, setId] = useState("");
   const [slug, setSlug] = useState("");
-  const [type, setType] = useState<(typeof TYPES)[number]>("bug");
+  const [type, setType] = useState("");
   const [setup, setSetup] = useState(true);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,6 +60,10 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
     // showModal focuses the first control (the close button); the Task ID is where you start.
     idInput.current?.focus();
     void listRepos().then(setRepos, (e) => setError(String(e)));
+    void listTaskKinds().then((k) => {
+      setKinds(k);
+      if (k[0]) setKind(k[0].id);
+    }, () => setKinds([]));
   }, []);
 
   const toggle = (name: string) =>
@@ -80,7 +85,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
       onClose();
       return router.push(`/t/${encodeURIComponent(r.taskId)}`);
     }
-    const res = await startTaskJob({ id: id.trim(), slug: slug.trim(), type, repos: [...picked], setup, prompt: prompt.trim() || undefined, links: linkList });
+    const res = await startTaskJob({ id: id.trim(), slug: slug.trim(), type: spec?.types?.length ? type || spec.types[0] : undefined, repos: [...picked], setup, prompt: prompt.trim() || undefined, links: linkList });
     setBusy(false);
     if ("error" in res) return setError(res.error);
     onClose();
@@ -100,37 +105,40 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
             <X size={14} />
           </button>
         </header>
-        <div className="segmented" role="tablist" aria-label="Kind of task">
-          <button type="button" role="tab" aria-selected={kind === "linear"} className={kind === "linear" ? "is-active" : ""} onClick={() => setKind("linear")}>
-            Linear change
-          </button>
-          <button type="button" role="tab" aria-selected={kind === "review"} className={kind === "review" ? "is-active" : ""} onClick={() => setKind("review")}>
-            Review PRs
-          </button>
-        </div>
+        {(kinds?.length ?? 0) > 1 && (
+          <div className="segmented" role="tablist" aria-label="Kind of task">
+            {kinds!.map((k) => (
+              <button key={k.id} type="button" role="tab" aria-selected={kind === k.id} className={kind === k.id ? "is-active" : ""} onClick={() => setKind(k.id)}>
+                {k.label}
+              </button>
+            ))}
+          </div>
+        )}
         {kind === "review" ? (
           <>
             <label className="field">
               <span>Pull requests (links or repo#123, one per repo)</span>
-              <textarea value={prLinks} onChange={(e) => setPrLinks(e.target.value)} rows={3} placeholder={"https://github.com/ComposioHQ/platform/pull/123\nmercury#45"} autoFocus />
+              <textarea value={prLinks} onChange={(e) => setPrLinks(e.target.value)} rows={3} placeholder={"https://github.com/acme/api/pull/123\nweb#45"} autoFocus />
             </label>
-            <p className="meta">The task is numbered REV-&lt;month&gt;&lt;day&gt;&lt;n&gt;, each repo checked out at its PR&apos;s head; skills tagged pr-review come with it. Already reviewing these PRs? That task opens.</p>
+            <p className="meta">{spec?.note ? `${spec.note} ` : ""}Skills tagged pr-review come with it. Already reviewing these PRs? That task opens.</p>
           </>
         ) : (
         <>
         <div className="field-row">
           <label className="field">
             <span>Task ID</span>
-            <input ref={idInput} value={id} onChange={(e) => setId(e.target.value)} placeholder="PLEN-123" required />
+            <input ref={idInput} value={id} onChange={(e) => setId(e.target.value)} placeholder={spec?.idHint ?? "TASK-1"} required />
           </label>
-          <label className="field">
-            <span>Type</span>
-            <select value={type} onChange={(e) => setType(e.target.value as (typeof TYPES)[number])}>
-              {TYPES.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </label>
+          {spec?.types?.length ? (
+            <label className="field">
+              <span>Type</span>
+              <select value={type || spec.types[0]} onChange={(e) => setType(e.target.value)}>
+                {spec.types.map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
         <label className="field">
           <span>Title</span>
@@ -162,7 +170,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
           <span>First prompt for Claude Code (optional)</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder={kind === "review" ? "Defaults to: review the pull requests in this task" : "What should Claude Code start on once the task is ready?"} />
         </label>
-        {kind === "linear" ? (
+        {kind !== "review" ? (
           <label className="check">
             <input type="checkbox" checked={setup} onChange={(e) => setSetup(e.target.checked)} />
             <span>Run each repo's setup (installs; can take a few minutes)</span>

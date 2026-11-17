@@ -221,10 +221,10 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
       description:
         "Create a task in the background: a branch and worktree per repo (the workspace's own tooling), then its setup. Returns at once; the task shows in jin's sidebar with live setup progress. With a prompt, Claude Code opens in the task with it once setup is done, so no separate hand-off is needed. Confirm the id, type and repos with the user first.",
       input: {
-        taskId: z.string().describe("e.g. a Linear issue id like PLEN-123"),
+        taskId: z.string().describe("the task's id; in a workspace that ties tasks to issues, the issue's id"),
         repos: z.array(z.string()).min(1),
         slug: z.string().describe("short title"),
-        type: z.enum(["feature", "enhancement", "refactor", "patch", "bug"]).optional(),
+        type: z.string().optional().describe("the change type, in a workspace that has them (e.g. feature, bug)"),
         prompt: z.string().optional().describe("what Claude Code should do once the task is ready"),
         setup: z.boolean().optional().describe("run each repo's setup (installs); default true"),
         workspace: z.string().optional(),

@@ -95,7 +95,7 @@ export class CwsAdapter implements WorkspaceAdapter {
           id: t.id ?? id,
           type: t.type ?? null,
           slug: t.title?.trim() || slugFromBranch(t.branch, t.id ?? id),
-          kind: t.kind === "review" ? "review" : "linear",
+          kind: t.kind === "review" ? "review" : "change",
           ...(Array.isArray(t.prs) ? { prs: t.prs } : {}),
           branch: t.branch || null,
           repos,
@@ -214,8 +214,9 @@ export const cwsProvider: WorkspaceProvider = {
   label: "composio-workspace",
   description: "the composio workspace: every platform repo and its cws tooling",
   taskKinds: [
-    { id: "linear", label: "Linear change", autoId: false, idHint: "PLEN-123", types: ["bug", "feature", "enhancement", "refactor", "patch"] },
-    { id: "review", label: "Review PRs", autoId: true, prs: true },
+    // A change is cws's `task new linear`: its id is the Linear issue's.
+    { id: "change", label: "Linear change", autoId: false, idHint: "PLEN-123", types: ["bug", "feature", "enhancement", "refactor", "patch"] },
+    { id: "review", label: "Review PRs", autoId: true, prs: true, note: "The task is numbered REV-<month><day><n>, each repo checked out at its PR's head." },
   ],
   detectScript: () => `
 real() { readlink -f "$1" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
