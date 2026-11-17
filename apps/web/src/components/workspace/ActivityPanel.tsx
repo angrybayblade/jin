@@ -43,6 +43,12 @@ export function ActivityPanel({ taskId }: { taskId: string }) {
 
   return (
     <div className="act-panel" data-scroll="y">
+      <form className="act-add" onSubmit={add}>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link a Slack thread or channel, or a Notion page (paste its URL)" aria-label="Link to follow" />
+        <button type="submit" className="button small" disabled={busy || !url.trim()}>
+          Link
+        </button>
+      </form>
       <div className="act-links">
         {(a?.links ?? []).map((l) => {
           const Icon = ICON[l.kind];
@@ -66,12 +72,6 @@ export function ActivityPanel({ taskId }: { taskId: string }) {
           );
         })}
       </div>
-      <form className="act-add" onSubmit={add}>
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link a Slack thread or channel, or a Notion page (paste its URL)" aria-label="Link to follow" />
-        <button type="submit" className="button small" disabled={busy || !url.trim()}>
-          Link
-        </button>
-      </form>
       {error && <p className="machine-error act-error">{error}</p>}
       {a === null && !error ? (
         <p className="meta act-empty">Loading…</p>
