@@ -3234,6 +3234,10 @@ p.machine-auth-body {
   display: flex;
   gap: 1px;
 }
+/* Room between the task's title and the first action icon. */
+.task-bar .pane-actions {
+  margin-left: var(--space-3);
+}
 .side-switch .button.is-active {
   background: var(--hover);
   color: var(--ink);
