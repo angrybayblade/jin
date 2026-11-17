@@ -118,7 +118,9 @@ export function TaskWorkspace({
     try {
       const saved = JSON.parse(localStorage.getItem(filesKey) ?? "null") as { tabs?: string[] } | null;
       if (saved?.tabs?.length) setFiles(saved.tabs);
-      setActiveState(localStorage.getItem(activeKey));
+      // ?terminal=<id> (a notification's link) opens that Claude Code tab; else the last one you had open.
+      const wanted = new URLSearchParams(window.location.search).get("terminal");
+      setActiveState(wanted ? termKey(wanted) : localStorage.getItem(activeKey));
     } catch {}
   }, [filesKey, activeKey]);
   useEffect(() => {
