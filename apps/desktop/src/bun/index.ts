@@ -7,7 +7,7 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ApplicationMenu, BrowserWindow } from "electrobun/main";
+import Electrobun, { ApplicationMenu, BrowserWindow } from "electrobun/main";
 
 const HOME = process.env.JIN_HOME ?? join(homedir(), ".jin");
 const APP = process.env.JIN_APP_DIR ?? join(HOME, "release", "app");
@@ -84,12 +84,50 @@ const win = new BrowserWindow({
   renderer: "native",
 });
 
+// ---------------------------------------------------------------- jin:// links
+
+/** The page a jin:// link names (jin://open?path=/t/PLEN-1), as a URL in this window; null for anything else. */
+export function linkTarget(link: string, base = URL): string | null {
+  try {
+    const u = new globalThis.URL(link);
+    if (u.protocol !== "jin:") return null;
+    const path = u.searchParams.get("path") ?? "/";
+    if (!path.startsWith("/") || path.startsWith("//")) return null; // only places in jin
+    const at = new globalThis.URL(path, base);
+    at.searchParams.set("shell", "desktop");
+    return at.toString();
+  } catch {
+    return null;
+  }
+}
+
+let ready = !MANAGE;
+let pending: string | null = null;
+/** Bring the window up on a page (a notification was clicked); before jin has started, once it has. */
+function openAt(target: string) {
+  if (!ready) {
+    pending = target;
+    return;
+  }
+  win.webview.loadURL(target);
+  win.show();
+  win.activate();
+}
+Electrobun.events.on("open-url", (e: any) => {
+  const target = linkTarget(String(e?.data?.url ?? ""));
+  if (target) openAt(target);
+});
+
 if (MANAGE) {
   void ensureServices().then((problem) => {
     if (problem) {
       console.error(problem);
       win.webview.executeJavascript(`document.getElementById("status").textContent = ${JSON.stringify(problem)}`);
-    } else win.webview.loadURL(`${URL}/?shell=desktop`);
+      return;
+    }
+    ready = true;
+    win.webview.loadURL(pending ?? `${URL}/?shell=desktop`);
+    pending = null;
   });
 }
 

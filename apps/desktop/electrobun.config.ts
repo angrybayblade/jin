@@ -5,6 +5,8 @@ export default {
 		name: "jin",
 		identifier: "dev.jin.app",
 		version: "0.0.1",
+		// jin://open?path=/t/PLEN-1 brings the window up there (notifications link here).
+		urlSchemes: ["jin"],
 	},
 	build: {
 		mainProcess: "bun",
