@@ -75,3 +75,16 @@ test("a click opens the place in jin's window when the app is installed, else in
   expect(clickTarget({ path: "/", chat: "c 1" }, "http://127.0.0.1:3917", here)).toBe(`jin://open?path=${encodeURIComponent("/?chat=c%201")}`);
   expect(clickTarget({ path: "/c/slack" }, "http://127.0.0.1:3917", ["/nowhere/jin.app"])).toBe("http://127.0.0.1:3917/c/slack");
 });
+
+test("live events notify by the kinds chosen per app; defaults leave out team reviews and automated mail", async () => {
+  const { liveNotifies } = await import("../src/notify");
+  const base = { enabled: true, sound: true };
+  const gh = (tags: string[]) => ({ toolkit: "github", tags, forYou: true });
+  expect(liveNotifies(base, gh(["authored"]))).toBe(true);
+  expect(liveNotifies(base, gh(["team-review"]))).toBe(false);
+  expect(liveNotifies(base, gh(["team-review", "mentioned"]))).toBe(true);
+  expect(liveNotifies({ ...base, sources: { github: ["authored"] } }, gh(["reviewer"]))).toBe(false);
+  expect(liveNotifies({ ...base, sources: { github: [] } }, gh(["authored"]))).toBe(false);
+  expect(liveNotifies(base, { toolkit: "gmail", tags: ["automated"], forYou: false })).toBe(false);
+  expect(liveNotifies(base, { toolkit: "other", forYou: true })).toBe(true);
+});

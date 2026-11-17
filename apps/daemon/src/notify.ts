@@ -16,6 +16,56 @@ export interface Presence {
 export interface NotificationSettings {
   enabled: boolean;
   sound: boolean;
+  /** Per app, the kinds of live event that notify (see LIVE_KINDS); an app left out uses its defaults. */
+  sources?: Record<string, string[]>;
+}
+
+/** The kinds of live event per app that a notification can be chosen for, and which are on by default. */
+export const LIVE_KINDS: Record<string, { label: string; kinds: { id: string; label: string; on: boolean }[] }> = {
+  github: {
+    label: "GitHub",
+    kinds: [
+      { id: "authored", label: "Activity on PRs I authored", on: true },
+      { id: "reviewer", label: "PRs I'm a reviewer on (asked directly, or reviewed)", on: true },
+      { id: "mentioned", label: "Comments that mention me", on: true },
+      { id: "team-review", label: "PRs only my team was asked to review", on: false },
+    ],
+  },
+  slack: {
+    label: "Slack",
+    kinds: [
+      { id: "dm", label: "Direct messages", on: true },
+      { id: "mention", label: "Mentions", on: true },
+    ],
+  },
+  linear: {
+    label: "Linear",
+    kinds: [
+      { id: "assigned", label: "Issues assigned to me", on: true },
+      { id: "mentioned", label: "Mentions", on: true },
+      { id: "other", label: "Other activity in my teams", on: false },
+    ],
+  },
+  notion: { label: "Notion", kinds: [{ id: "comment", label: "Comments", on: true }] },
+  gmail: {
+    label: "Gmail",
+    kinds: [
+      { id: "person", label: "Mail from people", on: true },
+      { id: "automated", label: "Automated mail (no-reply, notifications)", on: false },
+    ],
+  },
+};
+
+/** The kinds chosen for an app: the saved choice, else the defaults. */
+export function chosenKinds(s: NotificationSettings, app: string): string[] {
+  return s.sources?.[app] ?? LIVE_KINDS[app]?.kinds.filter((k) => k.on).map((k) => k.id) ?? [];
+}
+
+/** Whether a live event notifies: one of its tags is chosen for its app (untagged events fall back to "for you"). */
+export function liveNotifies(s: NotificationSettings, e: { toolkit: string; tags?: string[]; forYou: boolean }): boolean {
+  if (!e.tags?.length || !LIVE_KINDS[e.toolkit]) return e.forYou;
+  const chosen = chosenKinds(s, e.toolkit);
+  return e.tags.some((t) => chosen.includes(t));
 }
 
 export interface Notice {
@@ -81,6 +131,14 @@ export class Notifier {
     const next = { ...this.settings };
     if (typeof patch.enabled === "boolean") next.enabled = patch.enabled;
     if (typeof patch.sound === "boolean") next.sound = patch.sound;
+    if (patch.sources && typeof patch.sources === "object") {
+      const sources = { ...(next.sources ?? {}) };
+      for (const [app, kinds] of Object.entries(patch.sources)) {
+        if (!LIVE_KINDS[app] || !Array.isArray(kinds)) continue;
+        sources[app] = kinds.filter((k) => LIVE_KINDS[app]!.kinds.some((x) => x.id === k));
+      }
+      next.sources = sources;
+    }
     writeFileSync(this.file, JSON.stringify(next, null, 2), { mode: 0o600 });
     this.cached = next;
     return next;
@@ -175,6 +233,10 @@ export function deliverNative(n: Notice, s: NotificationSettings, webOrigin: str
 export function notifyRoutes(router: Router, notifier: Notifier) {
   router
     .on("GET", "/api/notifications", () => json(notifier.settings))
+    // What each app's live events can notify for, with what is chosen now.
+    .on("GET", "/api/notifications/kinds", () =>
+      json(Object.entries(LIVE_KINDS).map(([app, v]) => ({ app, label: v.label, kinds: v.kinds.map((k) => ({ ...k, chosen: chosenKinds(notifier.settings, app).includes(k.id) })) }))),
+    )
     // The jin that onboarded this machine collects what it could not show (vm mode).
     .on("GET", "/api/notifications/outbox", (_req, _p, url) => json(notifier.since(Number(url.searchParams.get("after") ?? -1))))
     .on("PATCH", "/api/notifications", async (req) => json(notifier.update(await body<Partial<NotificationSettings>>(req))))

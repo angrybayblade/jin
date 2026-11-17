@@ -26,7 +26,7 @@ import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
 import { claudeHookRoutes, claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude-cli";
 import { prRoutes, TaskPRs } from "./prs";
-import { Notifier, notifyRoutes, watchForNotifications } from "./notify";
+import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
 import { Tickets } from "./tickets";
 
@@ -263,6 +263,7 @@ const composio = new Composio(config, {
   workspaces: app.workspaces,
   notify: (n) => void notifier.notify(n),
   onEvent: (e) => fireEvent({ event: "live.event", key: e.id, payload: { ...e } }),
+  shouldNotify: (e) => liveNotifies(notifier.settings, e),
   github: githubWatch,
 });
 liveDeliver = (e) => composio.deliver(e);
