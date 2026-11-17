@@ -71,3 +71,51 @@ test("A20 `jin-task spawn` starts a sub-task under the terminal's task, asks fir
   const bad = Bun.spawnSync([join(env.home, "bin", "jin-task"), "spawn", "PR-1-b"], { env: env2 });
   expect(bad.exitCode).toBe(1);
 });
+
+test("A20 Claude Code journals its work through jin's MCP tool; the hooks add what changed", async () => {
+  // Launched with jin's MCP server (jin-task mcp, knowing its terminal) and the tool allowed.
+  const args = readFileSync(join(env.home, "claude-args.txt"), "utf8");
+  expect(args).toContain("--mcp-config");
+  expect(args).toContain('"args":["mcp"]');
+  expect(args).toContain(`"JIN_TERMINAL_ID":"${terminalId}"`);
+  expect(args).toContain("mcp__jin__journal");
+  expect(args).toContain("WORK JOURNAL");
+
+  // Speak MCP to jin-task as Claude Code does.
+  const mcp = Bun.spawn([join(env.home, "bin", "jin-task"), "mcp"], { env: { ...process.env, JIN_HOME: env.home, JIN_TERMINAL_ID: terminalId }, stdin: "pipe", stdout: "pipe" });
+  const reader = mcp.stdout.getReader();
+  let buf = "";
+  const next = async () => {
+    for (;;) {
+      const nl = buf.indexOf("\n");
+      if (nl >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        return JSON.parse(line);
+      }
+      const { value, done } = await reader.read();
+      if (done) throw new Error("mcp closed");
+      buf += new TextDecoder().decode(value);
+    }
+  };
+  const rpc = async (id: number, method: string, params: unknown = {}) => {
+    mcp.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    return next();
+  };
+  expect((await rpc(1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } })).result.serverInfo.name).toBe("jin");
+  mcp.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+  expect((await rpc(2, "tools/list")).result.tools.map((t: { name: string }) => t.name)).toEqual(["journal"]);
+  // A new turn, a decision, then an edit the hook sees.
+  await d.json("/api/hooks/claude", { method: "POST", json: { event: "UserPromptSubmit", terminalId, input: {} } });
+  const call = await rpc(3, "tools/call", { name: "journal", arguments: { concern: "rate limiter", kind: "decision", text: "Retry on 429 with backoff", why: "Retry-After is unreliable" } });
+  expect(call.result.content[0].text).toBe("ok");
+  const bad = await rpc(4, "tools/call", { name: "journal", arguments: { concern: "x", kind: "nope", text: "y" } });
+  expect(bad.result.isError).toBe(true);
+  await d.json("/api/hooks/claude", { method: "POST", json: { event: "PostToolUse", terminalId, input: { tool_name: "Edit", tool_input: { file_path: join(env.workspace, "tasks", "PR-1", "platform", "limiter.py") } } } });
+  mcp.stdin.end();
+  mcp.kill();
+
+  const journal = await d.json("/api/tasks/PR-1/journal");
+  expect(journal.concerns).toHaveLength(1);
+  expect(journal.concerns[0]).toMatchObject({ name: "rate limiter", entries: [{ kind: "decision", text: "Retry on 429 with backoff", why: "Retry-After is unreliable", refs: [{ type: "file", text: "platform/limiter.py" }] }] });
+});
