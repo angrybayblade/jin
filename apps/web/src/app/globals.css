@@ -3225,33 +3225,18 @@ p.machine-auth-body {
   min-height: 0;
   background: var(--canvas);
 }
-.task-side-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 6px var(--space-2) 0;
-  border-bottom: 1px solid var(--line);
-}
-.task-side-tabs button {
-  padding: 4px 10px 6px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--secondary);
-  font: inherit;
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-.task-side-tabs button.is-active {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
-}
-.task-side-body {
+/* Files | Journal in the task's top bar: the active one keeps a tint. */
+.task-side > * {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
 }
-.task-side-body > * {
-  height: 100%;
+.side-switch {
+  display: flex;
+  gap: 1px;
+}
+.side-switch .button.is-active {
+  background: var(--hover);
+  color: var(--ink);
 }
 .journal {
   height: 100%;

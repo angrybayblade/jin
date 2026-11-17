@@ -1,6 +1,6 @@
 "use client";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Archive, ArchiveRestore, ClipboardCopy, File, GitCompare, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, ClipboardCopy, File, FolderTree, GitCompare, NotebookPen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
@@ -15,7 +15,7 @@ import { contextMenu, openContextMenu, type MenuItem } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { Panes } from "../Panes";
-import { TaskSidePanel } from "./TaskSidePanel";
+import { type SideTab, TaskSidePanel } from "./TaskSidePanel";
 import { TaskLabel, TaskPRBadges } from "./TaskPRs";
 import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
@@ -104,6 +104,22 @@ export function TaskWorkspace({
   const [files, setFiles] = useState<string[]>([]);
   const [docs, setDocs] = useState<Record<string, Doc>>({});
   const [changesOpen, setChangesOpen] = useState(false);
+  // The right panel shows files or the work journal (remembered across tasks).
+  const [side, setSideState] = useState<SideTab>("files");
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem("jin-task-side");
+      if (t === "files" || t === "journal") setSideState(t);
+    } catch {}
+  }, []);
+  const setSide = (t: SideTab) => {
+    setSideState(t);
+    try {
+      localStorage.setItem("jin-task-side", t);
+    } catch {}
+    // Choosing one shows the panel if it was hidden.
+    if (readLayout().asideHidden?.task) updateLayout((l) => ({ ...l, asideHidden: { ...l.asideHidden, task: false } }));
+  };
   const docsRef = useRef(docs);
   docsRef.current = docs;
 
@@ -468,6 +484,14 @@ export function TaskWorkspace({
         <TaskPRBadges taskId={taskId} prs={prs} />
         <TaskLabel taskId={taskId} subtitle={subtitle} />
         <div className="pane-actions">
+          <div className="side-switch" role="tablist" aria-label="Right panel">
+            <button type="button" role="tab" aria-selected={side === "files"} className={`button quiet icon-only${side === "files" ? " is-active" : ""}`} onClick={() => setSide("files")} title="Files" aria-label="Files">
+              <FolderTree size={14} />
+            </button>
+            <button type="button" role="tab" aria-selected={side === "journal"} className={`button quiet icon-only${side === "journal" ? " is-active" : ""}`} onClick={() => setSide("journal")} title="Journal: what Claude Code decided and did" aria-label="Journal">
+              <NotebookPen size={14} />
+            </button>
+          </div>
           <button type="button" className="button quiet icon-only" onClick={showChanges} title="Changes: the task's uncommitted diff" aria-label="Show changes">
             <GitCompare size={14} />
           </button>
@@ -537,7 +561,7 @@ export function TaskWorkspace({
         ) : (
           <div className="editor-empty">{error ?? "Open a Claude Code session or a terminal with +, or a file from the tree."}</div>
         )}
-      </div>} right={<TaskSidePanel taskId={taskId} openPath={currentFile} onOpen={(p) => openFile(p)} />} />
+      </div>} right={<TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => openFile(p)} />} />
     </section>
   );
 }
@@ -591,8 +615,8 @@ function FilesToggle() {
       type="button"
       className="button quiet icon-only"
       onClick={() => updateLayout((l) => ({ ...l, asideHidden: { ...l.asideHidden, task: !l.asideHidden?.task } }))}
-      title={hidden ? "Show files" : "Hide files"}
-      aria-label={hidden ? "Show files" : "Hide files"}
+      title={hidden ? "Show the side panel" : "Hide the side panel"}
+      aria-label={hidden ? "Show the side panel" : "Hide the side panel"}
     >
       {hidden ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
     </button>
