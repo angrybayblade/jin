@@ -956,7 +956,7 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     if (this.busy.has(id)) throw new HttpError(409, "this machine is busy");
     const path = opts.path?.trim();
     if (path && !/^[\w~./-]+$/.test(path)) throw new HttpError(400, "a workspace path is plain: letters, digits, ~ . / - _");
-    const local = this.workspaces.find((w) => w.adapter === "composio");
+    const local = this.workspaces.find((w) => w.adapter === "cws");
     const owners = local?.github.owners.length ? local.github.owners : ["ComposioHQ"];
     const root = path ? (path.startsWith("~/") ? `$HOME/${path.slice(2)}` : path) : "$HOME/composio-workspace";
     const script = `

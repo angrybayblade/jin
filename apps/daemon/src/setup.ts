@@ -150,11 +150,11 @@ export class LocalSetup {
   useWorkspace(path: string): WorkspaceConfig {
     const root = expand(path.trim());
     if (!isComposioWorkspace(root)) throw new HttpError(400, `no composio workspace at ${root} (workspace.yaml and bin/cws are missing)`);
-    if (this.workspaces.some((w) => w.adapter === "composio")) throw new HttpError(409, "jin already has a composio workspace");
-    const w: WorkspaceConfig = { id: "composio", adapter: "composio", root, github: { owners: ["ComposioHQ"] }, profile: {} };
+    if (this.workspaces.some((w) => w.adapter === "cws")) throw new HttpError(409, "jin already has a composio workspace");
+    const w: WorkspaceConfig = { id: "composio", adapter: "cws", root, github: { owners: ["ComposioHQ"] }, profile: {} };
     const dir = join(this.config.home, "workspaces");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "composio.yaml"), ["id: composio", "adapter: composio", `root: ${root}`, "github:", "  owners: [ComposioHQ]", ""].join("\n"));
+    writeFileSync(join(dir, "composio.yaml"), ["id: composio", "adapter: cws", `root: ${root}`, "github:", "  owners: [ComposioHQ]", ""].join("\n"));
     this.addWorkspace(w);
     return w;
   }
@@ -162,7 +162,7 @@ export class LocalSetup {
   /** Install the composio workspace into ~/composio-workspace with its own installer (needs gh), then use it. */
   install() {
     if (this.installStep?.state === "running") throw new HttpError(409, "the workspace is already being installed");
-    if (this.workspaces.some((w) => w.adapter === "composio")) throw new HttpError(409, "jin already has a composio workspace");
+    if (this.workspaces.some((w) => w.adapter === "cws")) throw new HttpError(409, "jin already has a composio workspace");
     const root = join(this.home, "composio-workspace");
     const step: Step = { id: "workspace", label: "Install the composio workspace", state: "running", log: [], error: null };
     this.installStep = step;

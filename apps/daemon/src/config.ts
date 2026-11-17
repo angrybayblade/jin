@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { providerId } from "./adapters";
 
 /** Jin's own settings, from $JIN_HOME/config.yaml. */
 export interface Config {
@@ -18,7 +19,8 @@ export interface Config {
 /** One organisation's workspace, from $JIN_HOME/workspaces/<id>.yaml. */
 export interface WorkspaceConfig {
   id: string;
-  adapter: "composio" | "git";
+  /** Its workspace provider (adapters/: cws, git, …). */
+  adapter: string;
   root: string;
   github: { owners: string[] };
   /**
@@ -64,11 +66,11 @@ export function loadWorkspaces(home = jinHome()): WorkspaceConfig[] {
     .map((f) => {
       const raw = parse(join(dir, f));
       const id = String(raw.id ?? f.replace(/\.ya?ml$/, ""));
-      if (raw.adapter !== "composio" && raw.adapter !== "git") throw new Error(`${f}: unknown adapter ${raw.adapter}`);
+      if (!raw.adapter) throw new Error(`${f}: adapter is required`);
       if (!raw.root) throw new Error(`${f}: root is required`);
       return {
         id,
-        adapter: raw.adapter,
+        adapter: providerId(String(raw.adapter)),
         root: String(raw.root),
         github: { owners: (raw.github?.owners ?? []).map(String) },
         profile: {

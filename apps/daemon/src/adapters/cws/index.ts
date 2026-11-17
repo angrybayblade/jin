@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { WorkspaceConfig } from "../config";
-import { AdapterError, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./types";
+import type { WorkspaceConfig } from "../../config";
+import { AdapterError, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type ToolSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
 
 /** Parse .gitmodules into submodule name -> keys (path, url, branch). */
 export function parseGitmodules(text: string): Map<string, Record<string, string>> {
@@ -20,10 +20,10 @@ export function parseGitmodules(text: string): Map<string, Record<string, string
 }
 
 /**
- * composio-workspace: repos come from workspace.yaml (descriptions) and .gitmodules
+ * composio-workspace (cws): repos come from workspace.yaml (descriptions) and .gitmodules
  * (paths, branches); tasks are created and removed by the workspace's own `cws`.
  */
-export class ComposioAdapter implements WorkspaceAdapter {
+export class CwsAdapter implements WorkspaceAdapter {
   constructor(readonly config: WorkspaceConfig) {}
 
   private get root() {
@@ -148,6 +148,27 @@ export class ComposioAdapter implements WorkspaceAdapter {
     await this.run(["task", "rm", id]);
   }
 
+  agentBrief(task: BriefTask): AgentBrief {
+    const ws = this.root;
+    if (task.kind === "review") {
+      return {
+        notes: "TASK.md",
+        start: task.root ? `You start in the task's folder, ${task.root}: one worktree per repo, each detached at its PR's head, plus TASK.md (read it first; write your findings there).` : "",
+        readable: `The whole workspace, ${ws}, is readable: its docs/map/README.md and map/ (how services fit together) and the other repos, to judge what a change affects.`,
+        setup: `If running a repo's tests, typecheck or lint would settle something, install that repo: \`cws install <repo> --task ${task.id}\` (then \`cws check <repo>\` in its worktree). If the change can only be judged running (a flow across services, the dashboard), bring the local stack up: \`cws up --task ${task.id}\`, and \`cws down\` when done. Say in TASK.md what you set up and why. Nothing is ever deployed; cws refuses deploys.`,
+      };
+    }
+    return {
+      notes: "TASK.md",
+      start: task.root ? `You start in the task's folder, ${task.root}: one worktree per repo, plus TASK.md (the task's notes: read it first, and keep it up to date).` : "",
+      readable: `The whole workspace, ${ws}, is readable: its CLAUDE.md, docs/map/README.md and map/ (how services fit together), skills, and the other repos for reference. Make changes only in this task's worktrees; never edit ${ws}/repos/<repo>, which stays at its pin.`,
+    };
+  }
+
+  checkCommands(): RegExp[] {
+    return [/\bcws check\b/];
+  }
+
   policy(): PolicyRules {
     // composio-workspace's own rules: CLAUDE.md lists the outward actions to ask about,
     // and cws refuses deploys. Jin's base policy already covers both; nothing extra yet.
@@ -162,3 +183,70 @@ export function slugFromBranch(branch: string | undefined, id: string): string {
   const rest = tail.startsWith(id) ? tail.slice(id.length).replace(/^-/, "") : tail;
   return rest.replace(/-/g, " ").trim() || id;
 }
+
+/** The usual places a composio workspace lives, under a home folder (its installer defaults to ~/composio-workspace). */
+export const WORKSPACE_PLACES = ["composio-workspace", "Workspace/composio-workspace", "workspace/composio-workspace", "code/composio-workspace", "src/composio-workspace", "dev/composio-workspace"];
+
+export const isCwsWorkspace = (dir: string) => existsSync(join(dir, "workspace.yaml")) && existsSync(join(dir, "bin", "cws"));
+
+/** GitHub owners of a workspace's repos, from its .gitmodules. */
+function ownersOf(root: string): string[] {
+  try {
+    const gm = parseGitmodules(readFileSync(join(root, ".gitmodules"), "utf8"));
+    return [...new Set([...gm.values()].map((m) => m.url?.match(/github\.com[:/]([\w.-]+)\//)?.[1]).filter((o): o is string => !!o))];
+  } catch {
+    return [];
+  }
+}
+
+const DOPPLER: ToolSpec = {
+  id: "doppler",
+  label: "Doppler",
+  why: "Optional: only cws up (the local stack) needs it.",
+  optional: true,
+  install: 'have doppler || [ -z "$SUDO" ] || { echo "installing Doppler (optional)"; curl -Ls --tlsv1.2 --proto "=https" https://cli.doppler.com/install.sh | $SUDO sh >/dev/null 2>&1 || echo "doppler: not installed (only cws up needs it)"; }',
+  status: `if command -v doppler >/dev/null; then if doppler me --json >/dev/null 2>&1; then echo "doppler yes $(doppler me --json 2>/dev/null | sed -n 's/.*"workplace":{[^}]*"name":"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "doppler no"; fi; else echo "doppler missing"; fi`,
+  signIn: "doppler login",
+  signInUrl: /https:\/\/dashboard\.doppler\.com\S+/,
+};
+
+/** composio-workspace: a git repo of submodules (repos/<name>), with its `cws` tool in bin/. */
+export const cwsProvider: WorkspaceProvider = {
+  id: "cws",
+  label: "composio-workspace",
+  description: "the composio workspace: every platform repo and its cws tooling",
+  taskKinds: [
+    { id: "linear", label: "Linear change", autoId: false, idHint: "PLEN-123", types: ["bug", "feature", "enhancement", "refactor", "patch"] },
+    { id: "review", label: "Review PRs", autoId: true, prs: true },
+  ],
+  detectScript: () => `
+real() { readlink -f "$1" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
+if C=$(command -v cws 2>/dev/null); then
+  R=$(real "$C"); W="\${R%/bin/cws}"
+  if [ -n "$R" ] && [ "$W" != "$R" ] && [ -f "$W/workspace.yaml" ]; then echo "PREFERRED $(cd "$W" && pwd -P)"; fi
+fi
+for d in ${WORKSPACE_PLACES.join(" ")}; do
+  p="$HOME/$d"
+  if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "FOUND $(cd "$p" && pwd -P)"; fi
+done
+`,
+  isWorkspace: isCwsWorkspace,
+  install: {
+    defaultRoot: "composio-workspace",
+    needs: ["gh"],
+    script: `
+if [ -d "$ROOT/.git" ]; then
+  echo "updating the workspace at $ROOT"
+  cd "$ROOT" && git pull --ff-only -q || true
+  ./setup.sh --yes
+else
+  gh auth status >/dev/null 2>&1 || { echo "sign in to GitHub (gh) first: the workspace's repos are private"; exit 1; }
+  echo "installing the composio workspace into $ROOT"
+  gh api repos/ComposioHQ/workspace/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash -s -- --yes --dir "$ROOT"
+fi
+`,
+  },
+  defaults: (root) => ({ id: "composio", github: { owners: ownersOf(root) } }),
+  tools: () => [DOPPLER],
+  create: (config) => new CwsAdapter(config),
+};

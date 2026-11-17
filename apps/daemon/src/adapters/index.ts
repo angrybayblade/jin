@@ -1,15 +1,22 @@
 import type { WorkspaceConfig } from "../config";
-import { ComposioAdapter } from "./composio";
-import { AdapterError, type WorkspaceAdapter } from "./types";
+import { cwsProvider } from "./cws";
+import { AdapterError, type WorkspaceAdapter, type WorkspaceProvider } from "./types";
+
+/** The workspace providers jin knows. Adding a kind of workspace is adding one here. */
+export const PROVIDERS: WorkspaceProvider[] = [cwsProvider];
+
+/** Older configs name cws by its old name. */
+const ALIASES: Record<string, string> = { composio: "cws" };
+export const providerId = (id: string) => ALIASES[id] ?? id;
+
+export function provider(id: string): WorkspaceProvider {
+  const p = PROVIDERS.find((x) => x.id === providerId(id));
+  if (!p) throw new AdapterError(`unknown workspace provider ${id} (known: ${PROVIDERS.map((x) => x.id).join(", ")})`);
+  return p;
+}
 
 export function createAdapter(config: WorkspaceConfig): WorkspaceAdapter {
-  switch (config.adapter) {
-    case "composio":
-      return new ComposioAdapter(config);
-    case "git":
-      // The plain-git fallback (clones + git worktree) is planned for v1.
-      throw new AdapterError(`${config.id}: the git adapter is not available yet (v1)`);
-  }
+  return provider(config.adapter).create(config);
 }
 
 export * from "./types";

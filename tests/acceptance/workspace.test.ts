@@ -14,9 +14,9 @@ afterAll(async () => {
   env?.cleanup();
 });
 
-test("A05 loads the composio workspace profile from JIN_HOME", async () => {
+test("A05 loads the workspace profile from JIN_HOME (an old `adapter: composio` is cws)", async () => {
   const workspaces = await d.json("/api/workspaces");
-  expect(workspaces).toEqual([expect.objectContaining({ id: "composio", adapter: "composio", root: env.workspace })]);
+  expect(workspaces).toEqual([expect.objectContaining({ id: "composio", adapter: "cws", root: env.workspace })]);
 });
 
 test("A06 lists the workspace's repos", async () => {
