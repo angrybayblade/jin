@@ -146,6 +146,23 @@ const MIGRATIONS: string[] = [
   alter table feed_items add column thread_url text;
   alter table feed_items add column actor text;
   `,
+  // 8: a task's work journal: what Claude Code decided, did and found, by concern, with the
+  // files, commits and test runs its hooks saw. Rows without a concern are changes nobody journaled.
+  `
+  create table journal (
+    id text primary key,
+    task_id text not null,
+    terminal_id text,
+    session text,
+    concern text,
+    kind text not null,
+    text text not null,
+    why text,
+    refs text not null default '[]',
+    at text not null
+  );
+  create index journal_task on journal (task_id, at);
+  `,
 ];
 
 export function openDb(home: string): Database {
