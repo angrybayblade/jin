@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -529,4 +529,10 @@ export async function chooseNotificationKinds(app: string, kinds: string[]): Pro
   } catch (err) {
     return fail(err);
   }
+}
+
+// ---------------------------------------------------------------- work journal (the task's machine)
+
+export async function getJournal(taskId: string): Promise<JournalView> {
+  return daemon<JournalView>(`/api/tasks/${encodeURIComponent(taskId)}/journal`);
 }

@@ -371,3 +371,24 @@ export interface HooksStatus {
   events: { id: HookEventId; label: string; description: string; fields: string[] }[];
   runs: HookRun[];
 }
+
+// ---------------------------------------------------------------- work journal
+
+export interface JournalRef {
+  type: "file" | "commit" | "test";
+  text: string;
+}
+export interface JournalEntry {
+  id: string;
+  session: string | null;
+  concern: string | null;
+  kind: "decision" | "done" | "found" | "change";
+  text: string;
+  why: string | null;
+  refs: JournalRef[];
+  at: string;
+}
+export interface JournalView {
+  concerns: { name: string; startedAt: string; lastAt: string; entries: JournalEntry[] }[];
+  unjournaled: JournalEntry[];
+}

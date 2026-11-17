@@ -15,7 +15,7 @@ import { contextMenu, openContextMenu, type MenuItem } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";
 import { StatusMark, ThermalMark } from "../ThermalMark";
 import { Panes } from "../Panes";
-import { FilesPanel } from "./FilesPanel";
+import { TaskSidePanel } from "./TaskSidePanel";
 import { TaskLabel, TaskPRBadges } from "./TaskPRs";
 import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
@@ -537,7 +537,7 @@ export function TaskWorkspace({
         ) : (
           <div className="editor-empty">{error ?? "Open a Claude Code session or a terminal with +, or a file from the tree."}</div>
         )}
-      </div>} right={<FilesPanel taskId={taskId} openPath={currentFile} onOpen={(p) => openFile(p)} />} />
+      </div>} right={<TaskSidePanel taskId={taskId} openPath={currentFile} onOpen={(p) => openFile(p)} />} />
     </section>
   );
 }
