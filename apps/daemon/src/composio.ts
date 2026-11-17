@@ -568,7 +568,8 @@ export class Composio {
     const stale = this.deps.feed.list().filter((f) => f.source === "notion" && (!f.actor || f.thread?.title === "Notion page"));
     if (!stale.length) return 0;
     const from = Math.min(...stale.map((f) => Date.parse(f.receivedAt))) - 3_600_000;
-    const out = await this.cli<{ data?: TriggerLog[] }>(["dev", "logs", "triggers", "--from", String(from), "--limit", "200", "--include-payload", "--user-id", this.settings.userId]);
+    // Only Notion's comment logs: among everything else, older ones fall past any page.
+    const out = await this.cli<{ data?: TriggerLog[] }>(["dev", "logs", "triggers", "--trigger", "NOTION_COMMENT_CREATED", "--from", String(from), "--limit", "1000", "--include-payload", "--user-id", this.settings.userId]);
     const byId = new Map<string, TriggerLog>();
     for (const log of out.data ?? []) byId.set(String(log.meta?.id ?? log.id), log);
     let fixed = 0;

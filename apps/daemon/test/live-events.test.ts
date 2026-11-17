@@ -92,7 +92,7 @@ test("Notion comments stored before their details were looked up are read again 
   feed.add([{ workspace: "w", source: "notion", kind: "notion_comment_created", externalRef: "notion#log_1", title: "commented", summary: "", receivedAt: new Date().toISOString(), thread: { key: "notion:log_1", title: "Notion page", ref: null, url: null }, actor: null }]);
   const payload = { authors: [{ id: "nu1", type: "person" }], comment_id: "c1", data: { page_id: "p1", parent: { id: "b1", type: "block" } } };
   const cli = async (args: string[]) => {
-    if (args[1] === "logs") return { data: [{ id: "log_1", appName: "notion", createdAt: new Date().toISOString(), meta: { triggerName: "NOTION_COMMENT_CREATED", triggerClientPayload: JSON.stringify(payload) } }] };
+    if (args[1] === "logs" && args.includes("NOTION_COMMENT_CREATED")) return { data: [{ id: "log_1", appName: "notion", createdAt: new Date().toISOString(), meta: { triggerName: "NOTION_COMMENT_CREATED", triggerClientPayload: JSON.stringify(payload) } }] };
     if (args[2] === "NOTION_RETRIEVE_COMMENT") return { successful: true, data: { discussion_id: "d-1", display_name: { resolved_name: "Dee Park" }, rich_text: [{ plain_text: "ship Friday?" }] } };
     if (args[2] === "NOTION_RETRIEVE_PAGE") return { successful: true, data: { url: "https://www.notion.so/Launch-p1", properties: { Name: { type: "title", title: [{ plain_text: "Launch plan" }] } } } };
     throw new Error(`unexpected ${args.join(" ")}`);
