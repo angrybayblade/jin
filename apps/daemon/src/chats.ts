@@ -7,6 +7,7 @@ import type { Sessions } from "./sessions";
 import type { TaskPRs } from "./prs";
 import type { Tasks } from "./tasks";
 import type { TaskJobs } from "./jobs";
+import { HOOK_EVENTS, type Hook, type Hooks } from "./hooks";
 import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
 
 export const CHAT_KINDS = ["jin", "slack", "linear", "notion", "gmail", "github"] as const;
@@ -29,8 +30,9 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
         "Your job: catch the user up, help them decide what matters, and hand work to task agents.",
         "- When asked to catch up (or at the start of a conversation), call jin_catch_up and give a short brief: what is blocked on them first (approvals, failing checks on their PRs, review requests), then what changed, then what can wait. Number the items so the user can say 'take 2'.",
         "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
+        "- Hooks run an agent with fixed instructions when an event happens (a task's PR merged, all its PRs merged, a live event from Slack, Linear, Notion, Gmail or GitHub). jin_list_hooks shows them; jin_save_hook creates or changes one once the user agrees; jin_delete_hook removes one.",
         "- jin_update_feed snoozes, dismisses or marks items done once the user decides (several at once with itemIds).",
-        "- jin_archive_task closes tasks the user is finished with: they leave the sidebar, their worktrees and branches stay (archived: false brings one back). Deleting a task's worktrees is not yours to do; the user removes a task from its page.",
+        "- jin_archive_task closes tasks the user is finished with: they leave the sidebar, their worktrees and branches stay (archived: false brings one back). jin_remove_task deletes a finished task's worktrees and branches; it refuses if work would be lost, and the user approves each call. Use it only when the user asks or during a merge cleanup.",
         "- Work can live on other machines (dev VMs the user added): jin_list_machines lists them; jin_list_tasks and jin_catch_up cover every connected machine. To start a task or a Claude Code session on one, pass its id as `machine`; when the user does not say where and more than one machine has the workspace, ask. Links to another machine's task look like /m/<machine>/t/<task>.",
         "Be brief and concrete. Link PRs and issues by URL.",
       ].join("\n");
@@ -61,8 +63,8 @@ export interface MachineAccess {
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs, machines } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs, machines, hooks } = deps;
   const remote = (id: string | undefined) => (id && id !== "local" ? id : null);
   const connected = () => (machines?.list() ?? []).filter((m) => m.connected);
   const link = (machine: string | null, taskId: string) => (machine ? `/m/${machine}/t/${taskId}` : `/t/${taskId}`);
@@ -241,6 +243,51 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
         return out;
       },
     },
+    {
+      name: "jin_remove_task",
+      description:
+        "Remove a finished task's worktrees and local branches. Refuses when anything would be lost (uncommitted changes, commits on no remote) and says what. The user approves each call.",
+      input: { taskId: z.string(), machine: machineArg },
+      run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        const id = a.taskId as string;
+        const t = on ? await machines!.call<{ id: string; state: string }>(on, "POST", `/api/tasks/${encodeURIComponent(id)}/remove-if-clean`) : await tasks.removeIfClean(id);
+        return { id: t.id, state: t.state, ...(on ? { machine: on } : {}) };
+      },
+    },
+    ...(hooks
+      ? ([
+          {
+            name: "jin_list_hooks",
+            description: "The user's hooks (an event, an optional filter, and fixed instructions an agent runs when it fires), the events hooks can use with their fields, and recent runs.",
+            input: {},
+            run: async () => ({ hooks: hooks.list(), events: HOOK_EVENTS, recentRuns: hooks.runs().slice(0, 10) }),
+          },
+          {
+            name: "jin_save_hook",
+            description:
+              "Create a hook (no id) or change one: when `event` happens and the event's fields match `filter`, jin starts an agent with `instructions` and the event's details. Instructions are fixed text: write them as steps an agent can follow. Anything outward the agent does still waits for the user's approval. Confirm the hook with the user before saving.",
+            input: {
+              id: z.string().optional(),
+              name: z.string().optional(),
+              event: z.enum(["pr.merged", "task.merged", "live.event"]).optional(),
+              filter: z.record(z.string(), z.string()).optional().describe('field → value, e.g. {"toolkit": "slack", "forYou": "true"}; "/pattern/" matches a pattern'),
+              instructions: z.string().optional(),
+              enabled: z.boolean().optional(),
+            },
+            run: async (a) => hooks.save(a as Partial<Hook>, "jin"),
+          },
+          {
+            name: "jin_delete_hook",
+            description: "Delete a hook. Confirm with the user first; disabling (jin_save_hook with enabled: false) keeps it.",
+            input: { id: z.string() },
+            run: async (a) => {
+              hooks.remove(a.id as string);
+              return { removed: a.id };
+            },
+          },
+        ] satisfies JinTool[])
+      : []),
     {
       name: "jin_update_feed",
       description: "Snooze (24h), dismiss or mark feed items done: one (itemId) or several (itemIds).",
