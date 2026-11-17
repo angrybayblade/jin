@@ -1,13 +1,13 @@
 import { Suspense, type ReactNode } from "react";
 import { PresenceReporter } from "@/components/Notifications";
-import { AutoRefresh } from "@/components/AutoRefresh";
+import { AutoRefresh, RetrySoon } from "@/components/AutoRefresh";
 import { ContextMenuHost } from "@/components/ContextMenu";
 import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
 import { MachineDown } from "@/components/MachineSwitcher";
-import { currentMachine, daemon, DaemonUnavailable, type Elsewhere, type Machine, type Approval, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, DaemonUnavailable, homeMachine, type Elsewhere, type Machine, type Approval, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +31,24 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
     )).filter((e): e is Elsewhere => e !== null && e.tasks.length > 0))();
   let elsewhere: Elsewhere[] = [];
   let shell: { status: Status; tasks: Task[]; sessions: Session[]; approvals: Approval[]; terminals: TerminalInfo[]; jobs: TaskJob[]; notifications: NotificationSettings; prs: TaskPR[] };
+  // Chats and approvals live on the home (hub). When it is not answering (a restart, sleep, a
+  // network change) the machine's own tasks still show; only those wait for it.
+  const home = homeMachine();
+  let homeDown: string | null = null;
+  const fromHome = <T,>(p: Promise<T>, empty: T): Promise<T> =>
+    home === machine
+      ? p
+      : p.catch((err) => {
+          if (!(err instanceof DaemonUnavailable)) throw err;
+          homeDown = machines.find((m) => m.id === home)?.label ?? home;
+          return empty;
+        });
   try {
     const [status, tasks, sessions, approvals, terminals, jobs, notifications, prs] = await Promise.all([
       daemon<Status>("/api/status"),
       daemon<Task[]>("/api/tasks"),
-      daemon<Session[]>("/api/sessions"),
-      daemon<Approval[]>("/api/approvals?state=pending"),
+      fromHome(daemon<Session[]>("/api/sessions"), [] as Session[]),
+      fromHome(daemon<Approval[]>("/api/approvals?state=pending"), [] as Approval[]),
       daemon<TerminalInfo[]>("/api/terminals"),
       daemon<TaskJob[]>("/api/task-jobs"),
       daemon<NotificationSettings>("/api/notifications").catch(() => ({ enabled: true, sound: true })),
@@ -51,12 +63,18 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
       <main className="daemon-down">
         <ThermalMark size={40} state="queued" variant="workflow" />
         <p>{err.message}</p>
+        <RetrySoon />
       </main>
     );
   }
   return (
     <div className="app-shell">
       <AutoRefresh />
+      {homeDown && (
+        <div className="home-down" role="status">
+          jin&apos;s home ({homeDown}) is not answering; your chats and approvals come back when it does.
+        </div>
+      )}
       <Sidebar
         tasks={shell.tasks}
         sessions={shell.sessions}

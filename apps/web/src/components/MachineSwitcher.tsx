@@ -1,4 +1,5 @@
 "use client";
+import { RetrySoon } from "./AutoRefresh";
 import { Bell, Monitor, Plus, Radio, Server, Settings2, Sparkles, Webhook, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { switchMachine } from "@/app/actions";
@@ -59,6 +60,7 @@ export function MachineDown({ name, message }: { name: string; message: string }
     <main className="daemon-down">
       <Server size={32} />
       <p>{message}</p>
+      <RetrySoon />
       <span className="machine-actions">
         <button type="button" className="button primary" onClick={() => void switchMachine("local").then(() => router.refresh())}>
           Back to this machine

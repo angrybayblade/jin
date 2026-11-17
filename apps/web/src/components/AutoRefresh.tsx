@@ -39,3 +39,13 @@ export function AutoRefresh({ every = 2000 }: { every?: number }) {
   }, [router, every]);
   return null;
 }
+
+/** On a "not answering" screen: try again every few seconds, so it clears once the daemon is back. */
+export function RetrySoon({ every = 3000 }: { every?: number }) {
+  const router = useRouter();
+  useEffect(() => {
+    const t = setInterval(() => document.visibilityState === "visible" && router.refresh(), every);
+    return () => clearInterval(t);
+  }, [router, every]);
+  return <span className="meta">Trying again…</span>;
+}
