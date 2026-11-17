@@ -375,7 +375,7 @@ export function TaskWorkspace({
     },
     ...(t.kind === "claude"
       ? ([
-          ...(t.claudeSessionId ? [{ label: "Fork into new tab", icon: GitFork, run: () => void fork(t) }] : []),
+          ...(t.claudeSessionId ? [{ label: "Fork", icon: GitFork, run: () => void fork(t) }] : []),
           { label: "Archive", icon: Archive, run: () => archive(t) },
           ...(t.claudeSessionId ? [{ label: "Copy session id", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(t.claudeSessionId!) }] : []),
         ] satisfies MenuItem[])
