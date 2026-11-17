@@ -3236,7 +3236,7 @@ p.machine-auth-body {
 }
 /* Room between the task's title and the first action icon. */
 .task-bar .pane-actions {
-  margin-left: 8px;
+  margin-left: 4px;
 }
 .side-switch .button.is-active {
   background: var(--hover);
