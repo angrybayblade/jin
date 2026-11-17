@@ -41,6 +41,19 @@ export interface TaskContext {
   prs?: ReviewedPR[];
   /** jin's skills in the task's plugin (/jin:<name>). */
   skills?: string[];
+  /** What the task follows (its PRs, issue, Slack threads and channels, Notion pages). */
+  links?: { kind: string; label: string; url: string | null }[];
+}
+
+/** The task's context: what it follows, and how to get more when the work needs it. */
+function contextRule(c: TaskContext): string {
+  const follows = (c.links ?? []).map((l) => `  - ${l.label}${l.url ? ` ${l.url}` : ""}`);
+  return [
+    follows.length ? `THIS TASK FOLLOWS (as of when you started):\n${follows.join("\n")}` : "",
+    "TASK CONTEXT: discussions, tickets and docs around this task live outside the code. When the work depends on one (a decision made in a Slack thread, the Linear ticket's scope, a Notion spec, review comments on a PR), call the `task_context` tool (or run `jin-task context`): it lists the PRs, Linear issue, Slack threads and channels and Notion pages the task follows, with the latest on each and how to read each in full. Then read only what you need with the Slack, Linear and Notion tools or gh. Don't load everything up front; ask again later to see what changed (links can be added while you work).",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** jin's context and must-follow rules for Claude Code running in a task (appended to its system prompt). */
@@ -55,6 +68,7 @@ export function taskRules(ctx: TaskContext | string): string {
       c.workspaceRoot ? `The whole workspace, ${c.workspaceRoot}, is readable: its docs/map/README.md and map/ (how services fit together) and the other repos, to judge what a change affects.` : "",
       "MUST-FOLLOW RULES: you review; you do not change the PRs. Never commit, push, approve, request changes or post comments on GitHub unless the user says so for that comment; draft comments in TASK.md and show them. To pick up a new push: `git fetch origin pull/<n>/head && git checkout --detach FETCH_HEAD` in that worktree.",
       `SETUP IS YOURS TO DECIDE: the worktrees are plain checkouts, with no dependencies installed and nothing running. Reading the change needs neither. If running a repo's tests, typecheck or lint would settle something, install that repo: \`cws install <repo> --task ${c.taskId}\` (then \`cws check <repo>\` in its worktree). If the change can only be judged running (a flow across services, the dashboard), bring the local stack up: \`cws up --task ${c.taskId}\`, and \`cws down\` when done. Say in TASK.md what you set up and why. Nothing is ever deployed; cws refuses deploys.`,
+      contextRule(c),
       skills,
       c.journal
         ? "WORK JOURNAL: the user follows your review in jin's journal, grouped by concern (a short label for one area, e.g. \"rate limiter\"; reuse labels). Call the `journal` tool for each finding (kind found, with why it matters) and each conclusion (decision). One line each; send it alongside your next tool call, and never read the journal back."
@@ -64,6 +78,7 @@ export function taskRules(ctx: TaskContext | string): string {
       .join("\n");
   }
   return [
+    contextRule(c),
     skills,
     `You are running inside jin task ${c.taskId}; jin is the user's orchestrator and tracks this task's pull requests.`,
     c.taskRoot ? `You start in the task's folder, ${c.taskRoot}: one worktree per repo, plus TASK.md (the task's notes: read it first, and keep it up to date).` : "",
@@ -97,7 +112,14 @@ export function writeJinTaskCommand(config: Config): string {
 }
 
 export function claudeLaunch(config: Config, settingsFile: string, binDir?: string): ClaudeLaunch {
-  return {
+  const links = (taskId: string) => {
+    try {
+      return launch.linksOf?.(taskId) ?? [];
+    } catch {
+      return [];
+    }
+  };
+  const launch: ClaudeLaunch = {
     // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
     args: (ctx) => [
       // The work journal: jin's `journal` tool, through `jin-task mcp` (it knows its terminal). First:
@@ -107,7 +129,7 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
             "--mcp-config",
             JSON.stringify({ mcpServers: { jin: { type: "stdio", command: join(binDir, "jin-task"), args: ["mcp"], env: { JIN_TERMINAL_ID: ctx.terminalId, JIN_HOME: config.home } } } }),
             "--allowedTools",
-            "mcp__jin__journal",
+            "mcp__jin__journal,mcp__jin__task_context",
           ]
         : []),
       "--settings",
@@ -118,7 +140,7 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       config.model,
       // The whole workspace is readable from a task's folder; the task's context and rules go in the system prompt.
       ...(ctx?.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
-      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId) })] : []),
+      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId) })] : []),
     ],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,
@@ -126,6 +148,7 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       ...(w?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: w.profile.claudeConfigDir } : {}),
     }),
   };
+  return launch;
 }
 
 /** What Claude Code's hooks report: status for the command center, and jin's verdict on tool calls. */

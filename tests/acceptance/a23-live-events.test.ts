@@ -167,6 +167,13 @@ test("A26 a task's Activity: its Linear issue, and the Slack thread and channel 
   expect(act.items.map((i) => i.thread.key).sort()).toEqual(["linear:PLEN-77", `slack:C78:${sinceLinked + 5}.000001`, "slack:C77:1700000000.123456"].sort());
   // Kept for the task, not notified: nobody mentioned you.
   expect(notices().some((n) => n.body === "rolling out the limiter")).toBe(false);
+  // Claude Code in the task asks for its context (jin-task context / the task_context tool).
+  const term = await d.json("/api/terminals", { method: "POST", json: { taskId: "PLEN-77", kind: "shell" } });
+  const ctx = await (await d.api(`/api/terminals/${term.id}/context`)).text();
+  expect(ctx).toContain("Task PLEN-77 (linear): limiter");
+  expect(ctx).toContain("https://acme.slack.com/archives/C77/p1700000000123456");
+  expect(ctx).toContain("rolling out the limiter");
+  expect(ctx).toContain("Bea commented: looks good");
   // Unlinking the thread: it leaves the Activity.
   await d.api(`/api/tasks/PLEN-77/links?key=${encodeURIComponent("slack:C77:1700000000.123456")}`, { method: "DELETE" });
   const after = (await d.json("/api/tasks/PLEN-77/activity")) as { items: { thread: { key: string } }[] };

@@ -267,6 +267,8 @@ export interface ClaudeLaunch {
   /** Extra arguments for `claude`: jin's settings file with its hooks, the model, and in a task its rules. */
   args: (ctx?: { taskId?: string | null; taskRoot?: string; workspaceRoot?: string; parent?: string | null; terminalId?: string; kind?: TaskKind; prs?: ReviewedPR[] }) => string[];
   env: (workspace: WorkspaceConfig | undefined) => Record<string, string>;
+  /** What a task follows, for its Claude Code's starting context (set once links exist). */
+  linksOf?: (taskId: string) => { kind: string; label: string; url: string | null }[];
 }
 
 export interface TerminalDeps {

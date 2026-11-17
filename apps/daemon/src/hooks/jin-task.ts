@@ -5,7 +5,9 @@
 //   jin-task spawn <ID> --repos a,b --slug "..." [--prompt "..."] [--type bug] [--no-setup]
 //                              split part of the work into a sub-task (own branch and PR)
 //   jin-task subtasks          the sub-tasks spawned from this task, and how they are doing
-//   jin-task mcp               jin's MCP server for Claude Code (stdio): the `journal` tool
+//   jin-task context           the task's context: its PRs, what it follows (Slack threads and
+//                              channels, Notion pages, its Linear issue) and the latest on each
+//   jin-task mcp               jin's MCP server for Claude Code (stdio): `journal`, `task_context`
 // The terminal names the task (JIN_TERMINAL_ID, set by jin); the daemon's token is in JIN_HOME.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -45,11 +47,27 @@ const call = async (method: string, path: string, payload?: unknown) => {
   return JSON.parse(text);
 };
 
+/** The task's context, as text (also the task_context tool's answer). */
+const context = async (): Promise<{ ok: string } | { error: string }> => {
+  try {
+    const res = await fetch(`http://${daemon.host}:${daemon.port}/api/terminals/${terminal}/context`, { headers: { authorization: `Bearer ${daemon.token}` } });
+    const text = await res.text();
+    if (!res.ok) return { error: (JSON.parse(text || "{}") as { error?: string }).error ?? `jin answered ${res.status}` };
+    return { ok: text };
+  } catch (e) {
+    return { error: `could not reach jin: ${(e as Error).message}` };
+  }
+};
+
 type PR = { url: string; title: string | null; state: string | null; draft: boolean };
 const line = (p: PR) => `${p.url}  ${p.draft ? "draft" : (p.state ?? "").toLowerCase()}  ${p.title ?? ""}`.trim();
 
 if (cmd === "mcp") {
   await serveMcp();
+} else if (cmd === "context") {
+  const r = await context();
+  if ("error" in r) fail(r.error);
+  else console.log(r.ok);
 } else if (cmd === "attach-pr") {
   if (!arg) fail("usage: jin-task attach-pr <pull request url>");
   const pr = (await call("POST", `/api/terminals/${terminal}/prs`, { url: arg })) as PR;
@@ -74,7 +92,7 @@ if (cmd === "mcp") {
   }
 } else {
   console.log(
-    'usage:\n  jin-task attach-pr <url>   attach a pull request to this task\n  jin-task prs               list the task\'s pull requests\n  jin-task spawn <ID> --repos a,b --slug "..." [--prompt "..."] [--type bug] [--no-setup]\n                             split part of the work into a sub-task\n  jin-task subtasks          the sub-tasks spawned from this task',
+    'usage:\n  jin-task context           the task\'s PRs, what it follows, and the latest on each\n  jin-task attach-pr <url>   attach a pull request to this task\n  jin-task prs               list the task\'s pull requests\n  jin-task spawn <ID> --repos a,b --slug "..." [--prompt "..."] [--type bug] [--no-setup]\n                             split part of the work into a sub-task\n  jin-task subtasks          the sub-tasks spawned from this task',
   );
   process.exit(cmd ? 1 : 0);
 }
@@ -100,14 +118,21 @@ async function serveMcp() {
       required: ["concern", "kind", "text"],
     },
   };
+  const CONTEXT_TOOL = {
+    name: "task_context",
+    description:
+      "The task's context from jin, as it is now: its pull requests (state, checks, review), what it follows (its Linear issue, Slack threads and channels, Notion pages, each with how to read it in full) and the latest on each, one line per event. Call it when the work depends on a discussion, a ticket or a doc, or to see what changed; then read only what you need in full with the Slack, Linear, Notion tools or gh.",
+    inputSchema: { type: "object", properties: {} },
+  };
   const send = (msg: unknown) => process.stdout.write(`${JSON.stringify(msg)}\n`);
   const answer = async (m: { id?: number | string; method?: string; params?: any }) => {
     if (m.id === undefined) return; // a notification
     if (m.method === "initialize") return send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "jin", version: "1" } } });
     if (m.method === "ping") return send({ jsonrpc: "2.0", id: m.id, result: {} });
-    if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: [TOOL] } });
+    if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: [TOOL, CONTEXT_TOOL] } });
     if (m.method === "tools/call") {
       const text = await (async () => {
+        if (m.params?.name === "task_context") return context();
         if (m.params?.name !== "journal") return { error: `unknown tool ${m.params?.name}` };
         try {
           const res = await fetch(`http://${daemon.host}:${daemon.port}/api/terminals/${terminal}/journal`, {
