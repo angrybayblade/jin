@@ -11,7 +11,7 @@ import { setupEnv, startDaemon, until, type Daemon, type TestEnv } from "./helpe
 let env: TestEnv;
 let d: Daemon;
 
-// A cws that has task kinds (0.2): review tasks are git checkouts at a "PR head".
+// A cws that has task kinds (0.1.1): review tasks are git checkouts at a "PR head".
 const CWS = `#!/usr/bin/env bun
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ appendFileSync(join(root, "cws.log"), a.join(" ") + "\\n");
 const flag = (n) => { const i = a.indexOf(n); return i >= 0 ? a[i + 1] : undefined; };
 const all = (n) => a.flatMap((x, i) => (x === n ? [a[i + 1]] : []));
 const git = (cwd, ...args) => { const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@e", ...args], { cwd }); return r.stdout.toString().trim(); };
-if (a[0] === "--version") console.log("cws 0.2.0 (test)");
+if (a[0] === "--version") console.log("cws 0.1.1 (test)");
 else if (a[0] === "task" && a[1] === "next-id") {
   const n = existsSync(join(root, "tasks")) ? readdirSync(join(root, "tasks")).filter((x) => x.startsWith("REV-1117")).length : 0;
   console.log("REV-1117" + String(n + 1).padStart(2, "0"));

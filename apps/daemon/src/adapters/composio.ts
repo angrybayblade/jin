@@ -110,13 +110,14 @@ export class ComposioAdapter implements WorkspaceAdapter {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** cws 0.2 put the task's kind first (`task new linear|review`); older ones take `task new <ID> --type`. */
+  /** cws 0.1.1 put the task's kind first (`task new linear|review`); older ones take `task new <ID> --type`. */
   private kinds: boolean | null = null;
   private async hasKinds(): Promise<boolean> {
     if (this.kinds === null) {
       const v = await this.run(["--version"]).catch(() => "");
-      const m = /cws (\d+)\.(\d+)/.exec(v);
-      this.kinds = Boolean(m && (Number(m[1]) > 0 || Number(m[2]) >= 2));
+      const m = /cws (\d+)\.(\d+)\.(\d+)/.exec(v);
+      const [maj, min, pat] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
+      this.kinds = maj > 0 || min > 1 || (min === 1 && pat >= 1);
     }
     return this.kinds;
   }
