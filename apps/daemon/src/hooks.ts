@@ -20,7 +20,7 @@ export type HookEventId = "pr.merged" | "task.merged" | "live.event";
 export const HOOK_EVENTS: { id: HookEventId; label: string; description: string; fields: string[] }[] = [
   { id: "pr.merged", label: "A task's PR merged", description: "A pull request attached to a jin task was merged.", fields: ["task.id", "task.title", "pr.url", "pr.repo", "pr.number", "pr.title", "machine"] },
   { id: "task.merged", label: "A task's PRs all merged", description: "Every pull request of a task is merged or closed, at least one merged: the task is done.", fields: ["task.id", "task.title", "prs", "machine"] },
-  { id: "live.event", label: "A live event", description: "Something arrived from Slack, Linear, Notion, Gmail or GitHub (Live events).", fields: ["toolkit", "trigger", "title", "actor", "summary", "url", "thread.title", "thread.ref", "forYou"] },
+  { id: "live.event", label: "A live event", description: "Something arrived from Slack, Linear, Notion, Gmail or GitHub (Live events).", fields: ["toolkit", "trigger", "title", "actor", "summary", "url", "thread.title", "thread.ref", "forYou", "tags"] },
 ];
 
 export interface Hook {

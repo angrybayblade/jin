@@ -53,6 +53,8 @@ export interface LiveEvent {
   thread?: FeedThread;
   /** For you: a DM, a mention, mail from a person, activity on your PR. */
   forYou: boolean;
+  /** Why it might concern you (dm, mention, person, assigned, authored, reviewer, …): notification settings choose by these. */
+  tags?: string[];
 }
 
 export interface TriggerInstance {
@@ -99,6 +101,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
   let url = str(pick(data, "permalink", "url", "html_url", "comment.html_url", "review.html_url", "pull_request.html_url", "issue.url", "data.url"));
   let thread: FeedThread | undefined;
   let forYou = false;
+  let tags: string[] = [];
 
   if (toolkit === "slack") {
     const channelType = str(pick(data, "channel_type", "event.channel_type"));
@@ -114,6 +117,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
       : { key: `slack:${channel}:${root ?? id}`, title: `Thread in ${channelName ? `#${channelName}` : channel || "Slack"}`, ref: null, url };
     title = dm ? "" : "mentioned you";
     forYou = true;
+    tags = [dm ? "dm" : "mention"];
   } else if (toolkit === "gmail") {
     const from = str(pick(data, "sender", "from", "payload.from")) ?? "";
     const subject = str(pick(data, "subject", "payload.subject")) ?? "(no subject)";
@@ -122,6 +126,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     actor = (from.replace(/\s*<[^>]*>\s*$/, "").replace(/^"|"$/g, "") || from) || actor;
     // Mail from a person (the trigger already keeps to the primary inbox); not automated senders.
     forYou = !/no-?reply|notifications?@|mailer-daemon|newsletter|digest/i.test(from) && !(me.email && from.includes(me.email));
+    tags = [forYou ? "person" : "automated"];
     if (!url) {
       const mid = str(pick(data, "messageId", "message_id", "id"));
       if (mid) url = `https://mail.google.com/mail/u/0/#inbox/${mid}`;
@@ -139,6 +144,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     const assignee = str(pick(issue, "assignee.id", "assigneeId")) ?? str(pick(data, "assigneeId"));
     const mentions = Boolean(me.linear && JSON.stringify(data).includes(me.linear));
     forYou = Boolean(me.linear && (assignee === me.linear || mentions));
+    tags = [...(me.linear && assignee === me.linear ? ["assigned"] : []), ...(mentions && assignee !== me.linear ? ["mentioned"] : []), ...(forYou ? [] : ["other"])];
     if (actor && me.linear && JSON.stringify(pick(data, "actor", "user") ?? "").includes(me.linear)) return null; // your own change
   } else if (toolkit === "notion") {
     title = "commented";
@@ -146,6 +152,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     const pageTitle = str(pick(data, "page_title", "page.title", "title")) ?? "Notion page";
     thread = { key: `notion:${page}`, title: pageTitle, ref: null, url: page !== id ? `https://www.notion.so/${page.replace(/-/g, "")}` : url };
     forYou = true; // comments are few; each is worth a look
+    tags = ["comment"];
   } else if (toolkit === "github") {
     const pr = str(pick(data, "pull_request.title", "issue.title", "title"));
     const num = pick(data, "pull_request.number", "issue.number", "number", "pull_number");
@@ -155,9 +162,10 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     if (repo && num != null) thread = githubThread(repo, Number(num), pr ?? `${repo}#${num}`, prUrl ?? url ?? `https://github.com/${repo}/pull/${num}`);
     if (me.github && actor && actor.toLowerCase() === me.github.toLowerCase()) return null; // your own
     forYou = true; // jin only watches PRs you review or wrote
+    tags = ["reviewer"];
   }
 
-  return { id, at, toolkit, trigger, title: oneLine(title, 80), summary: oneLine(text), url, actor, thread, forYou };
+  return { id, at, toolkit, trigger, title: oneLine(title, 80), summary: oneLine(text), url, actor, thread, forYou, tags };
 }
 
 // ---------------------------------------------------------------- the module
@@ -180,7 +188,7 @@ export class Composio {
 
   constructor(
     private config: Config,
-    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
+    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
     private spawn: Spawn = defaultSpawn,
     private bin = process.env.JIN_COMPOSIO_BIN ?? (Bun.which("composio") || join(homedir(), ".local", "bin", "composio")),
   ) {
@@ -504,7 +512,7 @@ export class Composio {
     const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor };
     this.deps.feed.add([item]);
     this.deps.onEvent?.(e);
-    if (e.forYou) {
+    if (this.deps.shouldNotify ? this.deps.shouldNotify(e) : e.forYou) {
       const where = e.thread ? [e.thread.ref, e.thread.title].filter(Boolean).join(" ") : undefined;
       this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: where, body: e.summary, path: `/c/${e.toolkit}` });
     }
