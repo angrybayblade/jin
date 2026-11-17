@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { EXPECTED_FEED, readLog, setupEnv, startDaemon, type Daemon, type Env } from "./helpers";
+import { EXPECTED_FEED, readLog, setupEnv, startDaemon, until, type Daemon, type Env } from "./helpers";
 
 let env: Env;
 let d: Daemon;
@@ -54,3 +54,21 @@ test("A11 feed items can be snoozed, dismissed and promoted to a task", async ()
   expect(byTitle(after, c.title)).toEqual(expect.objectContaining({ state: "promoted", taskId: "PLEN-9" }));
   expect(readLog(join(env.workspace, "cws.log")).some((l) => l.startsWith("task new PLEN-9"))).toBe(true);
 });
+
+test("A11b jin's chat closes a finished task and clears several feed items at once", async () => {
+  const items = (await d.json("/api/feed")) as { id: string; state: string }[];
+  const open = items.filter((i) => i.state === "snoozed" || i.state === "dismissed").map((i) => i.id);
+  expect(open.length).toBeGreaterThan(1);
+  const chat = await d.json("/api/chats", {
+    method: "POST",
+    json: { kind: "jin", prompt: JSON.stringify({ script: [{ jinTool: "jin_archive_task", input: { taskIds: ["PLEN-9", "NOPE-1"] } }, { jinTool: "jin_update_feed", input: { itemIds: open, action: "done" } }, { text: "done" }] }) },
+  });
+  await until(async () => (await d.json(`/api/sessions/${chat.id}`)).state === "idle", 20_000, "chat turn");
+  const out = async (tool: string) => ((await d.json(`/api/sessions/${chat.id}/events`)) as { kind: string; payload: { tool?: string; output?: unknown } }[]).find((e) => e.kind === "tool.result" && e.payload.tool === `mcp__jin__${tool}`)?.payload.output;
+  const archived = (await out("jin_archive_task")) as { id: string; archived?: boolean; error?: string }[];
+  expect(archived[0]).toEqual({ id: "PLEN-9", archived: true });
+  expect(archived[1]!.error).toBeDefined(); // an unknown task is reported, not fatal
+  expect((await d.json("/api/tasks/PLEN-9")).archived).toBe(true);
+  const after = (await d.json("/api/feed")) as { id: string; state: string }[];
+  expect(after.filter((i) => open.includes(i.id)).every((i) => i.state === "done")).toBe(true);
+}, 30_000);

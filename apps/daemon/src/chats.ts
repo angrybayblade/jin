@@ -29,7 +29,8 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
         "Your job: catch the user up, help them decide what matters, and hand work to task agents.",
         "- When asked to catch up (or at the start of a conversation), call jin_catch_up and give a short brief: what is blocked on them first (approvals, failing checks on their PRs, review requests), then what changed, then what can wait. Number the items so the user can say 'take 2'.",
         "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
-        "- jin_update_feed snoozes, dismisses or marks items done once the user decides.",
+        "- jin_update_feed snoozes, dismisses or marks items done once the user decides (several at once with itemIds).",
+        "- jin_archive_task closes tasks the user is finished with: they leave the sidebar, their worktrees and branches stay (archived: false brings one back). Deleting a task's worktrees is not yours to do; the user removes a task from its page.",
         "- Work can live on other machines (dev VMs the user added): jin_list_machines lists them; jin_list_tasks and jin_catch_up cover every connected machine. To start a task or a Claude Code session on one, pass its id as `machine`; when the user does not say where and more than one machine has the workspace, ask. Links to another machine's task look like /m/<machine>/t/<task>.",
         "Be brief and concrete. Link PRs and issues by URL.",
       ].join("\n");
@@ -149,7 +150,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
       description: "The user's tasks on every connected machine (or one, with machine), their state, and the pull requests attached to each (state, review, checks).",
       input: { machine: machineArg },
       run: async (a) => {
-        type T = { id: string; workspace: string; title: string | null; slug: string; repos: string[]; state: string; parent?: string | null };
+        type T = { id: string; workspace: string; title: string | null; slug: string; repos: string[]; state: string; archived?: boolean; parent?: string | null };
         type P = { taskId: string; url: string; title: string | null; state: string | null; draft: boolean; review: string | null; checks: string | null };
         const shape = (machine: string | null, list: T[], prList: P[]) =>
           list.map((t) => ({
@@ -159,6 +160,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
             title: t.title ?? t.slug,
             repos: t.repos,
             state: t.state,
+            ...(t.archived ? { archived: true } : {}),
             ...(t.parent ? { subtaskOf: t.parent } : {}),
             open: link(machine, t.id),
             pullRequests: prList.filter((p) => p.taskId === t.id).map((p) => ({ url: p.url, title: p.title, state: p.draft && p.state === "OPEN" ? "DRAFT" : p.state, review: p.review, checks: p.checks })),
@@ -220,13 +222,43 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
       },
     },
     {
-      name: "jin_update_feed",
-      description: "Snooze (24h), dismiss or mark a feed item done.",
-      input: { itemId: z.string(), action: z.enum(["snooze", "dismiss", "done"]) },
+      name: "jin_archive_task",
+      description:
+        "Close (archive) tasks the user is done with: they leave jin's sidebar and task list; worktrees, branches and history stay. archived: false reopens. Confirm with the user first.",
+      input: { taskIds: z.array(z.string()).min(1), archived: z.boolean().optional().describe("default true; false brings tasks back"), machine: machineArg },
       run: async (a) => {
-        const id = a.itemId as string;
-        if (a.action === "snooze") return feed.setState(id, "snoozed", { snoozedUntil: new Date(Date.now() + 86_400_000).toISOString() });
-        return feed.setState(id, a.action === "done" ? "done" : "dismissed");
+        const archived = (a.archived as boolean | undefined) ?? true;
+        const on = remote(a.machine as string | undefined);
+        const out: unknown[] = [];
+        for (const id of a.taskIds as string[]) {
+          try {
+            const t = on ? await machines!.call<{ id: string; archived: boolean }>(on, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { archived }) : tasks.update(id, { archived });
+            out.push({ id: t.id, archived: t.archived, ...(on ? { machine: on } : {}) });
+          } catch (err) {
+            out.push({ id, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        return out;
+      },
+    },
+    {
+      name: "jin_update_feed",
+      description: "Snooze (24h), dismiss or mark feed items done: one (itemId) or several (itemIds).",
+      input: { itemId: z.string().optional(), itemIds: z.array(z.string()).optional(), action: z.enum(["snooze", "dismiss", "done"]) },
+      run: async (a) => {
+        const ids = [...((a.itemIds as string[] | undefined) ?? []), ...(a.itemId ? [a.itemId as string] : [])];
+        if (!a.itemId && !a.itemIds) throw new Error("give itemId or itemIds");
+        const one = (id: string) =>
+          a.action === "snooze" ? feed.setState(id, "snoozed", { snoozedUntil: new Date(Date.now() + 86_400_000).toISOString() }) : feed.setState(id, a.action === "done" ? "done" : "dismissed");
+        const results = ids.map((id) => {
+          try {
+            const i = one(id);
+            return { id: i.id, state: i.state, title: i.title };
+          } catch (err) {
+            return { id, error: err instanceof Error ? err.message : String(err) };
+          }
+        });
+        return ids.length === 1 && !a.itemIds ? one(ids[0]!) : results;
       },
     },
   ];
