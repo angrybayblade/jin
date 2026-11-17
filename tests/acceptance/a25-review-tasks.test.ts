@@ -99,9 +99,13 @@ test("A25 a PR becomes a review task with the skills tagged for reviews, and goe
   expect(prs[0]).toMatchObject({ url: "https://github.com/ComposioHQ/platform/pull/12", state: "OPEN" });
   appendFileSync(join(env.home, "..", "gh-merged"), "12\n");
   await d.json("/api/tasks/REV-111701/prs/refresh", { method: "POST" });
-  await until(() => cwsLog().includes("task rm REV-111701"), 10_000, "review task removed");
-  const after = ((await d.json("/api/tasks")) as { id: string; state: string; archived: boolean }[]).find((t) => t.id === "REV-111701");
+  // cws logs the call as it starts: wait for jin to record the task removed, not for the log line.
+  const after = await until(async () => {
+    const t = ((await d.json("/api/tasks")) as { id: string; state: string; archived: boolean }[]).find((x) => x.id === "REV-111701");
+    return t?.state === "removed" ? t : null;
+  }, 10_000, "review task removed");
   expect(after).toMatchObject({ state: "removed", archived: true });
+  expect(cwsLog()).toContain("task rm REV-111701");
   // Someone else's PR merging is not your work done: the merge clean-up hook stays quiet.
   expect((await d.json("/api/event-hooks")).runs).toEqual([]);
 }, 60_000);
