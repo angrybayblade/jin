@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { logEvent, readEvent, triggerConfig } from "../src/composio";
+import { headline, logEvent, readEvent, triggerConfig, whereOf } from "../src/composio";
 
 const me = { slack: "U_ME", linear: "lin-me", github: "me-gh", email: "me@example.com" };
 
@@ -51,4 +51,30 @@ test("a trigger log (as composio dev logs triggers gives it) reads as its event"
   expect(raw).toMatchObject({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "evt1", timestamp: "2026-11-17T03:00:00.000Z" });
   expect(readEvent(raw!, me)).toMatchObject({ id: "evt1", actor: "U_ALEX", summary: "got a minute?", tags: ["dm"], thread: { key: "slack:dm:D9" }, at: "2026-11-17T03:00:00.000Z" });
   expect(logEvent({ id: "x", createdAt: "t", meta: {} })).toBeNull();
+});
+
+test("each app's event reads with who, where and what, from the fields that app uses", () => {
+  // Gmail's trigger names its fields in snake_case.
+  const mail = readEvent({ triggerSlug: "GMAIL_NEW_GMAIL_MESSAGE", data: { sender: "Alex <alex@acme.com>", subject: "Contract", message_text: "see attached", message_id: "m1", thread_id: "t1" } }, me);
+  expect(mail).toMatchObject({ actor: "Alex", summary: "see attached", thread: { key: "gmail:t1" } });
+  // Linear's user is an object: its name is the actor; an issue change says where it stands.
+  const comment = readEvent({ triggerSlug: "LINEAR_COMMENT_EVENT_TRIGGER", data: { action: "create", data: { body: "on it", user: { id: "u2", name: "Bea" }, issue: { identifier: "PLEN-3", title: "Limiter" } }, url: "https://linear.app/x/PLEN-3#c" } }, me);
+  expect(comment).toMatchObject({ actor: "Bea", title: "commented", summary: "on it", thread: { key: "linear:PLEN-3", title: "Limiter" } });
+  const moved = readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { data: { identifier: "PLEN-4", title: "Docs", state: { name: "In Review" }, assignee: { id: "u3", name: "Cat" } } } }, me);
+  expect(moved?.summary).toBe("Status: In Review · Assignee: Cat");
+  // A Slack message that only shares another one, or a file, still says something.
+  const shared = readEvent({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", data: { text: "", user: "U_ALEX", channel: "D1", attachments: [{ text: "the original message" }] } }, me);
+  expect(shared?.summary).toBe("the original message");
+  // Notion's event holds only ids: comments on one page group under it (its title comes later).
+  const n1 = readEvent({ triggerSlug: "NOTION_COMMENT_CREATED", id: "e1", data: { authors: [{ id: "nu1", type: "person" }], comment_id: "c1", data: { page_id: "p-1", parent: { id: "b1", type: "block" } } } }, me);
+  const n2 = readEvent({ triggerSlug: "NOTION_COMMENT_CREATED", id: "e2", data: { authors: [{ id: "nu1", type: "person" }], comment_id: "c2", data: { page_id: "p-1", parent: { id: "b2", type: "block" } } } }, me);
+  expect(n1?.thread?.key).toBe("notion:p-1");
+  expect(n2?.thread?.key).toBe("notion:p-1");
+});
+
+test("a notification names the app and the place, and someone when the actor is unknown", () => {
+  expect(whereOf({ toolkit: "notion", thread: { key: "k", title: "Launch plan", ref: null, url: null } })).toBe("Notion · Launch plan");
+  expect(whereOf({ toolkit: "linear", thread: { key: "k", title: "Limiter", ref: "PLEN-3", url: null } })).toBe("Linear · PLEN-3 Limiter");
+  expect(headline({ toolkit: "linear", actor: null, title: "updated" })).toBe("Someone updated");
+  expect(headline({ toolkit: "slack", actor: "Cat", title: "" })).toBe("Cat");
 });
