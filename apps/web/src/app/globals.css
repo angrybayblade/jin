@@ -3232,7 +3232,7 @@ p.machine-auth-body {
 }
 .side-switch {
   display: flex;
-  gap: 1px;
+  gap: 2px;
 }
 /* Room between the task's title and the first action icon. */
 .task-bar .pane-actions {
