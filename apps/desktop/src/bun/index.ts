@@ -63,9 +63,11 @@ async function ensureServices(): Promise<string | null> {
   const bun = [join(homedir(), ".bun/bin/bun"), "/opt/homebrew/bin/bun"].find(existsSync) ?? process.execPath;
   const daemonPort = Number(process.env.JIN_PORT ?? 7317);
   if (!(await answers(`http://127.0.0.1:${daemonPort}/health`))) startDetached("daemon", [bun, join(APP, "apps/daemon/src/main.ts")], APP, env);
-  if (!(await answers(URL))) startDetached("web", [bun, "run", "start", "-p", String(WEB_PORT)], join(APP, "apps/web"), env);
+  // The web server's own health check: the home page can be slow while another machine's tunnel comes back.
+  const web = `${URL}/healthz`;
+  if (!(await answers(web)) && !(await answers(URL))) startDetached("web", [bun, "run", "start", "-p", String(WEB_PORT)], join(APP, "apps/web"), env);
   for (let i = 0; i < 120; i++) {
-    if ((await answers(`http://127.0.0.1:${daemonPort}/health`)) && (await answers(URL))) return null;
+    if ((await answers(`http://127.0.0.1:${daemonPort}/health`)) && ((await answers(web)) || (await answers(URL)))) return null;
     await Bun.sleep(250);
   }
   return `jin did not start in 30s; see ${join(HOME, "logs")}`;
@@ -120,11 +122,8 @@ Electrobun.events.on("open-url", (e: any) => {
 
 if (MANAGE) {
   void ensureServices().then((problem) => {
-    if (problem) {
-      console.error(problem);
-      win.webview.executeJavascript(`document.getElementById("status").textContent = ${JSON.stringify(problem)}`);
-      return;
-    }
+    if (problem) console.error(problem);
+    // Load jin either way: its pages say what is not answering, where a stuck "Starting jin…" says nothing.
     ready = true;
     win.webview.loadURL(pending ?? `${URL}/?shell=desktop`);
     pending = null;
