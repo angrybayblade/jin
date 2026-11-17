@@ -72,8 +72,11 @@ test("Claude Code's last words come from the hook input or its transcript", () =
 test("a click opens the place in jin's window when the app is installed, else in the browser", () => {
   const here = [import.meta.dir]; // a path that exists, standing in for jin.app
   expect(clickTarget({ path: "/t/PLEN-1" }, "http://127.0.0.1:3917", here)).toBe("jin://open?path=%2Ft%2FPLEN-1");
-  expect(clickTarget({ path: "/", chat: "c 1" }, "http://127.0.0.1:3917", here)).toBe(`jin://open?path=${encodeURIComponent("/?chat=c%201")}`);
+  expect(clickTarget({ path: "/", chat: "c1" }, "http://127.0.0.1:3917", here)).toBe(`jin://open?path=${encodeURIComponent("/?chat=c1")}`);
   expect(clickTarget({ path: "/c/slack" }, "http://127.0.0.1:3917", ["/nowhere/jin.app"])).toBe("http://127.0.0.1:3917/c/slack");
+  // A Claude Code turn opens its own tab; something that happened elsewhere opens there.
+  expect(clickTarget({ path: "/t/P-1", terminal: "t9" }, "http://127.0.0.1:3917", here)).toBe(`jin://open?path=${encodeURIComponent("/t/P-1?terminal=t9")}`);
+  expect(clickTarget({ path: "/c/github", url: "https://github.com/o/r/pull/1#issuecomment-2" }, "http://127.0.0.1:3917", here)).toBe("https://github.com/o/r/pull/1#issuecomment-2");
 });
 
 test("live events notify by the kinds chosen per app; defaults leave out team reviews and automated mail", async () => {

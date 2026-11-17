@@ -78,6 +78,8 @@ export interface Notice {
   path: string;
   chat?: string;
   terminal?: string;
+  /** Where it happened outside jin (a PR comment, a Slack message): a click opens this instead. */
+  url?: string;
 }
 
 const DEFAULTS: NotificationSettings = { enabled: true, sound: true };
@@ -193,8 +195,14 @@ export function notifierPath(home: string): string | null {
 }
 
 /** Where a click takes you: jin's window (jin://, when the desktop app is installed), else the web app in a browser. */
-export function clickTarget(n: Pick<Notice, "path" | "chat">, webOrigin: string, apps = [join(homedir(), "Applications", "jin.app"), "/Applications/jin.app"]): string {
-  const where = n.path + (n.chat ? `${n.path.includes("?") ? "&" : "?"}chat=${encodeURIComponent(n.chat)}` : "");
+export function clickTarget(n: Pick<Notice, "path" | "chat" | "terminal" | "url">, webOrigin: string, apps = [join(homedir(), "Applications", "jin.app"), "/Applications/jin.app"]): string {
+  // Something that happened elsewhere (a PR comment, a Slack message, a Linear issue): open it there.
+  if (n.url && /^https?:\/\//.test(n.url)) return n.url;
+  const params = new URLSearchParams();
+  if (n.chat) params.set("chat", n.chat);
+  if (n.terminal) params.set("terminal", n.terminal);
+  const q = params.toString();
+  const where = n.path + (q ? `${n.path.includes("?") ? "&" : "?"}${q}` : "");
   if (apps.some((a) => existsSync(a))) return `jin://open?path=${encodeURIComponent(where)}`;
   return new URL(where, webOrigin).toString();
 }

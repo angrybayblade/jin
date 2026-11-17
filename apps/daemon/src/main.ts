@@ -159,7 +159,9 @@ machines.relayNotices((m, n) => {
     key: `${m.id}:${n.key}`,
     // The home already names the machine a notice came from, and links into it with /m/<machine>.
     subtitle: fromHome ? n.subtitle : [m.label, n.subtitle].filter(Boolean).join(" · "),
-    path: n.path.startsWith("/m/") ? n.path : `/m/${m.id}${n.path}`,
+    // From the home, links stay as they are: chats, desks and the feed already open on the home,
+    // and /m/<home> would switch this window to the hub's own tasks. Another machine's links go to it.
+    path: fromHome || n.path.startsWith("/m/") ? n.path : `/m/${m.id}${n.path}`,
   });
 });
 // First-run setup for this machine; a workspace added there is live at once.
