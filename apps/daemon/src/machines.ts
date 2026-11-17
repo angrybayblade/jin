@@ -735,6 +735,8 @@ export class Machines {
     if (!a.token) throw new HttpError(400, "token is required");
     const existing = existsSync(this.file(a.id)) ? this.record(a.id) : null;
     if (existing && !existing.attached) throw new HttpError(409, `${a.id} is already a machine this jin reaches over ssh`);
+    // The same machine attached before under another name (its hostname changed): same line back, so drop the old record.
+    for (const other of this.records()) if (other.id !== a.id && other.attached && other.remotePort === a.port) void this.remove(other.id, { stop: false });
     this.save({
       id: a.id,
       host: a.label,
@@ -790,7 +792,7 @@ export class Machines {
    * Collect each connected machine's notices (it has no desktop; it keeps them, after its own
    * on-screen and repeat checks) and hand them to `show`, every few seconds.
    */
-  relayNotices(show: (m: MachineRecord, n: { key: string; title: string; subtitle?: string; body: string; path: string; chat?: string; terminal?: string }) => void) {
+  relayNotices(show: (m: MachineRecord, n: { key: string; title: string; subtitle?: string; body: string; path: string; chat?: string; terminal?: string; url?: string }) => void) {
     const last = new Map<string, number>();
     const tick = async () => {
       for (const m of this.records()) {
@@ -799,7 +801,7 @@ export class Machines {
           const first = !last.has(m.id);
           const res = await fetch(`http://127.0.0.1:${m.localPort}/api/notifications/outbox?after=${last.get(m.id) ?? 0}`, { headers: { authorization: `Bearer ${m.token}` }, signal: AbortSignal.timeout(3000) });
           if (!res.ok) continue; // an older jin there has no outbox
-          const { seq, notices } = (await res.json()) as { seq: number; notices: { seq: number; at?: number; key: string; title: string; subtitle?: string; body: string; path: string }[] };
+          const { seq, notices } = (await res.json()) as { seq: number; notices: { seq: number; at?: number; key: string; title: string; subtitle?: string; body: string; path: string; chat?: string; terminal?: string; url?: string }[] };
           // A restarted machine starts counting again: start over with it.
           if (seq < (last.get(m.id) ?? 0)) {
             last.delete(m.id);
@@ -849,7 +851,8 @@ export class Machines {
   async remove(id: string, opts: { stop?: boolean } = {}) {
     const m = this.record(id);
     this.closeTunnel(id);
-    if (opts.stop && m.token) {
+    // An attached machine reached this jin itself (no ssh from here): forgetting it never stops it.
+    if (opts.stop && m.token && !m.attached) {
       await this.ssh(m.host, `${PATH_LINE}
 if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user disable --now jin-daemon >/dev/null 2>&1 || true; fi
 pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}).catch(() => {});
