@@ -125,7 +125,7 @@ export const whereOf = (e: Pick<LiveEvent, "thread" | "toolkit">) =>
  * One event from `composio dev listen --json`, as jin shows it. Payloads differ per trigger,
  * so fields are looked up where each service puts them; anything unknown still shows.
  */
-export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {}): LiveEvent | null {
+export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {}, watched?: (threadKey: string, channel: string) => boolean): LiveEvent | null {
   const trigger = String(pick(raw, "triggerSlug", "trigger_slug", "type", "metadata.trigger_slug", "metadata.triggerSlug") ?? "").toUpperCase();
   if (!trigger) return null;
   const data = (pick(raw, "data", "payload", "originalPayload") ?? {}) as Record<string, unknown>;
@@ -145,19 +145,21 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     const channelType = str(pick(data, "channel_type", "event.channel_type"));
     const dm = trigger.includes("DIRECT_MESSAGE") || channelType === "im";
     const mentionsMe = Boolean(me.slack && text.includes(`<@${me.slack}>`));
-    if (!dm && !mentionsMe) return null; // channel chatter that is not for you
     if (me.slack && actor === me.slack) return null; // your own message
     // A shared message or a file says nothing in text; say what it is.
     if (!text) text = pstr(data, "attachments.0.text", "attachments.0.fallback") ?? (pick(data, "files.0") ? "sent a file" : "");
     const channel = str(pick(data, "channel", "channel_id", "event.channel")) ?? "";
     const root = str(pick(data, "thread_ts", "event.thread_ts")) ?? str(pick(data, "ts", "event.ts"));
     const channelName = str(pick(data, "channel_name", "event.channel_name"));
+    // Channel chatter that is not for you is dropped, unless a task follows its thread or channel.
+    const linked = !dm && !mentionsMe && Boolean(watched?.(`slack:${channel}:${root ?? id}`, channel));
+    if (!dm && !mentionsMe && !linked) return null;
     thread = dm
       ? { key: `slack:dm:${channel || actor}`, title: `DM with ${actor ?? "someone"}`, ref: null, url: null }
       : { key: `slack:${channel}:${root ?? id}`, title: `Thread in ${channelName ? `#${channelName}` : channel || "Slack"}`, ref: null, url };
-    title = dm ? "" : "mentioned you";
-    forYou = true;
-    tags = [dm ? "dm" : "mention"];
+    title = dm ? "" : linked ? "wrote" : "mentioned you";
+    forYou = !linked;
+    tags = [dm ? "dm" : linked ? "linked" : "mention"];
   } else if (toolkit === "gmail") {
     const from = str(pick(data, "sender", "from", "payload.from")) ?? "";
     const subject = str(pick(data, "subject", "payload.subject")) ?? "(no subject)";
@@ -198,7 +200,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     const page = pstr(data, "data.page_id", "page_id", "parent.page_id", "comment.parent.page_id", "discussion.parent.page_id", "parent.block_id") ?? id;
     actor = null;
     const pageTitle = str(pick(data, "page_title", "page.title", "title")) ?? "Notion page";
-    thread = { key: `notion:${page}`, title: pageTitle, ref: null, url: page !== id ? `https://www.notion.so/${page.replace(/-/g, "")}` : url };
+    thread = { key: `notion:${page.replace(/-/g, "").toLowerCase()}`, title: pageTitle, ref: null, url: page !== id ? `https://www.notion.so/${page.replace(/-/g, "")}` : url };
     forYou = true; // comments are few; each is worth a look
     tags = ["comment"];
   } else if (toolkit === "github") {
@@ -235,7 +237,7 @@ export class Composio {
 
   constructor(
     private config: Config,
-    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
+    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; watched?: (threadKey: string, channel: string) => boolean; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
     private spawn: Spawn = defaultSpawn,
     private bin = process.env.JIN_COMPOSIO_BIN ?? (Bun.which("composio") || join(homedir(), ".local", "bin", "composio")),
   ) {
@@ -721,7 +723,7 @@ export class Composio {
       this.seen.add(slug);
       console.log(`live event shape ${slug}: ${JSON.stringify(shape(raw))}`);
     }
-    const e = readEvent(raw, this.settings.me);
+    const e = readEvent(raw, this.settings.me, this.deps.watched);
     if (!e) return;
     const named = e.toolkit === "slack" ? await this.withSlackNames(e) : e.toolkit === "notion" ? await this.withNotionDetails(e, raw) : e;
     this.deliver(named, opts);

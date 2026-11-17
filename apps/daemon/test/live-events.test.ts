@@ -68,8 +68,8 @@ test("each app's event reads with who, where and what, from the fields that app 
   // Notion's event holds only ids: comments on one page group under it (its title comes later).
   const n1 = readEvent({ triggerSlug: "NOTION_COMMENT_CREATED", id: "e1", data: { authors: [{ id: "nu1", type: "person" }], comment_id: "c1", data: { page_id: "p-1", parent: { id: "b1", type: "block" } } } }, me);
   const n2 = readEvent({ triggerSlug: "NOTION_COMMENT_CREATED", id: "e2", data: { authors: [{ id: "nu1", type: "person" }], comment_id: "c2", data: { page_id: "p-1", parent: { id: "b2", type: "block" } } } }, me);
-  expect(n1?.thread?.key).toBe("notion:p-1");
-  expect(n2?.thread?.key).toBe("notion:p-1");
+  expect(n1?.thread?.key).toBe("notion:p1");
+  expect(n2?.thread?.key).toBe("notion:p1");
 });
 
 test("a notification names the app and the place, and someone when the actor is unknown", () => {
