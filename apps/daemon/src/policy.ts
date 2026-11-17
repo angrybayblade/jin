@@ -45,7 +45,7 @@ const ASK: { pattern: RegExp; why: string }[] = [
 ];
 
 // MCP tools that send or change something in Slack, Linear, Notion, Gmail and the like.
-const OUTWARD_TOOL = /^mcp__.*(send|post|create|update|delete|remove|comment|reply|draft|save|share|archive|assign|move|merge|schedule|mark|label|trash|forward|invite)/i;
+const OUTWARD_TOOL = /^mcp__.*(send|post|create|update|delete|remove|comment|reply|draft|save|share|archive|assign|move|merge|schedule|mark|label|trash|forward|invite|add_|resolve)/i;
 
 const ENV_ASSIGNMENTS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)+/;
 // Prefixes that run the rest of the line as a command: `sudo x`, `npx vercel`, `pnpm dlx x`.
@@ -91,6 +91,8 @@ export function evaluate(tool: string, input: Record<string, unknown>, rules: Po
   }
   // Jin's own tools act on this machine only: the feed, tasks, and starting agents whose
   // own tool calls are gated in turn.
+  // Except removing a task: its worktrees and branches go, so you say yes first.
+  if (tool === "mcp__jin__jin_remove_task") return { decision: "ask", reason: "removes the task's worktrees and local branches" };
   if (tool.startsWith("mcp__jin__")) return { decision: "allow", reason: "jin's own tool" };
   if (OUTWARD_TOOL.test(tool)) return { decision: "ask", reason: `${tool} sends or changes something outside this machine` };
   return { decision: "allow", reason: "no rule matched" };
