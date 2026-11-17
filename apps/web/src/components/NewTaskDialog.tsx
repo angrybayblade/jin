@@ -44,6 +44,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [kind, setKind] = useState<"linear" | "review">("linear");
   const [prLinks, setPrLinks] = useState("");
+  const [reviewSetup, setReviewSetup] = useState(false);
   const [id, setId] = useState("");
   const [slug, setSlug] = useState("");
   const [type, setType] = useState<(typeof TYPES)[number]>("bug");
@@ -72,7 +73,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     if (kind === "review") {
-      const r = await startReview(prList, prompt.trim() || undefined);
+      const r = await startReview(prList, prompt.trim() || undefined, reviewSetup);
       setBusy(false);
       if ("error" in r) return setError(r.error);
       onClose();
@@ -155,10 +156,15 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
           <span>First prompt for Claude Code (optional)</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder={kind === "review" ? "Defaults to: review the pull requests in this task" : "What should Claude Code start on once the task is ready?"} />
         </label>
-        {kind === "linear" && (
+        {kind === "linear" ? (
           <label className="check">
             <input type="checkbox" checked={setup} onChange={(e) => setSetup(e.target.checked)} />
             <span>Run each repo's setup (installs; can take a few minutes)</span>
+          </label>
+        ) : (
+          <label className="check">
+            <input type="checkbox" checked={reviewSetup} onChange={(e) => setReviewSetup(e.target.checked)} />
+            <span>Install dependencies now (otherwise Claude installs a repo, or brings the stack up, only if the review needs it)</span>
           </label>
         )}
         {error && <p className="field-error">{error}</p>}

@@ -549,9 +549,9 @@ export async function deleteSkill(name: string): Promise<{ removed: boolean } | 
 // ---------------------------------------------------------------- reviewing PRs as tasks
 
 /** A review task for these PRs (links or <repo>#<n>) on this machine, or the one already reviewing them. */
-export async function startReview(prs: string[], prompt?: string): Promise<{ taskId: string; existing: boolean } | { error: string }> {
+export async function startReview(prs: string[], prompt?: string, setup?: boolean): Promise<{ taskId: string; existing: boolean } | { error: string }> {
   try {
-    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt } });
+    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt, setup } });
     revalidatePath("/", "layout");
     return r;
   } catch (err) {
