@@ -208,8 +208,14 @@ const DOPPLER: ToolSpec = {
   optional: true,
   install: 'have doppler || [ -z "$SUDO" ] || { echo "installing Doppler (optional)"; curl -Ls --tlsv1.2 --proto "=https" https://cli.doppler.com/install.sh | $SUDO sh >/dev/null 2>&1 || echo "doppler: not installed (only cws up needs it)"; }',
   status: `if command -v doppler >/dev/null; then if doppler me --json >/dev/null 2>&1; then echo "doppler yes $(doppler me --json 2>/dev/null | sed -n 's/.*"workplace":{[^}]*"name":"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "doppler no"; fi; else echo "doppler missing"; fi`,
-  signIn: "doppler login",
-  signInUrl: /https:\/\/dashboard\.doppler\.com\S+/,
+  signIn: {
+    command: "doppler login",
+    url: /https:\/\/dashboard\.doppler\.com\S+/,
+    code: /Your auth code is:\s*([a-z0-9_-]+)/i,
+    answers: [{ when: /Open the authorization page in your browser\?/, keys: "n\r", prompt: "open" }],
+    done: /Welcome|logged in|Authenticated/i,
+  },
+  token: { pattern: /^dp\.[a-z]+\.[\w-]{20,}$/i, hint: "Doppler service token: dp.st.dev.…", set: 'doppler configure set token "$t" --scope / >/dev/null' },
 };
 
 /** composio-workspace: a git repo of submodules (repos/<name>), with its `cws` tool in bin/. */

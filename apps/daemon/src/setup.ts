@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { type Detected, detectionScript, isWorkspaceAt, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
-import { AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, defaultSpawn, driveSignIn, lines, PATH_LINE, readAuthStatus, SIGN_IN, type SignIn, type Spawn, type Step } from "./machines";
+import { AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, authTools, defaultSpawn, describeTool, driveSignIn, lines, PATH_LINE, readAuthStatus, signInCommand, type SignIn, type Spawn, type Step } from "./machines";
 
 /** What jin needs on this machine before it is useful, and how far along it is. */
 export interface SetupView {
@@ -21,7 +21,6 @@ export interface SetupView {
 }
 
 const LOG_LINES = 300;
-const TOOLS: AuthTool[] = ["gh", "claude", "doppler"];
 
 
 // realpath: macOS folders are case-insensitive, so two spellings can be one folder.
@@ -77,7 +76,7 @@ export class LocalSetup {
 
   async view(): Promise<SetupView> {
     if (!this.checked) await this.checkAuth().catch(() => {});
-    const auth = TOOLS.map((t) => this.authOf(t));
+    const auth = authTools().map((t) => ({ ...this.authOf(t), ...describeTool(t) }));
     const signedIn = (t: AuthTool) => auth.find((a) => a.tool === t)?.state === "signed-in";
     return {
       workspaces: this.workspaces.map((w) => ({ id: w.id, root: w.root, adapter: w.adapter })),
@@ -89,9 +88,9 @@ export class LocalSetup {
     };
   }
 
-  /** Ask gh, Claude Code and Doppler who is signed in. */
+  /** Ask gh, Claude Code and the workspaces' tools who is signed in. */
   async checkAuth() {
-    const proc = this.spawn(["bash", "-s"], { stdin: new Blob([AUTH_STATUS_SCRIPT]) });
+    const proc = this.spawn(["bash", "-s"], { stdin: new Blob([AUTH_STATUS_SCRIPT()]) });
     const out = await new Response(proc.stdout).text();
     await proc.exited;
     this.checked = true;
@@ -104,7 +103,7 @@ export class LocalSetup {
   /** Sign in here, in a terminal (`script` gives the tool one), so it can open your browser. */
   signIn(tool: AuthTool) {
     this.signIns.get(tool)?.proc.kill();
-    const cmd = `${PATH_LINE}; ${SIGN_IN[tool]}`;
+    const cmd = `${PATH_LINE}; ${signInCommand(tool)}`;
     const argv = process.platform === "darwin" ? ["script", "-q", "/dev/null", "/bin/bash", "-c", cmd] : ["script", "-qfec", cmd, "/dev/null"];
     const proc = this.spawn(argv, { stdin: "pipe" });
     this.setAuth(tool, { state: "waiting", url: null, code: null, needsCode: false, error: null });
@@ -183,8 +182,8 @@ export class LocalSetup {
 }
 
 const tool = (t: string | undefined): AuthTool => {
-  if (!t || !TOOLS.includes(t as AuthTool)) throw new HttpError(400, "sign-ins are for gh, claude and doppler");
-  return t as AuthTool;
+  if (!t || !authTools().includes(t)) throw new HttpError(400, `sign-ins are for ${authTools().join(", ")}`);
+  return t;
 };
 
 export function setupRoutes(router: Router, setup: LocalSetup) {

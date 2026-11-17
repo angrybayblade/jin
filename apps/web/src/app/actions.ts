@@ -299,9 +299,10 @@ export async function submitMachineSignInCode(id: string, tool: string, code: st
   }
 }
 
-export async function setMachineDopplerToken(id: string, token: string): Promise<{ error: string } | null> {
+/** Set a tool's token on the machine instead of signing in (a tool that takes one, e.g. Doppler for cws). */
+export async function setMachineToolToken(id: string, tool: string, token: string): Promise<{ error: string } | null> {
   try {
-    await daemon(machinePath(id, "/doppler-token"), { method: "POST", json: { token }, local: true });
+    await daemon(machinePath(id, `/auth/${encodeURIComponent(tool)}/token`), { method: "POST", json: { token }, local: true });
     return null;
   } catch (err) {
     return fail(err);

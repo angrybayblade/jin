@@ -298,7 +298,13 @@ export interface MachineStep {
 }
 
 export interface MachineAuth {
-  tool: "gh" | "claude" | "doppler";
+  /** gh, claude, or a tool a workspace provider declares. */
+  tool: string;
+  label: string;
+  why: string;
+  optional: boolean;
+  /** It can take a token instead of a sign-in (what the token looks like). */
+  tokenHint: string | null;
   state: "unknown" | "signed-in" | "signed-out" | "missing" | "waiting" | "failed";
   account: string | null;
   url: string | null;

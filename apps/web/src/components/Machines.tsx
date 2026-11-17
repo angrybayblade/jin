@@ -13,7 +13,7 @@ import {
   getMachine,
   removeMachine,
   rerunMachineSetup,
-  setMachineDopplerToken,
+  setMachineToolToken,
   setupMachineWorkspace,
   startMachineSignIn,
   submitMachineSignInCode,
@@ -22,12 +22,6 @@ import {
 import type { Machine, MachineAuth, MachineStep } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 
-const TOOL_NAME: Record<MachineAuth["tool"], string> = { gh: "GitHub (gh)", claude: "Claude Code", doppler: "Doppler" };
-const TOOL_WHY: Record<MachineAuth["tool"], string> = {
-  gh: "Clones the workspace's private repos; PRs and checks.",
-  claude: "Runs Claude Code and jin's chats there.",
-  doppler: "Optional: only cws up (the local stack) needs it.",
-};
 
 /** Where a machine is, in a word. */
 export function machineState(m: Machine): { label: string; tone: "ok" | "busy" | "bad" | "idle" } {
@@ -103,7 +97,7 @@ export interface SignInActions {
   start: (tool: string) => Promise<unknown>;
   cancel: (tool: string) => Promise<unknown>;
   code: (tool: string, code: string) => Promise<{ error: string } | null>;
-  dopplerToken?: (token: string) => Promise<{ error: string } | null>;
+  token?: (tool: string, token: string) => Promise<{ error: string } | null>;
 }
 
 export function SignIn({ actions, auth, refresh }: { actions: SignInActions; auth: MachineAuth; refresh: () => void }) {
@@ -118,7 +112,7 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
       <div className="machine-auth-head">
         <span className={`machine-dot is-${signedIn ? "ok" : auth.state === "waiting" ? "busy" : auth.state === "failed" ? "bad" : "idle"}`} />
         <div className="machine-auth-name">
-          <span className="machine-auth-tool">{TOOL_NAME[auth.tool]}</span>
+          <span className="machine-auth-tool">{auth.label}</span>
           <span className="meta machine-auth-state">
             {signedIn
               ? `Signed in${auth.account ? ` as ${auth.account}` : ""}`
@@ -130,11 +124,11 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
                     ? "Checking…"
                     : auth.state === "failed"
                       ? "Sign-in failed"
-                      : TOOL_WHY[auth.tool]}
+                      : auth.why}
           </span>
         </div>
-        {auth.tool === "doppler" && actions.dopplerToken && !signedIn && auth.state !== "missing" && auth.state !== "waiting" && !showToken && (
-          <button type="button" className="button small quiet" onClick={() => setShowToken(true)} title="Set a Doppler service token instead of signing in">
+        {auth.tokenHint && actions.token && !signedIn && auth.state !== "missing" && auth.state !== "waiting" && !showToken && (
+          <button type="button" className="button small quiet" onClick={() => setShowToken(true)} title={`Set a ${auth.label} token instead of signing in`}>
             Use a token
           </button>
         )}
@@ -195,13 +189,13 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
         </div>
       )}
       {auth.state === "failed" && auth.error && <p className="machine-error machine-auth-body">{auth.error}</p>}
-      {auth.tool === "doppler" && actions.dopplerToken && showToken && (
+      {auth.tokenHint && actions.token && showToken && (
         <div className="machine-auth-body">
           <form
             className="machine-inline-form"
             onSubmit={(e) => {
               e.preventDefault();
-              void actions.dopplerToken?.(token).then((r) => {
+              void actions.token?.(auth.tool, token).then((r) => {
                 if (r) setError(r.error);
                 else {
                   setToken("");
@@ -211,7 +205,7 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
               });
             }}
           >
-            <input className="machine-input" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Doppler service token: dp.st.dev.…" autoComplete="off" autoFocus />
+            <input className="machine-input" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={auth.tokenHint ?? ""} autoComplete="off" autoFocus />
             <button type="submit" className="button small primary" disabled={!token.trim()}>
               Save
             </button>
@@ -455,7 +449,7 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
     start: (t) => startMachineSignIn(m.id, t),
     cancel: (t) => cancelMachineSignIn(m.id, t),
     code: (t, c) => submitMachineSignInCode(m.id, t, c),
-    dopplerToken: (tok) => setMachineDopplerToken(m.id, tok),
+    token: (tool, tok) => setMachineToolToken(m.id, tool, tok),
   };
   const [showSteps, setShowSteps] = useState(!ready);
   // Onboarding shows its steps; once everything is done they fold into one line.

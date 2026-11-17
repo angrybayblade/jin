@@ -137,14 +137,24 @@ export interface ToolSpec {
   why: string;
   /** Optional tools are not needed for a machine to be ready. */
   optional: boolean;
-  /** POSIX sh that installs it (may use $SUDO); run once when a machine is set up. */
+  /** POSIX sh that installs it when missing (may use $SUDO, empty without passwordless sudo, and `have <cmd>`). */
   install?: string;
   /** POSIX sh that prints `<id> yes [account]`, `<id> no` or `<id> missing`. */
   status: string;
-  /** The interactive sign-in command, run in a terminal. */
-  signIn?: string;
-  /** A link the sign-in prints, to open in the browser (its pattern). */
-  signInUrl?: RegExp;
+  /** Signing in, in a terminal: the command, and how to read what it prints. */
+  signIn?: {
+    command: string;
+    /** The link to open in the browser. */
+    url?: RegExp;
+    /** A code to enter on that page (its first group). */
+    code?: RegExp;
+    /** Prompts to answer by itself: what to type when the output matches. */
+    answers?: { when: RegExp; keys: string; prompt: string }[];
+    /** Signed in. */
+    done?: RegExp;
+  };
+  /** Setting a token instead of signing in: the token's shape, a hint, and POSIX sh that stores $t (read from stdin). */
+  token?: { pattern: RegExp; hint: string; set: string };
 }
 
 /** A workspace of this provider's kind found on a machine. */

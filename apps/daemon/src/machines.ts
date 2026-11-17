@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Detected, detectionScript, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
+import { type Detected, detectionScript, provider, PROVIDERS, providerTools, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -47,7 +47,8 @@ export interface Step {
   error: string | null;
 }
 
-export type AuthTool = "gh" | "claude" | "doppler";
+/** gh and Claude Code (jin's own), or a tool a workspace provider declares (cws: doppler). */
+export type AuthTool = string;
 export interface AuthState {
   tool: AuthTool;
   state: "unknown" | "signed-in" | "signed-out" | "missing" | "waiting" | "failed";
@@ -147,23 +148,38 @@ export function readSignIn(tool: AuthTool, out: string): { url: string | null; c
     const done = /Login successful/i.test(text);
     return { url, code: null, needsCode: Boolean(url) && /Paste code/i.test(text) && !done, done, answer: null, account: null };
   }
-  const url = text.match(/https:\/\/dashboard\.doppler\.com\S+/)?.[0] ?? null;
-  const code = text.match(/Your auth code is:\s*([a-z0-9_-]+)/i)?.[1] ?? null;
-  const answer = /Open the authorization page in your browser\?/.test(text) ? { prompt: "open", keys: "n\r" } : null;
-  return { url, code, needsCode: false, done: /Welcome|logged in|Authenticated/i.test(text), answer, account: null };
+  // A workspace's tool: read as its provider says.
+  const s = providerTools().find((t) => t.id === tool)?.signIn;
+  const url = s?.url ? (text.match(s.url)?.[0] ?? null) : null;
+  const code = s?.code ? (text.match(s.code)?.[1] ?? null) : null;
+  const a = s?.answers?.find((x) => x.when.test(text));
+  return { url, code, needsCode: false, done: Boolean(s?.done?.test(text)), answer: a ? { prompt: a.prompt, keys: a.keys } : null, account: null };
 }
 
-/** `gh yes angrybayblade` / `claude no` / `doppler missing`, one per line, from the status probe. */
+/** The tools a machine signs in to: jin's own, then the ones workspace providers declare. */
+export const authTools = (): AuthTool[] => ["gh", "claude", ...providerTools().map((t) => t.id)];
+
+/** How a tool shows in the sign-ins list. */
+export function describeTool(tool: AuthTool): { label: string; why: string; optional: boolean; tokenHint: string | null } {
+  if (tool === "gh") return { label: "GitHub (gh)", why: "Clones the workspace's repos; PRs and checks.", optional: false, tokenHint: null };
+  if (tool === "claude") return { label: "Claude Code", why: "Runs Claude Code and jin's chats there.", optional: false, tokenHint: null };
+  const t = providerTools().find((x) => x.id === tool);
+  return { label: t?.label ?? tool, why: t?.why ?? "", optional: t?.optional ?? true, tokenHint: t?.token?.hint ?? null };
+}
+
+export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
+
+/** `gh yes angrybayblade` / `claude no` / `<tool> missing`, one per line, from the status probe. */
 export function readAuthStatus(out: string): Partial<Record<AuthTool, { state: AuthState["state"]; account: string | null }>> {
   const res: Partial<Record<AuthTool, { state: AuthState["state"]; account: string | null }>> = {};
   for (const line of stripAnsi(out).split("\n")) {
-    const m = line.trim().match(/^(gh|claude|doppler) (yes|no|missing)(?: (.+))?$/);
-    if (m) res[m[1] as AuthTool] = { state: m[2] === "yes" ? "signed-in" : m[2] === "no" ? "signed-out" : "missing", account: m[3]?.trim() || null };
+    const m = line.trim().match(/^([\w-]+) (yes|no|missing)(?: (.+))?$/);
+    if (m && authTools().includes(m[1]!)) res[m[1] as AuthTool] = { state: m[2] === "yes" ? "signed-in" : m[2] === "no" ? "signed-out" : "missing", account: m[3]?.trim() || null };
   }
   return res;
 }
 
-const TOOLS_SCRIPT = `
+const TOOLS_SCRIPT = () => `
 set -e
 ${PATH_LINE}
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -185,11 +201,17 @@ fi
 have bun || { echo "installing Bun"; curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; }
 have gh || { echo "installing gh"; pkg gh || echo "gh: not installed"; }
 have claude || { echo "installing Claude Code"; curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1 || echo "Claude Code: not installed"; }
-have doppler || [ -z "$SUDO" ] || { echo "installing Doppler (optional)"; curl -Ls --tlsv1.2 --proto "=https" https://cli.doppler.com/install.sh | $SUDO sh >/dev/null 2>&1 || echo "doppler: not installed (only cws up needs it)"; }
+# Tools the workspaces jin knows need (their providers say how to install them).
+${providerTools()
+  .map((t) => t.install ?? "")
+  .filter(Boolean)
+  .join("\n")}
 echo "bun $(bun --version)"
 have gh && echo "$(gh --version | head -1)"
 have claude && echo "claude $(claude --version 2>/dev/null | head -1)"
-have doppler && echo "doppler $(doppler --version)"
+${providerTools()
+  .map((t) => `have ${t.id} && echo "${t.id} $(${t.id} --version 2>/dev/null | head -1)"`)
+  .join("\n")}
 true
 `;
 
@@ -249,21 +271,18 @@ if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user rest
 fi
 `;
 
-export const AUTH_STATUS_SCRIPT = `
+export const AUTH_STATUS_SCRIPT = () => `
 ${PATH_LINE}
 if command -v gh >/dev/null; then if gh auth status >/dev/null 2>&1; then echo "gh yes $(gh api user -q .login 2>/dev/null)"; else echo "gh no"; fi; else echo "gh missing"; fi
 if command -v claude >/dev/null; then
   s=$(claude auth status 2>/dev/null || true)
   if echo "$s" | grep -q '"loggedIn": *true'; then echo "claude yes $(echo "$s" | sed -n 's/.*"email": *"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "claude no"; fi
 else echo "claude missing"; fi
-if command -v doppler >/dev/null; then if doppler me --json >/dev/null 2>&1; then echo "doppler yes $(doppler me --json 2>/dev/null | sed -n 's/.*"workplace":{[^}]*"name":"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "doppler no"; fi; else echo "doppler missing"; fi
+${providerTools()
+  .map((t) => t.status)
+  .join("\n")}
 `;
 
-export const SIGN_IN: Record<AuthTool, string> = {
-  gh: "gh auth login --hostname github.com --git-protocol https --web",
-  claude: "claude auth login",
-  doppler: "doppler login",
-};
 
 export type Proc = { stdin: { write(d: string | Uint8Array): unknown; end(): unknown; flush?(): unknown } | null; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill(): void };
 export type Spawn = (cmd: string[], opts?: { stdin?: "pipe" | "ignore" | Blob; cwd?: string }) => Proc;
@@ -415,7 +434,7 @@ export class Machines {
       workspaceStep: this.workspaceSteps.get(id) ?? null,
       workspaceCandidates: this.candidates.get(id) ?? null,
       providers: providerViews(),
-      auth: (["gh", "claude", "doppler"] as AuthTool[]).map((t) => this.authOf(id, t)),
+      auth: authTools().map((t) => ({ ...this.authOf(id, t), ...describeTool(t) })),
     };
   }
 
@@ -497,7 +516,7 @@ export class Machines {
       return;
     }
     if (step === "tools") {
-      const { code } = await this.ssh(m.host, TOOLS_SCRIPT, say);
+      const { code } = await this.ssh(m.host, TOOLS_SCRIPT(), say);
       if (code !== 0) throw new Error("installing the tools failed; see the log");
       return;
     }
@@ -816,7 +835,7 @@ export class Machines {
 if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user disable --now jin-daemon >/dev/null 2>&1 || true; fi
 pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}).catch(() => {});
     }
-    for (const t of ["gh", "claude", "doppler"] as AuthTool[]) this.signIns.get(`${id}:${t}`)?.proc.kill();
+    for (const t of authTools()) this.signIns.get(`${id}:${t}`)?.proc.kill();
     rmSync(this.file(id), { force: true });
     this.steps.delete(id);
     this.auth.delete(id);
@@ -837,7 +856,7 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
   /** Ask the machine who is signed in to gh, Claude Code and Doppler. */
   async checkAuth(id: string) {
     const m = this.record(id);
-    const { out } = await this.ssh(m.host, AUTH_STATUS_SCRIPT, () => {});
+    const { out } = await this.ssh(m.host, AUTH_STATUS_SCRIPT(), () => {});
     const found = readAuthStatus(out);
     for (const [tool, s] of Object.entries(found) as [AuthTool, { state: AuthState["state"]; account: string | null }][]) {
       if (this.signIns.has(`${id}:${tool}`)) continue; // a sign-in in progress keeps its link and code
@@ -851,7 +870,7 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     const key = `${id}:${tool}`;
     this.signIns.get(key)?.proc.kill();
     // A terminal on the far end (-tt) so the tools print their prompts; BROWSER=false: there is none there.
-    const proc = this.spawn(["ssh", ...SSH_OPTS, "-tt", m.host, `${PATH_LINE}; BROWSER=false ${SIGN_IN[tool]}`], { stdin: "pipe" });
+    const proc = this.spawn(["ssh", ...SSH_OPTS, "-tt", m.host, `${PATH_LINE}; BROWSER=false ${signInCommand(tool)}`], { stdin: "pipe" });
     this.setAuth(id, tool, { state: "waiting", url: null, code: null, needsCode: false, error: null });
     const s = driveSignIn(proc, tool, (patch) => this.setAuth(id, tool, patch), async (ok) => {
       if (this.signIns.get(key) !== s) return;
@@ -879,13 +898,15 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     void this.checkAuth(id).catch(() => {});
   }
 
-  /** Doppler without the browser: a service token, set on the machine (sent over ssh's stdin, never on a command line). */
-  async dopplerToken(id: string, token: string) {
-    if (!/^dp\.[a-z]+\.[\w-]{20,}$/i.test(token.trim())) throw new HttpError(400, "a Doppler token starts with dp. (for example dp.st.dev.…)");
+  /** A tool without the browser: a token, set on the machine (sent over ssh's stdin, never on a command line). */
+  async setToken(id: string, tool: AuthTool, token: string) {
+    const spec = providerTools().find((t) => t.id === tool)?.token;
+    if (!spec) throw new HttpError(400, `${tool} takes no token`);
+    if (!spec.pattern.test(token.trim())) throw new HttpError(400, `that does not look like a ${describeTool(tool).label} token (${spec.hint})`);
     const m = this.record(id);
-    const proc = this.spawn(["ssh", ...SSH_OPTS, m.host, `${PATH_LINE}; read -r t; doppler configure set token "$t" --scope / >/dev/null && echo ok`], { stdin: new Blob([`${token.trim()}\n`]) });
+    const proc = this.spawn(["ssh", ...SSH_OPTS, m.host, `${PATH_LINE}; read -r t; ${spec.set} && echo ok`], { stdin: new Blob([`${token.trim()}\n`]) });
     const out = await new Response(proc.stdout).text();
-    if ((await proc.exited) !== 0 || !out.includes("ok")) throw new HttpError(502, "setting the Doppler token on the machine failed");
+    if ((await proc.exited) !== 0 || !out.includes("ok")) throw new HttpError(502, `setting the ${describeTool(tool).label} token on the machine failed`);
     await this.checkAuth(id);
   }
 
@@ -961,10 +982,9 @@ echo "JIN-ROOT $ROOT"
   }
 }
 
-const TOOLS = new Set<AuthTool>(["gh", "claude", "doppler"]);
 const tool = (t: string | undefined): AuthTool => {
-  if (!t || !TOOLS.has(t as AuthTool)) throw new HttpError(400, "sign-ins are for gh, claude and doppler");
-  return t as AuthTool;
+  if (!t || !authTools().includes(t)) throw new HttpError(400, `sign-ins are for ${authTools().join(", ")}`);
+  return t;
 };
 
 export function machineRoutes(router: Router, machines: Machines, exportHistory?: () => unknown) {
@@ -1003,9 +1023,9 @@ export function machineRoutes(router: Router, machines: Machines, exportHistory?
       machines.submitCode(p.id!, tool(p.tool), code ?? "");
       return json(machines.view(p.id!));
     })
-    .on("POST", "/api/machines/:id/doppler-token", async (req, p) => {
+    .on("POST", "/api/machines/:id/auth/:tool/token", async (req, p) => {
       const { token } = await body<{ token?: string }>(req);
-      await machines.dopplerToken(p.id!, token ?? "");
+      await machines.setToken(p.id!, tool(p.tool), token ?? "");
       return json(machines.view(p.id!));
     })
     .on("POST", "/api/machines/attach", async (req) => {

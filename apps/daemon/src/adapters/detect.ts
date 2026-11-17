@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { Detected, WorkspaceProvider } from "./types";
+import type { Detected, ToolSpec, WorkspaceProvider } from "./types";
 import { PROVIDERS } from "./index";
 
 /**
@@ -63,3 +63,10 @@ export interface ProviderView {
 }
 
 export const providerViews = (): ProviderView[] => PROVIDERS.map((p) => ({ id: p.id, label: p.label, description: p.description, installsTo: p.install ? `~/${p.install.defaultRoot}` : null }));
+
+/** The tools workspaces jin knows may need on a machine, beyond git, gh and Claude Code (each once). */
+export function providerTools(): ToolSpec[] {
+  const out = new Map<string, ToolSpec>();
+  for (const p of PROVIDERS) for (const t of p.tools()) if (!out.has(t.id)) out.set(t.id, t);
+  return [...out.values()];
+}
