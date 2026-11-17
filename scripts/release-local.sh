@@ -4,7 +4,8 @@
 #   ~/Applications/jin.app the desktop window; it starts the daemon (7317) and web (3917)
 #                          from the release when they are not running
 # Rerun it to update: it rebuilds, restarts jin's services and reopens the app.
-# Needs Bun, Node and the hutch toolchain (HUTCH_HOME, default ~/.jin/toolchain/hutch).
+#   ~/.jin/notifier/jin.app notifications as jin; a click opens the place in jin's window
+# Needs Bun, Node, Xcode's command line tools (swiftc) and the hutch toolchain (HUTCH_HOME, default ~/.jin/toolchain/hutch).
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,6 +38,9 @@ say "desktop app"
 APP=$(find "$DEST/apps/desktop/build" -maxdepth 2 -name "*.app" -type d | grep -i stable | head -1)
 [ -n "$APP" ] || { echo "the desktop build produced no .app"; exit 1; }
 
+say "notifier (notifications that open the place in jin)"
+"$DEST/apps/notifier/build.sh" "$JIN_HOME/notifier" >/dev/null
+
 say "restarting jin's services"
 osascript -e 'quit app "jin"' >/dev/null 2>&1 || true
 if [ -f "$JIN_HOME/daemon.json" ]; then kill "$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$JIN_HOME/daemon.json")" 2>/dev/null || true; fi
@@ -47,5 +51,8 @@ mkdir -p "$HOME/Applications"
 rm -rf "$HOME/Applications/jin.app"
 cp -R "$APP" "$HOME/Applications/jin.app"
 echo "$SHA" > "$JIN_HOME/release/VERSION"
+# Register the app (its jin:// links) and the notifier with Launch Services.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/jin.app" "$JIN_HOME/notifier/jin.app" >/dev/null 2>&1 || true
 say "installed ~/Applications/jin.app; opening it"
 open "$HOME/Applications/jin.app"
