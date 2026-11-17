@@ -191,6 +191,15 @@ export function homeMachine(): string {
   return "local";
 }
 
+/** Every machine this jin can show: this one, then the remote ones it knows. */
+export function knownMachines(): string[] {
+  try {
+    return ["local", ...readdirSync(join(jinHome(), "machines")).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).filter((id) => /^[a-z0-9-]+$/.test(id))];
+  } catch {
+    return ["local"];
+  }
+}
+
 export async function currentMachine(): Promise<string> {
   try {
     const id = (await cookies()).get(MACHINE_COOKIE)?.value;
