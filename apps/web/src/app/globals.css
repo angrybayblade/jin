@@ -2061,7 +2061,7 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   height: 24px;
   max-width: 200px;
   gap: 5px;
-  padding: 0 2px 0 7px;
+  padding: 0 3px 0 7px;
   border: 0;
   border-radius: var(--radius-control);
   font-size: 12px;
@@ -2071,7 +2071,8 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   width: 12px !important;
   height: 12px !important;
 }
-.task-tabs .file-tab-close {
+/* An 18px close button in a 24px tab: 3px around it on the top, bottom and right. */
+:is(.task-tabs, .chat-tabs) .file-tab-close {
   width: 18px;
   height: 18px;
 }
@@ -2291,7 +2292,7 @@ html[data-sidebar="collapsed"] .nav-pr {
   height: 24px;
   max-width: 200px;
   gap: 5px;
-  padding: 0 2px 0 7px;
+  padding: 0 3px 0 7px;
   border: 0;
   border-radius: var(--radius-control);
   font-size: 12px;
