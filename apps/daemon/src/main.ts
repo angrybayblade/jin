@@ -332,12 +332,18 @@ linkRoutes(app.router, {
   links: taskLinks,
   linksOf,
   changed: pushWatches,
+  context: {
+    taskOf: (terminalId) => terminals.get(terminalId).taskId ?? null,
+    task: (id) => tasks.get(id),
+    prs: (taskId) => prs.list(taskId),
+  },
   // Events are read on the home: a task's Activity comes from its feed.
   feedItems: async () => {
     const home = homeLink();
     return home ? machines.call<FeedItem[]>(home.id, "GET", "/api/feed") : feed.list();
   },
 });
+claude.linksOf = linksOf;
 jobs.addLinks = (taskId, urls) => {
   const problems: string[] = [];
   for (const u of urls.map((x) => x.trim()).filter(Boolean)) {
