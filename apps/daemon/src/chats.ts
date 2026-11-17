@@ -8,6 +8,7 @@ import type { TaskPRs } from "./prs";
 import type { Tasks } from "./tasks";
 import type { TaskJobs } from "./jobs";
 import { HOOK_EVENTS, type Hook, type Hooks } from "./hooks";
+import type { TaskLinks } from "./links";
 import { startReview } from "./reviews";
 import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
 
@@ -64,8 +65,8 @@ export interface MachineAccess {
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs, machines, hooks } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs, machines, hooks, links } = deps;
   const remote = (id: string | undefined) => (id && id !== "local" ? id : null);
   const connected = () => (machines?.list() ?? []).filter((m) => m.connected);
   const link = (machine: string | null, taskId: string) => (machine ? `/m/${machine}/t/${taskId}` : `/t/${taskId}`);
@@ -177,6 +178,21 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           else out.push(...shape(r.machine, r.data as T[], await machines!.call<P[]>(r.machine, "GET", "/api/prs").catch(() => [])));
         }
         return out;
+      },
+    },
+    {
+      name: "jin_link_task",
+      description:
+        "Link a Slack thread or channel, a Notion page or a Linear issue to a task (its URL), so what happens there shows in the task's Activity. A channel link takes threads started from now on. A task's PRs and its own Linear issue are linked already.",
+      input: { taskId: z.string(), url: z.string(), machine: machineArg },
+      run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        if (on) return machines!.call(on, "POST", `/api/tasks/${encodeURIComponent(a.taskId as string)}/links`, { url: a.url });
+        if (!links) throw new Error("links are not available here");
+        tasks.get(a.taskId as string);
+        const l = links.add(a.taskId as string, a.url as string);
+        jobs.addLinks?.(a.taskId as string, []);
+        return l;
       },
     },
     {

@@ -6,11 +6,12 @@ import { jinTools } from "./chats";
 import { loadConfig, loadWorkspaces } from "./config";
 import { now, openDb } from "./db";
 import { dropInheritedClaudeSession } from "./env";
-import { collectGithub, Feed, feedRoutes } from "./feed";
+import { collectGithub, Feed, feedRoutes, type FeedItem } from "./feed";
 import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
 import { reviewRoutes } from "./reviews";
+import { linkRoutes, ownLinks, TaskLinks, watchRoutes, Watches } from "./links";
 import { skillRoutes, Skills, tagsFor, writeTaskPlugin, type SkillBody } from "./skills";
 import { localVersion, machineId, machineRoutes, Machines } from "./machines";
 import { exportHistory, historyRoutes } from "./history";
@@ -98,7 +99,7 @@ jobRoutes(app.router, jobs);
 reviewRoutes(app.router, { tasks, jobs });
 sessions.provideJinTools(() =>
   jinTools({
-    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs, hooks,
+    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs, hooks, links: taskLinks,
     machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
   }),
 );
@@ -310,9 +311,51 @@ machines.resume();
 // GitHub activity on your PRs is watched with gh here (one call every two minutes), not with triggers.
 let liveDeliver: (e: LiveEvent) => void = () => {};
 const githubWatch = new GithubWatch(config.home, (e) => liveDeliver(e));
+// What tasks follow (links): on the home, the Slack threads and channels they watch.
+const watches = new Watches(config.home);
+watchRoutes(app.router, watches);
+const taskLinks = new TaskLinks(db);
+tasks.onRemoved((taskId) => taskLinks.removeTask(taskId));
+const linksOf = (taskId: string) => {
+  const t = tasks.get(taskId);
+  return [...ownLinks(t, prs.list(taskId)), ...taskLinks.list(taskId)];
+};
+// This machine's tasks' Slack links go to the home, where events are read (or stay here).
+const pushWatches = () => {
+  const live = new Set(tasks.list().filter((t) => t.state === "ready" && !t.archived).map((t) => t.id));
+  const keys = taskLinks.list().filter((l) => live.has(l.taskId)).map((l) => l.key);
+  const home = homeLink();
+  if (!home) return watches.set("local", keys);
+  void machines.call(home.id, "PUT", "/api/feed/watches", { machine: machines.identity?.id ?? "local", keys }).catch(() => {});
+};
+linkRoutes(app.router, {
+  links: taskLinks,
+  linksOf,
+  changed: pushWatches,
+  // Events are read on the home: a task's Activity comes from its feed.
+  feedItems: async () => {
+    const home = homeLink();
+    return home ? machines.call<FeedItem[]>(home.id, "GET", "/api/feed") : feed.list();
+  },
+});
+jobs.addLinks = (taskId, urls) => {
+  const problems: string[] = [];
+  for (const u of urls.map((x) => x.trim()).filter(Boolean)) {
+    try {
+      taskLinks.add(taskId, u);
+    } catch (err) {
+      problems.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  pushWatches();
+  return problems;
+};
+setTimeout(pushWatches, 10_000);
+const watchTimer = setInterval(pushWatches, 5 * 60_000);
 const composio = new Composio(config, {
   feed,
   workspaces: app.workspaces,
+  watched: (key, channel) => watches.watched(key, channel),
   notify: (n) => void notifier.notify(n),
   onEvent: (e) => fireEvent({ event: "live.event", key: e.id, payload: { ...e } }),
   shouldNotify: (e) => liveNotifies(notifier.settings, e),
@@ -330,6 +373,7 @@ const feedTimer = config.mode === "vm" && !process.env.JIN_NO_TIMERS
 
 function shutdown() {
   clearInterval(prTimer);
+  clearInterval(watchTimer);
   if (feedTimer) clearInterval(feedTimer);
   machines.stopAll();
   composio.stopAll();
