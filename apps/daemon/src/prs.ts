@@ -135,12 +135,23 @@ export class TaskPRs {
     this.db.query("delete from task_prs where task_id = ?").run(taskId);
   }
 
+  private mergedHooks: ((taskId: string, pr: TaskPR) => void)[] = [];
+  /** Run when a PR jin saw open is now merged (not for PRs attached already merged). */
+  onMerged(fn: (taskId: string, pr: TaskPR) => void) {
+    this.mergedHooks.push(fn);
+  }
+
   async refreshOne(taskId: string, url: string) {
+    const before = this.list(taskId).find((p) => p.url === url)?.state ?? null;
     const raw = await this.gh(["pr", "view", url, "--json", "number,title,state,isDraft,reviewDecision,statusCheckRollup,headRefName"]);
     const j = JSON.parse(raw) as { title?: string; state?: string; isDraft?: boolean; reviewDecision?: string; statusCheckRollup?: { conclusion?: string; status?: string; state?: string }[]; headRefName?: string };
     this.db
       .query("update task_prs set title = ?, state = ?, draft = ?, review = ?, checks = ?, head = ?, updated_at = ? where task_id = ? and url = ?")
       .run(j.title ?? null, j.state ?? null, j.isDraft ? 1 : 0, j.reviewDecision || null, rollup(j.statusCheckRollup), j.headRefName ?? null, now(), taskId, url);
+    if (before === "OPEN" && j.state === "MERGED") {
+      const pr = this.list(taskId).find((p) => p.url === url);
+      if (pr) for (const fn of this.mergedHooks) fn(taskId, pr);
+    }
   }
 
   /** Refresh open PRs (merged and closed ones do not change). */
