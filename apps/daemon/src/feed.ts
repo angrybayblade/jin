@@ -83,6 +83,15 @@ export class Feed {
     return added;
   }
 
+  /** A name learned for an id (a Slack user or channel): past items of that source show it too. */
+  rename(source: FeedItem["source"], id: string, name: string) {
+    if (!id || !name || id === name) return;
+    const sub = (col: string) => `${col} = replace(${col}, ?, ?)`;
+    this.db
+      .query(`update feed_items set actor = case when actor = ? then ? else actor end, ${sub("thread_title")}, ${sub("summary")}, ${sub("title")} where source = ? and (actor = ? or thread_title like ? or summary like ? or title like ?)`)
+      .run(id, name, id, name, id, name, id, name, source, id, `%${id}%`, `%${id}%`, `%${id}%`);
+  }
+
   setState(id: string, state: FeedState, extra: { snoozedUntil?: string; taskId?: string } = {}): FeedItem {
     this.get(id);
     this.db
