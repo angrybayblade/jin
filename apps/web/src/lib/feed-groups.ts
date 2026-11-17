@@ -12,7 +12,7 @@ export interface FeedGroup {
   ids: string[];
 }
 
-/** One line in a group: an item, or several in a row by the same person doing the same thing. */
+/** One line in a group: an item, or every item in the thread by the same person doing the same thing. */
 export interface FeedRow {
   id: string;
   ids: string[];
@@ -33,17 +33,20 @@ const LEGACY = /^(.*?) on ([\w.-]+\/[\w.-]+)#(\d+) (.*?)(?: \(reviewing\))?$/;
 
 function threadOf(i: FeedItem): Pick<FeedGroup, "key" | "title" | "ref" | "url"> & { what?: string; actor?: string | null } {
   if (i.thread) return i.thread;
-  const gh = GH.exec(i.externalRef);
+  // Older live items: the PR is in the title ("New commit by x on Org/repo#12 Title"), even when the link is a commit.
   const legacy = LEGACY.exec(i.title);
-  if (gh) {
-    const [, repo, num] = gh as unknown as [string, string, string];
-    const url = `https://github.com/${repo}/pull/${num}`;
-    const ref = `${repo.split("/")[1]}#${num}`;
+  const gh = GH.exec(i.externalRef);
+  const repo = legacy?.[2] ?? gh?.[1];
+  const num = legacy?.[3] ?? gh?.[2];
+  if (repo && num) {
+    const base = { key: `github:${repo.toLowerCase()}#${num}`, ref: `${repo.split("/")[1]}#${num}`, url: `https://github.com/${repo}/pull/${num}` };
     if (legacy) {
       const m = /^(.*) by (\S+)$/.exec(legacy[1]!);
-      return { key: `github:${repo.toLowerCase()}#${num}`, title: legacy[4]!.replace(/…$/, ""), ref, url, what: (m?.[1] ?? legacy[1]!).toLowerCase(), actor: m?.[2] ?? null };
+      const verb = (m?.[1] ?? legacy[1]!).toLowerCase();
+      const what = verb === "new commit" ? "pushed" : verb === "comment" ? "commented" : verb === "review" ? "reviewed" : verb === "approved" ? "approved" : verb === "changes requested" ? "requested changes" : verb;
+      return { ...base, title: legacy[4]!, what, actor: m?.[2] ?? null };
     }
-    return { key: `github:${repo.toLowerCase()}#${num}`, title: i.title, ref, url };
+    return { ...base, title: i.title };
   }
   return { key: i.id, title: i.title, ref: null, url: i.externalRef.startsWith("http") ? i.externalRef : null };
 }
@@ -56,7 +59,7 @@ const tidy = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Open items grouped by thread; groups and rows newest first; repeats in a row fold together. */
+/** Open items grouped by thread; groups and rows newest first; repeats (same person, same action) fold together. */
 export function groupFeed(items: FeedItem[]): FeedGroup[] {
   const groups = new Map<string, FeedGroup>();
   const sorted = [...items].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
@@ -66,7 +69,7 @@ export function groupFeed(items: FeedItem[]): FeedGroup[] {
     if (!g) {
       g = { key: t.key, source: i.source, title: t.title, ref: t.ref, url: t.url, latest: i.receivedAt, rows: [], ids: [] };
       groups.set(t.key, g);
-    }
+    } else if (g.title.endsWith("…") && !t.title.endsWith("…")) g.title = t.title; // older items cut titles short
     g.ids.push(i.id);
     const collector = COLLECTOR_KINDS[i.kind];
     const row: FeedRow = {
@@ -80,8 +83,8 @@ export function groupFeed(items: FeedItem[]): FeedGroup[] {
       at: i.receivedAt,
       count: 1,
     };
-    const prev = g.rows.at(-1);
-    if (prev && prev.actor === row.actor && prev.what === row.what && row.actor) {
+    const prev = row.actor ? g.rows.find((r) => r.actor === row.actor && r.what === row.what) : undefined;
+    if (prev) {
       prev.ids.push(i.id);
       prev.count++;
     } else g.rows.push(row);
@@ -92,6 +95,7 @@ export function groupFeed(items: FeedItem[]): FeedGroup[] {
 /** "pushed 5 commits", "commented ×3". */
 export function rowWhat(r: FeedRow): string {
   if (r.count === 1) return r.what;
+  if (!r.what) return `${r.count} messages`;
   if (r.what === "pushed") return `pushed ${r.count} commits`;
   return `${r.what} ×${r.count}`;
 }
