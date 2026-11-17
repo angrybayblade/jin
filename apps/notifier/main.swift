@@ -13,9 +13,14 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
   let args: [String: String]
   init(args: [String: String]) { self.args = args }
 
+  // The delegate must be set before launching finishes: a click on a notification posted
+  // earlier relaunches this app and delivers the click right after launch.
+  func applicationWillFinishLaunching(_ note: Notification) {
+    UNUserNotificationCenter.current().delegate = self
+  }
+
   func applicationDidFinishLaunching(_ note: Notification) {
     let center = UNUserNotificationCenter.current()
-    center.delegate = self
     guard let title = args["title"] else {
       // Launched for a click: the response arrives through the delegate; quit if it does not.
       quit(after: 10)
