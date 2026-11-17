@@ -136,6 +136,7 @@ export interface ToolSpec {
 
 /** A workspace of this provider's kind found on a machine. */
 export interface Detected {
+  provider: string;
   root: string;
   /** The one the machine's own tooling points at (offered first). */
   preferred: boolean;
@@ -156,15 +157,17 @@ export interface WorkspaceProvider {
    * tooling points at. PATH is set up before it runs.
    */
   detectScript(): string;
-  /** Whether `root` is a workspace of this kind (on this machine). */
-  isWorkspace(root: string): boolean;
+  /** POSIX sh that exits 0 when $ROOT is a workspace of this kind (here or over SSH). */
+  readonly check: string;
   /**
    * Installing a workspace of this kind: where by default (relative to $HOME), and POSIX sh
    * that installs it into $ROOT, or updates one already there. Absent: it can only be used.
    */
-  install?: { defaultRoot: string; script: string; needs?: string[] };
-  /** The config a new workspace at `root` gets (its id, GitHub owners). */
-  defaults(root: string): { id: string; github: { owners: string[] } };
+  install?: { defaultRoot: string; script: string };
+  /** The id a new workspace of this kind gets in jin. */
+  readonly defaultId: string;
+  /** GitHub owners of a workspace's repos (to tell its pull requests apart), read from the workspace at `root`. */
+  owners(root: string): string[];
   /** Tools its workspaces need on a machine. */
   tools(): ToolSpec[];
   create(config: WorkspaceConfig): WorkspaceAdapter;

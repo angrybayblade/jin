@@ -27,13 +27,13 @@ export function Setup({ initial }: { initial: SetupState }) {
     }, 1500);
     return () => clearInterval(t);
   }, []);
-  const use = (p: string) =>
-    void adoptSetupWorkspace(p).then((r) => {
+  const use = (p: string, provider?: string) =>
+    void adoptSetupWorkspace(p, provider).then((r) => {
       setError(r?.error ?? null);
       refresh();
       router.refresh();
     });
-  const gh = s.auth.find((a) => a.tool === "gh");
+  const label = (id: string) => s.providers.find((p) => p.id === id)?.label ?? id;
   const installing = s.install?.state === "running";
   return (
     <div className="machines">
@@ -54,23 +54,23 @@ export function Setup({ initial }: { initial: SetupState }) {
             <section className="md-card">
               <div className="md-card-head is-static">
                 <h3>Workspace</h3>
-                <span className="meta">where jin's coding agents work: every platform repo and the cws tooling</span>
+                <span className="meta">where jin's coding agents work: your repos, and the tooling that gives each task its own checkouts</span>
               </div>
               <div className="md-card-body">
               {s.workspaces.map((w) => (
                 <p key={w.id} className="setup-done">
-                  <Check size={14} className="step-done" /> {w.id} at {w.root}
+                  <Check size={14} className="step-done" /> {w.id} ({label(w.adapter)}) at {w.root}
                 </p>
               ))}
               {s.install && <Steps steps={[s.install]} />}
               {s.workspaces.length === 0 && !installing && (
                 <div className="setup-options">
                   {s.candidates.map((c) => (
-                    <div key={c} className="setup-option">
+                    <div key={c.root} className="setup-option">
                       <FolderGit2 size={14} />
-                      <span className="setup-option-path">{c}</span>
-              {c === s.cws && <span className="meta setup-option-hint">cws uses this one</span>}
-                      <button type="button" className="button small primary" onClick={() => use(c)}>
+                      <span className="setup-option-path">{c.root}</span>
+                      <span className="meta setup-option-hint">{label(c.provider)}{c.preferred ? " · its tooling uses this one" : ""}</span>
+                      <button type="button" className="button small primary" onClick={() => use(c.root, c.provider)}>
                         Use this one
                       </button>
                     </div>
@@ -82,27 +82,30 @@ export function Setup({ initial }: { initial: SetupState }) {
                       use(path);
                     }}
                   >
-                    <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={s.candidates.length ? "or another folder: ~/somewhere/composio-workspace" : "~/composio-workspace"} spellCheck={false} />
+                    <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={s.candidates.length ? "or another folder: ~/path/to/workspace" : "~/path/to/workspace"} spellCheck={false} />
                     <button type="submit" className="button small" disabled={!path.trim()}>
                       Use
                     </button>
                   </form>
-                  <div className="machine-workspace-actions">
-                    <button
-                      type="button"
-                      className="button small"
-                      disabled={gh?.state !== "signed-in"}
-                      onClick={() =>
-                        void installSetupWorkspace().then((r) => {
-                          setError(r?.error ?? null);
-                          refresh();
-                        })
-                      }
-                    >
-                      Install it into ~/composio-workspace
-                    </button>
-                    {gh?.state !== "signed-in" && <span className="meta">Sign in to GitHub first: its repos are private.</span>}
-                  </div>
+                  {s.providers
+                    .filter((p) => p.installsTo)
+                    .map((p) => (
+                      <div key={p.id} className="machine-workspace-actions">
+                        <button
+                          type="button"
+                          className="button small"
+                          onClick={() =>
+                            void installSetupWorkspace(p.id).then((r) => {
+                              setError(r?.error ?? null);
+                              refresh();
+                            })
+                          }
+                        >
+                          Install {p.label} into {p.installsTo}
+                        </button>
+                        <span className="meta">{p.description}</span>
+                      </div>
+                    ))}
                 </div>
               )}
               {error && <p className="machine-error">{error}</p>}

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { machineId, readAuthStatus, readDetected, readSignIn, stripAnsi, validHost } from "../src/machines";
+import { readDetections } from "../src/adapters";
+import { machineId, readAuthStatus, readSignIn, stripAnsi, validHost } from "../src/machines";
 
 test("a machine's id comes from its host, and never collides", () => {
   expect(machineId("tmp-jin.exe.xyz")).toBe("tmp-jin");
@@ -43,11 +44,22 @@ test("reads who is signed in from the status probe", () => {
   expect(stripAnsi("\x1b[1mhi\x1b[0m\r")).toBe("hi");
 });
 
-test("reads the workspaces found on a machine, and the one jin there uses", () => {
-  expect(readDetected("WS /home/me/composio-workspace\nCWS /home/me/Workspace/composio-workspace\nWS /home/me/composio-workspace\nUSING /home/me/composio-workspace\n")).toEqual({
-    found: ["/home/me/Workspace/composio-workspace", "/home/me/composio-workspace"], // cws's own first
-    using: "/home/me/composio-workspace",
-    cws: "/home/me/Workspace/composio-workspace",
+test("reads the workspaces found on a machine, and the ones jin there uses", () => {
+  const out = [
+    "cws FOUND 11 /home/me/composio-workspace",
+    "cws PREFERRED 12 /home/me/Workspace/composio-workspace",
+    "cws FOUND 12 /home/me/workspace/composio-workspace", // the same folder, another spelling
+    "git FOUND 13 /home/me/src/app",
+    "cws USING 0 /home/me/composio-workspace",
+    "noise",
+  ].join("\n");
+  expect(readDetections(out)).toEqual({
+    found: [
+      { provider: "cws", root: "/home/me/Workspace/composio-workspace", preferred: true }, // the tooling's own first
+      { provider: "cws", root: "/home/me/composio-workspace", preferred: false },
+      { provider: "git", root: "/home/me/src/app", preferred: false },
+    ],
+    using: ["/home/me/composio-workspace"],
   });
-  expect(readDetected("")).toEqual({ found: [], using: null, cws: null });
+  expect(readDetections("")).toEqual({ found: [], using: [] });
 });

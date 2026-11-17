@@ -1,17 +1,19 @@
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { type Detected, detectionScript, isWorkspaceAt, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
-import { WORKSPACE_PLACES as PLACES, AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, defaultSpawn, driveSignIn, lines, PATH_LINE, readAuthStatus, SIGN_IN, type SignIn, type Spawn, type Step } from "./machines";
+import { AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, defaultSpawn, driveSignIn, lines, PATH_LINE, readAuthStatus, SIGN_IN, type SignIn, type Spawn, type Step } from "./machines";
 
 /** What jin needs on this machine before it is useful, and how far along it is. */
 export interface SetupView {
-  workspaces: { id: string; root: string }[];
-  /** composio workspaces found on this machine that jin does not use yet (the one `cws` belongs to first). */
-  candidates: string[];
-  /** The workspace this machine's `cws` command belongs to, when there is one. */
-  cws: string | null;
+  workspaces: { id: string; root: string; adapter: string }[];
+  /** Workspaces found on this machine that jin does not use yet (the ones their tooling points at first). */
+  candidates: Detected[];
+  /** The kinds of workspace jin can use, and which it can install. */
+  providers: ProviderView[];
   auth: AuthState[];
   install: Step | null;
   /** A workspace, and gh and Claude Code signed in. */
@@ -22,7 +24,14 @@ const LOG_LINES = 300;
 const TOOLS: AuthTool[] = ["gh", "claude", "doppler"];
 
 
-export const isComposioWorkspace = (dir: string) => existsSync(join(dir, "workspace.yaml")) && existsSync(join(dir, "bin", "cws"));
+// realpath: macOS folders are case-insensitive, so two spellings can be one folder.
+const real = (d: string) => {
+  try {
+    return realpathSync(d);
+  } catch {
+    return resolve(d);
+  }
+};
 
 const expand = (p: string) => resolve(p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
@@ -45,40 +54,17 @@ export class LocalSetup {
     private home = homedir(),
   ) {}
 
-  /** The workspace `cws` belongs to: its setup links ~/.local/bin/cws to <workspace>/bin/cws. */
-  cwsRoot(): string | null {
-    const links = [join(this.home, ".local", "bin", "cws")];
-    if (this.home === homedir()) links.push(Bun.which("cws") ?? "");
-    for (const link of links.filter(Boolean)) {
-      try {
-        const target = realpathSync(link);
-        const root = dirname(dirname(target));
-        if (target.endsWith(join("bin", "cws")) && isComposioWorkspace(root)) return root;
-      } catch {
-        // not there
-      }
-    }
-    return null;
-  }
-
-  candidates(): string[] {
-    // realpath: macOS folders are case-insensitive, so two spellings can be one folder.
-    const real = (d: string) => {
-      try {
-        return realpathSync(d);
-      } catch {
-        return resolve(d);
-      }
-    };
+  /** Workspaces of every kind jin knows, found on this machine, that jin does not use yet. */
+  candidates(): Detected[] {
+    // A home other than the user's (tests): only that home's tools, not the user's PATH.
+    const path = this.home === homedir() ? process.env.PATH : `${join(this.home, ".local", "bin")}:/usr/bin:/bin`;
+    const r = spawnSync("sh", ["-c", `${PATH_LINE}\n${detectionScript()}`], { env: { ...process.env, HOME: this.home, PATH: path }, encoding: "utf8" });
     const seen = new Set(this.workspaces.map((w) => real(w.root)));
-    const out: string[] = [];
-    const cws = this.cwsRoot();
-    for (const d of [...(cws ? [cws] : []), ...PLACES.map((p) => join(this.home, p))]) {
-      if (!isComposioWorkspace(d) || seen.has(real(d))) continue;
-      seen.add(real(d));
-      out.push(d);
-    }
-    return out;
+    return readDetections(r.stdout ?? "").found.filter((d) => {
+      if (seen.has(real(d.root))) return false;
+      seen.add(real(d.root));
+      return true;
+    });
   }
 
   private authOf(tool: AuthTool): AuthState {
@@ -94,9 +80,9 @@ export class LocalSetup {
     const auth = TOOLS.map((t) => this.authOf(t));
     const signedIn = (t: AuthTool) => auth.find((a) => a.tool === t)?.state === "signed-in";
     return {
-      workspaces: this.workspaces.map((w) => ({ id: w.id, root: w.root })),
+      workspaces: this.workspaces.map((w) => ({ id: w.id, root: w.root, adapter: w.adapter })),
       candidates: this.candidates(),
-      cws: this.cwsRoot(),
+      providers: providerViews(),
       auth,
       install: this.installStep,
       ready: this.workspaces.length > 0 && signedIn("gh") && signedIn("claude"),
@@ -146,42 +132,42 @@ export class LocalSetup {
     void this.checkAuth().catch(() => {});
   }
 
-  /** Use the composio workspace at `path`: writes $JIN_HOME/workspaces/composio.yaml and starts using it. */
-  useWorkspace(path: string): WorkspaceConfig {
+  /** Use the workspace at `path` (of the given kind, or whichever kind it is): writes its config and starts using it. */
+  useWorkspace(path: string, providerId?: string): WorkspaceConfig {
     const root = expand(path.trim());
-    if (!isComposioWorkspace(root)) throw new HttpError(400, `no composio workspace at ${root} (workspace.yaml and bin/cws are missing)`);
-    if (this.workspaces.some((w) => w.adapter === "cws")) throw new HttpError(409, "jin already has a composio workspace");
-    const w: WorkspaceConfig = { id: "composio", adapter: "cws", root, github: { owners: ["ComposioHQ"] }, profile: {} };
+    const p = providerId ? provider(providerId) : PROVIDERS.find((x) => isWorkspaceAt(x, root));
+    if (!p || !isWorkspaceAt(p, root)) throw new HttpError(400, `${root} is not a workspace jin can use (${PROVIDERS.map((x) => x.label).join(", ")})`);
+    if (this.workspaces.some((w) => real(w.root) === real(root))) throw new HttpError(409, `jin already uses the workspace at ${root}`);
+    const taken = new Set(this.workspaces.map((w) => w.id));
+    let id = p.defaultId;
+    for (let n = 2; taken.has(id); n++) id = `${p.defaultId}-${n}`;
+    const w: WorkspaceConfig = { id, adapter: p.id, root, github: { owners: p.owners(root) }, profile: {} };
     const dir = join(this.config.home, "workspaces");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "composio.yaml"), ["id: composio", "adapter: cws", `root: ${root}`, "github:", "  owners: [ComposioHQ]", ""].join("\n"));
+    writeFileSync(join(dir, `${id}.yaml`), workspaceYaml({ id, adapter: p.id, root, owners: w.github.owners }));
     this.addWorkspace(w);
     return w;
   }
 
-  /** Install the composio workspace into ~/composio-workspace with its own installer (needs gh), then use it. */
-  install() {
-    if (this.installStep?.state === "running") throw new HttpError(409, "the workspace is already being installed");
-    if (this.workspaces.some((w) => w.adapter === "cws")) throw new HttpError(409, "jin already has a composio workspace");
-    const root = join(this.home, "composio-workspace");
-    const step: Step = { id: "workspace", label: "Install the composio workspace", state: "running", log: [], error: null };
+  /** Install a workspace of this kind with its provider's installer, then use it. */
+  install(providerId?: string) {
+    if (this.installStep?.state === "running") throw new HttpError(409, "a workspace is already being installed");
+    const p = providerId ? provider(providerId) : PROVIDERS.find((x) => x.install);
+    if (!p?.install) throw new HttpError(400, `jin cannot install a ${p?.label ?? "workspace"}; point it at one instead`);
+    const root = join(this.home, p.install.defaultRoot);
+    const step: Step = { id: "workspace", label: `Install ${p.label}`, state: "running", log: [], error: null };
     this.installStep = step;
     const say = (l: string) => {
       step.log.push(l);
       if (step.log.length > LOG_LINES) step.log.splice(0, step.log.length - LOG_LINES);
     };
-    const script = `
-set -e
-${PATH_LINE}
-gh auth status >/dev/null 2>&1 || { echo "sign in to GitHub first: the workspace's repos are private"; exit 1; }
-gh api repos/ComposioHQ/workspace/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash -s -- --yes --dir "${root}"
-`;
+    const script = `set -e\n${PATH_LINE}\nROOT=${JSON.stringify(root)}\n${p.install.script}`;
     void (async () => {
       try {
         const proc = this.spawn(["bash", "-s"], { stdin: new Blob([script]) });
         await Promise.all([lines(proc.stdout, say), lines(proc.stderr, say)]);
         if ((await proc.exited) !== 0) throw new Error("the installer failed; see the log");
-        this.useWorkspace(root);
+        this.useWorkspace(root, p.id);
         say(`jin now uses the workspace at ${root}`);
         step.state = "done";
       } catch (err) {
@@ -222,13 +208,13 @@ export function setupRoutes(router: Router, setup: LocalSetup) {
       return json(await setup.view());
     })
     .on("POST", "/api/setup/workspace", async (req) => {
-      const { path } = await body<{ path?: string }>(req);
+      const { path, provider: kind } = await body<{ path?: string; provider?: string }>(req);
       if (!path) throw new HttpError(400, "path is required");
-      setup.useWorkspace(path);
+      setup.useWorkspace(path, kind);
       return json(await setup.view(), 201);
     })
-    .on("POST", "/api/setup/install", async () => {
-      setup.install();
+    .on("POST", "/api/setup/install", async (req) => {
+      setup.install((await body<{ provider?: string }>(req).catch(() => ({}) as { provider?: string })).provider);
       return json(await setup.view(), 202);
     });
 }

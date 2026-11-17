@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { type Detected, detectionScript, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -68,10 +69,10 @@ export interface MachineView extends Omit<MachineRecord, "token"> {
   outdated: boolean;
   steps: Step[];
   workspaceStep: Step | null;
-  /** composio workspaces found on the machine (null: not looked yet). */
-  workspaceCandidates: string[] | null;
-  /** The one the machine's `cws` command belongs to, when there is one. */
-  workspaceCws: string | null;
+  /** Workspaces found on the machine, of every kind jin knows (null: not looked yet); the ones their tooling points at first. */
+  workspaceCandidates: Detected[] | null;
+  /** The kinds of workspace jin can set up there. */
+  providers: ProviderView[];
   auth: AuthState[];
 }
 
@@ -104,47 +105,6 @@ export function localVersion(): string | null {
 const REPO = resolve(import.meta.dir, "../../..");
 // Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
 export const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
-
-/** The usual places a composio workspace lives, under a home folder (its installer defaults to ~/composio-workspace). */
-export const WORKSPACE_PLACES = ["composio-workspace", "Workspace/composio-workspace", "workspace/composio-workspace", "code/composio-workspace", "src/composio-workspace", "dev/composio-workspace"];
-
-/**
- * Lists composio workspaces: first the one `cws` on PATH points to (its setup links
- * ~/.local/bin/cws to <workspace>/bin/cws; `CWS <path>`), then any in the usual places
- * (`WS <path>`); and the one jin there already uses (`USING <path>`).
- */
-export const DETECT_SCRIPT = `
-${PATH_LINE}
-real() { readlink -f "$1" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
-{
-  if C=$(command -v cws 2>/dev/null); then
-    R=$(real "$C"); W="\${R%/bin/cws}"
-    if [ -n "$R" ] && [ "$W" != "$R" ] && [ -f "$W/workspace.yaml" ]; then echo "$(ls -di "$W" | awk '{print $1}') CWS $(cd "$W" && pwd -P)"; fi
-  fi
-  for d in ${WORKSPACE_PLACES.join(" ")}; do
-    p="$HOME/$d"
-    if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "$(ls -di "$p" | awk '{print $1}') WS $(cd "$p" && pwd -P)"; fi
-  done
-} | awk '!seen[$1]++ { $1 = ""; sub(/^ /, ""); print }'
-# (one line per folder: two spellings of one folder on a case-insensitive disk share an inode)
-if [ -f ~/.jin/workspaces/composio.yaml ]; then echo "USING $(sed -n 's/^root: *//p' ~/.jin/workspaces/composio.yaml | head -1)"; fi
-true
-`;
-
-/** What the detection script found; `cws` is the workspace the machine's cws command belongs to. */
-export function readDetected(out: string): { found: string[]; using: string | null; cws: string | null } {
-  const found: string[] = [];
-  let using: string | null = null;
-  let cws: string | null = null;
-  for (const line of stripAnsi(out).split("\n").map((l) => l.trim())) {
-    if (line.startsWith("CWS ")) {
-      cws = line.slice(4).trim();
-      found.unshift(cws);
-    } else if (line.startsWith("WS ")) found.push(line.slice(3).trim());
-    else if (line.startsWith("USING ")) using = line.slice(6).trim() || null;
-  }
-  return { found: [...new Set(found)], using, cws };
-}
 
 export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
 
@@ -392,8 +352,7 @@ export class Machines {
   private dir: string;
   private steps = new Map<string, Step[]>();
   private workspaceSteps = new Map<string, Step>();
-  private candidates = new Map<string, string[]>();
-  private cwsRoots = new Map<string, string | null>();
+  private candidates = new Map<string, Detected[]>();
   private busy = new Set<string>();
   private tunnels = new Map<string, Tunnel>();
   private auth = new Map<string, Map<AuthTool, AuthState>>();
@@ -455,7 +414,7 @@ export class Machines {
       steps,
       workspaceStep: this.workspaceSteps.get(id) ?? null,
       workspaceCandidates: this.candidates.get(id) ?? null,
-      workspaceCws: this.cwsRoots.get(id) ?? null,
+      providers: providerViews(),
       auth: (["gh", "claude", "doppler"] as AuthTool[]).map((t) => this.authOf(id, t)),
     };
   }
@@ -933,55 +892,48 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
   // ---------------------------------------------------------------- workspace
 
   /**
-   * Look for composio workspaces on the machine. One that jin there already uses is taken as
-   * the machine's workspace (a machine set up before, or by hand); the rest are offered.
+   * Look for workspaces of every kind jin knows on the machine. One that jin there already uses
+   * is taken as the machine's workspace (a machine set up before, or by hand); the rest are offered.
    */
-  async detectWorkspaces(id: string): Promise<string[]> {
+  async detectWorkspaces(id: string): Promise<Detected[]> {
     const m = this.record(id);
-    const { out } = await this.ssh(m.host, DETECT_SCRIPT, () => {});
-    const { found, using, cws } = readDetected(out);
-    if (using && using !== m.workspace) this.update(id, { workspace: using });
-    this.cwsRoots.set(id, cws);
-    this.candidates.set(id, found.filter((p) => p !== using));
+    const { out } = await this.ssh(m.host, `${PATH_LINE}\n${detectionScript()}`, () => {});
+    const { found, using } = readDetections(out);
+    const current = using[0] ?? null;
+    if (current && current !== m.workspace) this.update(id, { workspace: current });
+    this.candidates.set(id, found.filter((d) => !using.includes(d.root)));
     return found;
   }
 
   /**
-   * Give the machine's jin a workspace: install the composio workspace there (its own
-   * install.sh, with the machine's gh), or use one already on the machine.
+   * Give the machine's jin a workspace: one already on the machine (at `path`), or a new one
+   * installed with the provider's own installer (with the machine's gh and tools).
    */
-  setupWorkspace(id: string, opts: { kind: "composio"; path?: string }) {
+  setupWorkspace(id: string, opts: { provider: string; path?: string }) {
     const m = this.record(id);
     if (!m.token) throw new HttpError(409, "finish setting up the machine first");
     if (this.busy.has(id)) throw new HttpError(409, "this machine is busy");
+    const p = provider(opts.provider);
     const path = opts.path?.trim();
     if (path && !/^[\w~./-]+$/.test(path)) throw new HttpError(400, "a workspace path is plain: letters, digits, ~ . / - _");
-    const local = this.workspaces.find((w) => w.adapter === "cws");
-    const owners = local?.github.owners.length ? local.github.owners : ["ComposioHQ"];
-    const root = path ? (path.startsWith("~/") ? `$HOME/${path.slice(2)}` : path) : "$HOME/composio-workspace";
+    if (!path && !p.install) throw new HttpError(400, `jin cannot install a ${p.label}; give the path of one on the machine`);
+    // The same GitHub owners as this machine's workspace of that kind, when it has one; else the machine's jin reads them.
+    const owners = this.workspaces.find((w) => w.adapter === p.id)?.github.owners ?? [];
+    const root = path ? (path.startsWith("~/") ? `$HOME/${path.slice(2)}` : path) : `$HOME/${p.install!.defaultRoot}`;
+    const yaml = workspaceYaml({ id: p.defaultId, adapter: p.id, root: "$ROOT", owners });
     const script = `
 set -e
 ${PATH_LINE}
 ROOT="${root}"
 if [ -n "${path ?? ""}" ]; then
-  [ -f "$ROOT/workspace.yaml" ] || { echo "no composio workspace at $ROOT (workspace.yaml is missing)"; exit 1; }
+  ( ${p.check} ) || { echo "no ${p.label} at $ROOT"; exit 1; }
   echo "using the workspace at $ROOT"
-elif [ -d "$ROOT/.git" ]; then
-  echo "updating the workspace at $ROOT"
-  cd "$ROOT" && git pull --ff-only -q || true
-  ./setup.sh --yes
 else
-  gh auth status >/dev/null 2>&1 || { echo "sign in to gh on the machine first: the workspace's repos are private"; exit 1; }
-  echo "installing the composio workspace into $ROOT"
-  gh api repos/ComposioHQ/workspace/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash -s -- --yes --dir "$ROOT"
+${p.install?.script ?? ""}
 fi
-cat > ~/.jin/workspaces/composio.yaml <<EOF
-id: composio
-adapter: composio
-root: $ROOT
-github:
-  owners: [${owners.join(", ")}]
-EOF
+mkdir -p ~/.jin/workspaces
+cat > ~/.jin/workspaces/${p.defaultId}.yaml <<EOF
+${yaml}EOF
 echo "jin's daemon there now has the workspace; restarting it"
 ${RESTART_SCRIPT}
 echo "JIN-ROOT $ROOT"
@@ -1074,8 +1026,8 @@ export function machineRoutes(router: Router, machines: Machines, exportHistory?
       return json(machines.view(p.id!));
     })
     .on("POST", "/api/machines/:id/workspace", async (req, p) => {
-      const { path } = await body<{ path?: string }>(req);
-      machines.setupWorkspace(p.id!, { kind: "composio", path });
+      const { path, provider: kind } = await body<{ path?: string; provider?: string }>(req);
+      machines.setupWorkspace(p.id!, { provider: kind ?? PROVIDERS[0]!.id, path });
       return json(machines.view(p.id!), 202);
     });
 }

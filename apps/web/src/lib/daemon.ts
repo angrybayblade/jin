@@ -326,16 +326,32 @@ export interface Machine {
   outdated: boolean;
   steps: MachineStep[];
   workspaceStep: MachineStep | null;
-  workspaceCandidates: string[] | null;
-  workspaceCws: string | null;
+  workspaceCandidates: DetectedWorkspace[] | null;
+  providers: WorkspaceProviderView[];
   auth: MachineAuth[];
+}
+
+/** A workspace found on a machine, of one of the kinds jin knows. */
+export interface DetectedWorkspace {
+  provider: string;
+  root: string;
+  /** The one its own tooling points at. */
+  preferred: boolean;
+}
+
+/** A kind of workspace jin can use (a workspace provider). */
+export interface WorkspaceProviderView {
+  id: string;
+  label: string;
+  description: string;
+  installsTo: string | null;
 }
 
 /** First-run setup for this machine (always this machine's daemon). */
 export interface SetupState {
-  workspaces: { id: string; root: string }[];
-  candidates: string[];
-  cws: string | null;
+  workspaces: { id: string; root: string; adapter: string }[];
+  candidates: DetectedWorkspace[];
+  providers: WorkspaceProviderView[];
   auth: MachineAuth[];
   install: MachineStep | null;
   ready: boolean;

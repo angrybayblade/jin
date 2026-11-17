@@ -72,9 +72,8 @@ test("A21 a machine onboards over ssh, answers through its tunnel, relays its no
     const v = await d.json("/api/machines/stand-in");
     return v.workspaceCandidates ? v : null;
   }, 20_000, "workspace detection");
-  expect(seen.workspaceCandidates).toEqual([ws]);
-  expect(seen.workspaceCws).toBe(ws);
-  await d.json("/api/machines/stand-in/workspace", { method: "POST", json: { path: ws } });
+  expect(seen.workspaceCandidates).toEqual([{ provider: "cws", root: ws, preferred: true }]); // cws there points at it
+  await d.json("/api/machines/stand-in/workspace", { method: "POST", json: { provider: "cws", path: ws } });
   const used = await until(async () => {
     const v = await d.json("/api/machines/stand-in");
     return v.workspaceStep?.state !== "running" ? v : null;

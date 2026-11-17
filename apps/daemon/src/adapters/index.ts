@@ -20,3 +20,4 @@ export function createAdapter(config: WorkspaceConfig): WorkspaceAdapter {
 }
 
 export * from "./types";
+export * from "./detect";

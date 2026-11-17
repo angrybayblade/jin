@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { providerId } from "./adapters";
+import { provider, providerId } from "./adapters";
 
 /** Jin's own settings, from $JIN_HOME/config.yaml. */
 export interface Config {
@@ -72,11 +72,20 @@ export function loadWorkspaces(home = jinHome()): WorkspaceConfig[] {
         id,
         adapter: providerId(String(raw.adapter)),
         root: String(raw.root),
-        github: { owners: (raw.github?.owners ?? []).map(String) },
+        // Unset: read from the workspace by its provider (cws: its submodules' GitHub owners).
+        github: { owners: Array.isArray(raw.github?.owners) ? raw.github.owners.map(String) : ownersOf(String(raw.adapter), String(raw.root)) },
         profile: {
           claudeConfigDir: raw.profile?.claudeConfigDir ? String(raw.profile.claudeConfigDir) : undefined,
           codexHome: raw.profile?.codexHome ? String(raw.profile.codexHome) : undefined,
         },
       };
     });
+}
+
+function ownersOf(adapter: string, root: string): string[] {
+  try {
+    return provider(adapter).owners(root);
+  } catch {
+    return [];
+  }
 }

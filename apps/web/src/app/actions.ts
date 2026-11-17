@@ -303,14 +303,14 @@ export async function setMachineDopplerToken(id: string, token: string): Promise
   }
 }
 
-/** Look again for composio workspaces on the machine. */
+/** Look again for workspaces on the machine. */
 export async function detectMachineWorkspaces(id: string): Promise<void> {
   await daemon(machinePath(id, "/workspaces/detect"), { method: "POST", local: true });
 }
 
-export async function setupMachineWorkspace(id: string, path?: string): Promise<{ error: string } | null> {
+export async function setupMachineWorkspace(id: string, opts: { provider: string; path?: string }): Promise<{ error: string } | null> {
   try {
-    await daemon(machinePath(id, "/workspace"), { method: "POST", json: { path: path || undefined }, local: true });
+    await daemon(machinePath(id, "/workspace"), { method: "POST", json: { provider: opts.provider, path: opts.path || undefined }, local: true });
     return null;
   } catch (err) {
     return fail(err);
@@ -359,9 +359,9 @@ export async function submitSetupSignInCode(tool: string, code: string): Promise
   }
 }
 
-export async function adoptSetupWorkspace(path: string): Promise<{ error: string } | null> {
+export async function adoptSetupWorkspace(path: string, provider?: string): Promise<{ error: string } | null> {
   try {
-    await daemon("/api/setup/workspace", { method: "POST", json: { path }, local: true });
+    await daemon("/api/setup/workspace", { method: "POST", json: { path, provider }, local: true });
     revalidatePath("/", "layout");
     return null;
   } catch (err) {
@@ -369,9 +369,9 @@ export async function adoptSetupWorkspace(path: string): Promise<{ error: string
   }
 }
 
-export async function installSetupWorkspace(): Promise<{ error: string } | null> {
+export async function installSetupWorkspace(provider: string): Promise<{ error: string } | null> {
   try {
-    await daemon("/api/setup/install", { method: "POST", local: true });
+    await daemon("/api/setup/install", { method: "POST", json: { provider }, local: true });
     return null;
   } catch (err) {
     return fail(err);

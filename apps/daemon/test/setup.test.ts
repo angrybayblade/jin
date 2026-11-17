@@ -21,18 +21,20 @@ function fixture() {
   return { setup, ws, jinHome, workspaces, added };
 }
 
-test("finds a composio workspace in the usual places, and only real ones", () => {
+test("finds a cws workspace in the usual places, and only real ones", () => {
   const { setup, ws } = fixture();
-  expect(setup.candidates()).toEqual([ws]);
+  expect(setup.candidates()).toEqual([{ provider: "cws", root: realpathSync(ws), preferred: false }]);
 });
 
 test("using a workspace writes its profile and makes it live at once", () => {
   const { setup, ws, jinHome, workspaces, added } = fixture();
   setup.useWorkspace(ws);
-  expect(added.map((w) => [w.id, w.root])).toEqual([["composio", ws]]);
-  expect(readFileSync(join(jinHome, "workspaces", "composio.yaml"), "utf8")).toContain(`root: ${ws}`);
+  expect(added.map((w) => [w.id, w.adapter, w.root])).toEqual([["composio", "cws", ws]]);
+  const yaml = readFileSync(join(jinHome, "workspaces", "composio.yaml"), "utf8");
+  expect(yaml).toContain(`root: ${ws}`);
+  expect(yaml).toContain("adapter: cws");
   expect(setup.candidates()).toEqual([]);
-  expect(() => setup.useWorkspace(ws)).toThrow("already has a composio workspace");
+  expect(() => setup.useWorkspace(ws)).toThrow("jin already uses the workspace");
   expect(workspaces).toHaveLength(1);
 });
 
@@ -42,14 +44,16 @@ test("the workspace cws belongs to comes first, wherever it is", () => {
   const elsewhere = join(home, "projects", "cw");
   mkdirSync(join(elsewhere, "bin"), { recursive: true });
   writeFileSync(join(elsewhere, "workspace.yaml"), "repos: {}\n");
-  writeFileSync(join(elsewhere, "bin", "cws"), "#!/bin/sh\n");
+  writeFileSync(join(elsewhere, "bin", "cws"), "#!/bin/sh\n", { mode: 0o755 });
   mkdirSync(join(home, ".local", "bin"), { recursive: true });
   symlinkSync(join(elsewhere, "bin", "cws"), join(home, ".local", "bin", "cws"));
-  expect(setup.cwsRoot()).toBe(realpathSync(elsewhere));
-  expect(setup.candidates()).toEqual([realpathSync(elsewhere), ws]);
+  expect(setup.candidates()).toEqual([
+    { provider: "cws", root: realpathSync(elsewhere), preferred: true },
+    { provider: "cws", root: realpathSync(ws), preferred: false },
+  ]);
 });
 
-test("refuses a folder that is not a composio workspace", () => {
+test("refuses a folder that is no kind of workspace jin knows", () => {
   const { setup } = fixture();
-  expect(() => setup.useWorkspace("/nonexistent/place")).toThrow("no composio workspace");
+  expect(() => setup.useWorkspace("/nonexistent/place")).toThrow("is not a workspace jin can use");
 });

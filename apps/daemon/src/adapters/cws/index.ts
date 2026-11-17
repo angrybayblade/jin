@@ -187,8 +187,6 @@ export function slugFromBranch(branch: string | undefined, id: string): string {
 /** The usual places a composio workspace lives, under a home folder (its installer defaults to ~/composio-workspace). */
 export const WORKSPACE_PLACES = ["composio-workspace", "Workspace/composio-workspace", "workspace/composio-workspace", "code/composio-workspace", "src/composio-workspace", "dev/composio-workspace"];
 
-export const isCwsWorkspace = (dir: string) => existsSync(join(dir, "workspace.yaml")) && existsSync(join(dir, "bin", "cws"));
-
 /** GitHub owners of a workspace's repos, from its .gitmodules. */
 function ownersOf(root: string): string[] {
   try {
@@ -230,10 +228,9 @@ for d in ${WORKSPACE_PLACES.join(" ")}; do
   if [ -f "$p/workspace.yaml" ] && [ -e "$p/bin/cws" ]; then echo "FOUND $(cd "$p" && pwd -P)"; fi
 done
 `,
-  isWorkspace: isCwsWorkspace,
+  check: '[ -f "$ROOT/workspace.yaml" ] && [ -e "$ROOT/bin/cws" ]',
   install: {
     defaultRoot: "composio-workspace",
-    needs: ["gh"],
     script: `
 if [ -d "$ROOT/.git" ]; then
   echo "updating the workspace at $ROOT"
@@ -246,7 +243,8 @@ else
 fi
 `,
   },
-  defaults: (root) => ({ id: "composio", github: { owners: ownersOf(root) } }),
+  defaultId: "composio",
+  owners: ownersOf,
   tools: () => [DOPPLER],
   create: (config) => new CwsAdapter(config),
 };
