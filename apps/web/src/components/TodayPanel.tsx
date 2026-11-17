@@ -1,13 +1,20 @@
-import { Clock, RefreshCw, X } from "lucide-react";
+import { ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Mail, MessageSquare, RefreshCw, Sparkles, X } from "lucide-react";
 import { collectGithub, feedAction } from "@/app/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { groupFeed, rowWhat, type FeedGroup, type FeedRow } from "@/lib/feed-groups";
 import { isPullRequest } from "@/lib/pr";
 import { BobbyBadge } from "./BobbyBadge";
 
-const SOURCE: Record<string, string> = { github: "GitHub", linear: "Linear", slack: "Slack", notion: "Notion", gmail: "Mail", jin: "jin" };
-/** Rows a thread shows before "N more". */
-const SHOWN = 3;
+const SOURCE: Record<string, { label: string; Icon: typeof Mail }> = {
+  github: { label: "GitHub", Icon: GitPullRequest },
+  linear: { label: "Linear", Icon: CircleDot },
+  slack: { label: "Slack", Icon: MessageSquare },
+  notion: { label: "Notion", Icon: FileText },
+  gmail: { label: "Mail", Icon: Mail },
+  jin: { label: "jin", Icon: Sparkles },
+};
+/** Kinds that need you, shown as a coloured dot on the collapsed thread. */
+const URGENT: Record<string, string> = { ci_failed: "Checks failing", review_requested: "Review requested", mention: "You were mentioned" };
 
 const ago = (iso: string) => {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
@@ -16,88 +23,75 @@ const ago = (iso: string) => {
   return `${Math.round(s / 86400)}d`;
 };
 
-function Actions({ ids, label }: { ids: string[]; label: string }) {
+function Actions({ g }: { g: FeedGroup }) {
+  const label = g.ids.length > 1 ? "this thread" : "this";
   return (
     <form action={feedAction} className="fg-actions">
-      {ids.map((id) => (
+      {g.ids.map((id) => (
         <input key={id} type="hidden" name="itemId" value={id} />
       ))}
+      {g.url && (
+        <a className="button quiet icon-only small" href={g.url} target="_blank" rel="noreferrer" title="Open" aria-label="Open">
+          <ExternalLink size={13} />
+        </a>
+      )}
       <button type="submit" name="action" value="snooze" className="button quiet icon-only small" title={`Snooze ${label} for a day`} aria-label={`Snooze ${label}`}>
-        <Clock size={14} />
+        <Clock size={13} />
       </button>
       <button type="submit" name="action" value="dismiss" className="button quiet icon-only small" title={`Dismiss ${label}`} aria-label={`Dismiss ${label}`}>
-        <X size={14} />
+        <X size={13} />
       </button>
     </form>
   );
 }
 
+/** A leaf: who did what, and when. The message itself shows on hover; the link opens it. */
 function Row({ r }: { r: FeedRow }) {
-  const line = (
+  const body = (
     <>
       {r.actor && <span className="fg-actor">{r.actor}</span>}
-      {r.kind ? <span className={`kind-chip is-${r.kind}`}>{rowWhat(r)}</span> : r.what && <span className="fg-what">{rowWhat(r)}</span>}
-      {r.snippet && <span className="fg-snippet">{r.snippet}</span>}
+      <span className={r.kind ? `fg-what is-${r.kind}` : "fg-what"}>{rowWhat(r)}</span>
     </>
   );
   return (
-    <li className="fg-row" data-feed-id={r.id}>
+    <li className="fg-row" data-feed-id={r.id} title={r.snippet || undefined}>
       {r.url ? (
-        <a className="fg-line" href={r.url} target="_blank" rel="noreferrer" title={r.snippet || undefined}>
-          {line}
+        <a className="fg-line" href={r.url} target="_blank" rel="noreferrer">
+          {body}
         </a>
       ) : (
-        <span className="fg-line" title={r.snippet || undefined}>
-          {line}
-        </span>
+        <span className="fg-line">{body}</span>
       )}
       <span className="fg-age">{ago(r.at)}</span>
     </li>
   );
 }
 
+/** A thread, collapsed to one line: source, title, count, age. Open it for who did what. */
 function Group({ g }: { g: FeedGroup }) {
   const pr = g.url && isPullRequest(g.url) ? g.url : null;
-  const shown = g.rows.slice(0, SHOWN);
-  const more = g.rows.slice(SHOWN);
-  const head = (
-    <>
-      {g.ref && <span className="fg-ref">{g.ref}</span>}
-      <span className="fg-title-text">{g.title}</span>
-    </>
-  );
+  const src = SOURCE[g.source] ?? { label: g.source, Icon: Sparkles };
+  const urgent = g.rows.find((r) => r.kind && URGENT[r.kind]);
+  const count = g.rows.reduce((n, r) => n + r.count, 0);
   return (
     <li className={`feed-group${pr ? " has-bobby" : ""}`} data-thread={g.key}>
-      <div className="fg-head">
-        <span className={`src-chip is-${g.source}`}>{SOURCE[g.source] ?? g.source}</span>
-        {g.url ? (
-          <a className="fg-title" href={g.url} target="_blank" rel="noreferrer" title={g.title}>
-            {head}
-          </a>
-        ) : (
-          <span className="fg-title" title={g.title}>
-            {head}
-          </span>
-        )}
-        {g.ids.length > 1 && <span className="fg-count">{g.ids.length}</span>}
-        {pr && <BobbyBadge pr={pr} compact />}
-        <Actions ids={g.ids} label={g.ids.length > 1 ? "this thread" : "this"} />
-      </div>
-      <ul className="fg-rows">
-        {shown.map((r) => (
-          <Row key={r.id} r={r} />
-        ))}
-      </ul>
-      {more.length > 0 && (
-        <details className="fg-more">
-          <summary>{more.reduce((n, r) => n + r.count, 0)} more</summary>
-          <ul className="fg-rows">
-            {more.map((r) => (
-              <Row key={r.id} r={r} />
-            ))}
-          </ul>
-        </details>
-      )}
+      <details>
+        <summary className="fg-head" title={[g.ref, g.title].filter(Boolean).join(" ")}>
+          <ChevronRight size={13} className="fg-chevron" aria-hidden />
+          <src.Icon size={13} className={`fg-src is-${g.source}`} aria-label={src.label} />
+          <span className="fg-title">{g.title}</span>
+          {urgent && <span className={`fg-dot is-${urgent.kind}`} title={URGENT[urgent.kind!]} />}
+          {count > 1 && <span className="fg-count">{count}</span>}
+          <span className="fg-age">{ago(g.latest)}</span>
+          {pr && <BobbyBadge pr={pr} compact />}
+        </summary>
+        <ul className="fg-rows">
+          {g.rows.map((r) => (
+            <Row key={r.id} r={r} />
+          ))}
+        </ul>
+      </details>
+      <Actions g={g} />
     </li>
   );
 }
