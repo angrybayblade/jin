@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 import { AdapterError, type ProviderTask, type TaskSpec, type WorkspaceAdapter } from "./adapters";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
@@ -178,6 +179,41 @@ export class Tasks {
     return this.get(spec.id);
   }
 
+  /**
+   * What removing a task would lose: per repo, uncommitted changes and commits that are on no
+   * remote. Empty means its worktrees can go without losing work.
+   */
+  unsaved(id: string): { repo: string; dir: string; problem: string }[] {
+    const task = this.get(id);
+    const out: { repo: string; dir: string; problem: string }[] = [];
+    const git = (dir: string, args: string[]) => {
+      const r = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+      return { ok: r.exitCode === 0, out: r.stdout.toString().trim(), err: r.stderr.toString().trim() };
+    };
+    for (const [repo, dir] of Object.entries(task.dirs)) {
+      if (!existsSync(dir)) continue;
+      const status = git(dir, ["status", "--porcelain"]);
+      if (!status.ok) {
+        out.push({ repo, dir, problem: `git status failed: ${status.err || "unknown"}` });
+        continue;
+      }
+      const changed = status.out ? status.out.split("\n").length : 0;
+      if (changed) out.push({ repo, dir, problem: `${changed} uncommitted change${changed === 1 ? "" : "s"}` });
+      const local = git(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes"]);
+      const n = local.ok ? Number(local.out) : NaN;
+      if (!local.ok) out.push({ repo, dir, problem: `could not compare with the remote: ${local.err || "unknown"}` });
+      else if (n > 0) out.push({ repo, dir, problem: `${n} commit${n === 1 ? "" : "s"} on no remote` });
+    }
+    return out;
+  }
+
+  /** Remove a task only when nothing would be lost (see unsaved). */
+  async removeIfClean(id: string): Promise<Task> {
+    const problems = this.unsaved(id);
+    if (problems.length) throw new HttpError(409, `${id} has unsaved work: ${problems.map((p) => `${p.repo}: ${p.problem}`).join("; ")}`);
+    return this.remove(id);
+  }
+
   async remove(id: string): Promise<Task> {
     const task = this.get(id);
     if (task.state === "removed") return task;
@@ -218,5 +254,7 @@ export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, W
       Bun.spawn(process.platform === "darwin" ? ["open", root] : ["xdg-open", root], { stdout: "ignore", stderr: "ignore" });
       return json({ revealed: root });
     })
-    .on("DELETE", "/api/tasks/:id", async (_req, p) => json(await tasks.remove(p.id!)));
+    .on("DELETE", "/api/tasks/:id", async (_req, p) => json(await tasks.remove(p.id!)))
+    .on("GET", "/api/tasks/:id/unsaved", (_req, p) => json(tasks.unsaved(p.id!)))
+    .on("POST", "/api/tasks/:id/remove-if-clean", async (_req, p) => json(await tasks.removeIfClean(p.id!)));
 }
