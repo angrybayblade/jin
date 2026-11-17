@@ -72,7 +72,7 @@ export async function attachTicket(terminalId: string): Promise<string> {
   return ticket;
 }
 
-export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number }): Promise<TerminalInfo> {
+export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number; forkFrom?: string }): Promise<TerminalInfo> {
   const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json: opts });
   revalidatePath("/", "layout");
   return t;

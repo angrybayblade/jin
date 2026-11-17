@@ -1,7 +1,7 @@
 // A20: pull requests made in a task are attached to it: automatically when Claude Code runs
 // `gh pr create`, by its jin-task command, and Claude Code is told to do so as a rule.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setupEnv, startDaemon, until, type Daemon, type TestEnv } from "./helpers";
 
@@ -122,4 +122,21 @@ test("A20 Claude Code journals its work through jin's MCP tool; the hooks add wh
   const journal = await d.json("/api/tasks/PR-1/journal");
   expect(journal.concerns).toHaveLength(1);
   expect(journal.concerns[0]).toMatchObject({ name: "rate limiter", entries: [{ kind: "decision", text: "Retry on 429 with backoff", why: "Retry-After is unreliable", refs: [{ type: "file", text: "platform/limiter.py" }] }] });
+});
+
+test("A20 a Claude Code tab forks into a new tab that carries on its conversation", async () => {
+  // Not yet a conversation: nothing to fork.
+  const none = await d.api("/api/terminals", { method: "POST", json: { forkFrom: terminalId } });
+  expect(none.status).toBe(400);
+  // Claude Code reported its session, and saved the conversation.
+  const projects = join(env.home, "profiles", "composio", "claude", "projects", "-tasks-PR-1");
+  mkdirSync(projects, { recursive: true });
+  writeFileSync(join(projects, "sess-fork-1.jsonl"), "{}\n");
+  await d.json("/api/hooks/claude", { method: "POST", json: { event: "SessionStart", terminalId, input: { session_id: "sess-fork-1" } } });
+  const from = await d.json<any>(`/api/terminals/${terminalId}`);
+  const fork = await d.json<any>("/api/terminals", { method: "POST", json: { forkFrom: terminalId } });
+  expect(fork).toMatchObject({ kind: "claude", taskId: "PR-1", title: `${from.title} fork` });
+  expect(fork.id).not.toBe(terminalId);
+  await until(() => readFileSync(join(env.home, "claude-args.txt"), "utf8").includes("--fork-session"), 10000, "the fork launched");
+  expect(readFileSync(join(env.home, "claude-args.txt"), "utf8")).toContain("--resume\nsess-fork-1\n--fork-session");
 });

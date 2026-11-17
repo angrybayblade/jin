@@ -301,7 +301,7 @@ export function hasTranscript(sessionId: string, configDir?: string): boolean {
 }
 
 /** Start (or restart) a tab's process: Claude Code resumes its conversation when it has one. */
-export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: string; cols?: number; rows?: number } = {}): TerminalInfo {
+export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: string; cols?: number; rows?: number; fork?: string } = {}): TerminalInfo {
   const t = deps.terminals.get(id);
   if (deps.terminals.isLive(id)) return t;
   const { workspace, task } = place(deps, t.taskId);
@@ -310,17 +310,23 @@ export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: s
   // opened and left empty has nothing to resume: start a fresh one instead of failing.
   const session = t.claudeSessionId && hasTranscript(t.claudeSessionId, workspace?.profile.claudeConfigDir) ? t.claudeSessionId : null;
   if (t.claudeSessionId && !session) deps.terminals.setClaudeSession(id, null);
-  const resume = session ? ["--resume", session] : [];
-  const prompt = !session && opts.prompt?.trim() ? [opts.prompt.trim()] : [];
+  // A fork: a new tab that starts from another tab's conversation, under a new session id.
+  const fork = !session && opts.fork && hasTranscript(opts.fork, workspace?.profile.claudeConfigDir) ? opts.fork : null;
+  const resume = session ? ["--resume", session] : fork ? ["--resume", fork, "--fork-session"] : [];
+  const prompt = !session && !fork && opts.prompt?.trim() ? [opts.prompt.trim()] : [];
   return deps.terminals.spawn(id, { argv: ["claude", ...deps.claude.args({ taskId: t.taskId, taskRoot: task?.root, workspaceRoot: workspace?.root, parent: task?.parent, terminalId: id, kind: task?.kind, prs: task?.prs }), ...resume, ...prompt], env: deps.claude.env(workspace), cols: opts.cols, rows: opts.rows });
 }
 
 /** A new tab running a shell or Claude Code, in a task's directory (or the workspace root without a task). */
-export function openTerminal(deps: TerminalDeps, b: { taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number }): TerminalInfo {
-  const kind: TerminalKind = b.kind === "claude" ? "claude" : "shell";
-  const { task, cwd } = place(deps, b.taskId);
+export function openTerminal(deps: TerminalDeps, b: { taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number; forkFrom?: string }): TerminalInfo {
+  // Forking a Claude Code tab: same task, its conversation copied into a new session.
+  const from = b.forkFrom ? deps.terminals.get(b.forkFrom) : null;
+  if (from && (from.kind !== "claude" || !from.claudeSessionId)) throw new HttpError(400, "only a Claude Code tab with a conversation can be forked");
+  const kind: TerminalKind = from || b.kind === "claude" ? "claude" : "shell";
+  const { task, cwd } = place(deps, from ? (from.taskId ?? undefined) : b.taskId);
   const t = deps.terminals.create({ kind, taskId: task?.id, cwd });
-  return startTerminal(deps, t.id, b);
+  if (from) deps.terminals.rename(t.id, `${from.title} fork`);
+  return startTerminal(deps, t.id, { ...b, fork: from?.claudeSessionId ?? undefined });
 }
 
 export function terminalRoutes(router: Router, deps: TerminalDeps) {
@@ -329,8 +335,8 @@ export function terminalRoutes(router: Router, deps: TerminalDeps) {
     .on("GET", "/api/terminals", (_req, _p, url) => json(terminals.list({ taskId: url.searchParams.get("task") ?? undefined, archived: url.searchParams.get("archived") === "1" })))
     .on("GET", "/api/terminals/:id", (_req, p) => json(terminals.get(p.id!)))
     .on("POST", "/api/terminals", async (req) => {
-      const b = await body<{ taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number }>(req);
-      if (b.taskId && b.kind === "claude") await deps.prepare?.(b.taskId).catch(() => {});
+      const b = await body<{ taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number; forkFrom?: string }>(req);
+      if (b.taskId && (b.kind === "claude" || b.forkFrom)) await deps.prepare?.(b.taskId).catch(() => {});
       return json(openTerminal(deps, b), 201);
     })
     .on("POST", "/api/terminals/:id/start", async (req, p) => {
