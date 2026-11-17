@@ -516,6 +516,49 @@ export async function deleteHook(id: string): Promise<{ removed: boolean } | { e
   }
 }
 
+// ---------------------------------------------------------------- skills (on the home)
+
+export async function getSkill(name: string): Promise<{ name: string; body: string; tags: string[] } | { error: string }> {
+  try {
+    return await daemon<{ name: string; body: string; tags: string[] }>(`/api/skills/${encodeURIComponent(name)}`);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function saveSkill(name: string, patch: { body?: string; tags?: string[] }): Promise<{ name: string; body: string; tags: string[] } | { error: string }> {
+  try {
+    const r = await daemon<{ name: string; body: string; tags: string[] }>(`/api/skills/${encodeURIComponent(name)}`, { method: "PUT", json: patch });
+    revalidatePath("/skills");
+    return r;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function deleteSkill(name: string): Promise<{ removed: boolean } | { error: string }> {
+  try {
+    const r = await daemon<{ removed: boolean }>(`/api/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+    revalidatePath("/skills");
+    return r;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ---------------------------------------------------------------- reviewing PRs as tasks
+
+/** A review task for these PRs (links or <repo>#<n>) on this machine, or the one already reviewing them. */
+export async function startReview(prs: string[], prompt?: string): Promise<{ taskId: string; existing: boolean } | { error: string }> {
+  try {
+    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt } });
+    revalidatePath("/", "layout");
+    return r;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ---------------------------------------------------------------- what notifies (on the home)
 
 export async function getNotificationKinds(): Promise<NotificationKinds[]> {

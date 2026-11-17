@@ -3402,3 +3402,54 @@ button.jr-ref {
 button.jr-ref:hover {
   color: var(--ink);
 }
+
+/* Skills: tags beside each skill */
+.skill-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.skill-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.task-kind-badge {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  margin-left: 4px;
+  flex: none;
+}
+
+/* New task: which kind */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  align-self: flex-start;
+}
+.segmented button {
+  border: 0;
+  background: none;
+  color: var(--secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: calc(var(--radius-control) - 2px);
+  cursor: pointer;
+}
+.segmented button:hover {
+  background: var(--hover);
+}
+.segmented button.is-active {
+  background: var(--hover);
+  color: var(--ink);
+}

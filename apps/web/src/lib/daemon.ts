@@ -36,6 +36,23 @@ export interface Task {
   archived: boolean;
   /** The task this one was spawned from (jin-task spawn). */
   parent?: string | null;
+  /** A change from a Linear issue, or a review of pull requests. */
+  kind?: "linear" | "review";
+  prs?: { repo: string; number: number; head?: string; title?: string; url?: string }[];
+}
+
+/** One of jin's skills (a SKILL.md), tagged; tasks get the ones their kind asks for. */
+export interface Skill {
+  name: string;
+  description: string;
+  tags: string[];
+  updatedAt: string;
+}
+export interface SkillsStatus {
+  skills: Skill[];
+  /** The tags each kind of task asks for. */
+  taskTags: Record<string, string[]>;
+  everyTask: string;
 }
 
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
@@ -170,7 +187,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
