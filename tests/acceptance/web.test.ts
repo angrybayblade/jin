@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO, scripted, setupEnv, startDaemon, until, WEB_DIST, WEB_ORIGIN, WEB_PORT, type Daemon, type Env } from "./helpers";
 
@@ -44,6 +44,20 @@ test(
     const html = await (await fetch(WEB_ORIGIN)).text();
     for (const title of ["Rate-limit tool router sessions", "Fix thermos webhook retries", "Dashboard shows stale connection state"]) {
       expect(html).toContain(title);
+    }
+
+    // A page under /m/<machine>/ talks to that machine; a plain one to this machine. The
+    // stand-in "machine" is a pass-through to the same daemon on a port of its own.
+    const relay = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (req) => fetch(d.url + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.body }) });
+    try {
+      mkdirSync(join(env.home, "machines"), { recursive: true });
+      writeFileSync(join(env.home, "machines", "standin.json"), JSON.stringify({ id: "standin", host: "standin.invalid", label: "standin", remotePort: 7317, localPort: relay.port, token: d.token, createdAt: new Date().toISOString() }));
+      const there = await (await fetch(`${WEB_ORIGIN}/m/standin/t/PLEN-7`)).text();
+      const here = await (await fetch(`${WEB_ORIGIN}/t/PLEN-7`)).text();
+      expect(there).toContain(`ws://127.0.0.1:${relay.port}`);
+      expect(here).not.toContain(`ws://127.0.0.1:${relay.port}`);
+    } finally {
+      relay.stop(true);
     }
   },
   300_000,
