@@ -842,34 +842,166 @@ button.step-line:hover {
 .side-scroll p {
   margin: 0 0 var(--space-3);
 }
-.feed-list {
+/* Feed: one block per thread (PR, Linear issue, Slack thread or DM, Notion page, mail thread),
+   a one-line header and one line per update. Long text truncates; hover shows it. */
+.side-scroll {
+  overflow-x: hidden;
+}
+.feed-groups {
   list-style: none;
   margin: 0;
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-3);
 }
-.feed-row {
-  display: grid;
-  gap: 2px;
-  padding: var(--d-row-pad) 0;
+.feed-group {
+  position: relative;
+  padding: 6px 0 7px;
   border-bottom: 1px solid var(--line);
-}
-.feed-main {
-  display: grid;
-  gap: 2px;
   min-width: 0;
 }
-.feed-title {
+.fg-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  line-height: 18px;
+}
+.fg-head > :not(.fg-title) {
+  margin-top: 1px;
+}
+.src-chip {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-control);
+  font-size: 10.5px;
+  line-height: 16px;
+  background: var(--accent-tint);
+  color: var(--secondary);
+}
+.fg-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
   font-weight: var(--weight-secondary);
   text-decoration: none;
-  overflow-wrap: anywhere;
+  color: var(--ink);
 }
-.feed-title:hover {
+a.fg-title:hover .fg-title-text {
   text-decoration: underline;
 }
-.feed-actions {
+.fg-ref {
+  margin-right: 6px;
+  color: var(--secondary);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+}
+.fg-count {
+  flex: none;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+  background: var(--hover);
+  color: var(--secondary);
+}
+/* Snooze and dismiss float over the header's end on hover, taking no room otherwise. */
+.fg-actions {
+  position: absolute;
+  top: 4px;
+  right: 0;
   display: flex;
-  gap: var(--space-1);
-  margin-left: -8px;
+  gap: 0;
+  padding-left: 12px;
+  background: linear-gradient(to right, transparent, var(--canvas) 12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+/* Bobby stays reachable: the actions sit just left of it. */
+.feed-group.has-bobby .fg-actions {
+  right: 24px;
+}
+.feed-group:hover .fg-actions,
+.fg-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.fg-actions .button.icon-only.small {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--secondary);
+}
+.fg-actions .button.icon-only.small:hover {
+  color: var(--ink);
+}
+.fg-rows {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+.fg-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 2px;
+  font-size: var(--type-meta);
+  line-height: 20px;
+}
+.fg-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--secondary);
+  text-decoration: none;
+}
+a.fg-line:hover {
+  color: var(--ink);
+}
+.fg-actor {
+  color: var(--ink);
+  margin-right: 4px;
+}
+.fg-what {
+  margin-right: 6px;
+}
+.fg-line .kind-chip {
+  margin-right: 6px;
+}
+.fg-snippet {
+  color: var(--tertiary, var(--secondary));
+  opacity: 0.8;
+}
+.fg-age {
+  flex: none;
+  font-size: 11px;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.fg-more summary {
+  cursor: pointer;
+  padding-left: 2px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--secondary);
+  list-style: none;
+}
+.fg-more summary::-webkit-details-marker {
+  display: none;
+}
+.fg-more summary:hover {
+  color: var(--ink);
+}
+.fg-more[open] summary {
+  display: none;
 }
 .kind-chip {
   justify-self: start;
@@ -1294,11 +1426,6 @@ button.step-line:hover {
 }
 
 /* ------------------------------------------------------------------ Bobby badge (PR review in Bobby) */
-.feed-chips {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 .bobby-badge {
   display: inline-flex;
   align-items: center;
