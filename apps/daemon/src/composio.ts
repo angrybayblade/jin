@@ -490,10 +490,15 @@ export class Composio {
     l.since = new Date().toISOString();
     l.backoff = POLL_MS;
     void this.nameKnownSlackIds();
+    let repaired = false;
     const tick = async () => {
       if (l.stopped) return;
       try {
         await this.readLogs();
+        if (!repaired) {
+          repaired = true;
+          await this.repairNotion().catch((err) => console.error(`notion repair: ${err}`));
+        }
         l.state = "running";
         l.error = null;
         l.backoff = POLL_MS;
@@ -553,6 +558,32 @@ export class Composio {
     }
     this.cursor = { from: newest, ids: [...seen].slice(-1000) };
     writeFileSync(file, JSON.stringify(this.cursor));
+  }
+
+  /**
+   * Notion comments stored before jin looked up their details (a thread per comment, "Notion
+   * page", no author or text): read again from the trigger logs, while Composio keeps them.
+   */
+  async repairNotion(): Promise<number> {
+    const stale = this.deps.feed.list().filter((f) => f.source === "notion" && (!f.actor || f.thread?.title === "Notion page"));
+    if (!stale.length) return 0;
+    const from = Math.min(...stale.map((f) => Date.parse(f.receivedAt))) - 3_600_000;
+    const out = await this.cli<{ data?: TriggerLog[] }>(["dev", "logs", "triggers", "--from", String(from), "--limit", "200", "--include-payload", "--user-id", this.settings.userId]);
+    const byId = new Map<string, TriggerLog>();
+    for (const log of out.data ?? []) byId.set(String(log.meta?.id ?? log.id), log);
+    let fixed = 0;
+    for (const f of stale) {
+      const log = byId.get(f.externalRef.split("#").pop() ?? "");
+      const raw = log ? logEvent(log) : null;
+      const read = raw ? readEvent(raw, this.settings.me) : null;
+      if (!raw || !read) continue;
+      const e = await this.withNotionDetails(read, raw);
+      if (!e.actor && e.thread?.title === "Notion page") continue; // nothing more to know
+      this.deps.feed.reread(f.id, { thread: e.thread ?? null, actor: e.actor, summary: e.summary });
+      fixed++;
+    }
+    if (fixed) console.log(`notion: ${fixed} earlier comment${fixed === 1 ? "" : "s"} read again`);
+    return fixed;
   }
 
   stopAll() {

@@ -92,6 +92,13 @@ export class Feed {
       .run(id, name, id, name, id, name, id, name, source, id, `%${id}%`, `%${id}%`, `%${id}%`);
   }
 
+  /** Re-read an item: where it belongs, who did it and what it says (e.g. once names are looked up). */
+  reread(id: string, e: { thread: FeedThread | null; actor: string | null; summary: string; externalRef?: string }) {
+    this.db
+      .query("update feed_items set thread_key = ?, thread_title = ?, thread_ref = ?, thread_url = ?, actor = ?, summary = ?, external_ref = coalesce(?, external_ref) where id = ?")
+      .run(e.thread?.key ?? null, e.thread?.title ?? null, e.thread?.ref ?? null, e.thread?.url ?? null, e.actor, e.summary, e.externalRef ?? null, id);
+  }
+
   setState(id: string, state: FeedState, extra: { snoozedUntil?: string; taskId?: string } = {}): FeedItem {
     this.get(id);
     this.db

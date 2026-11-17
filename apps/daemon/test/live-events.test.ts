@@ -78,3 +78,29 @@ test("a notification names the app and the place, and someone when the actor is 
   expect(headline({ toolkit: "linear", actor: null, title: "updated" })).toBe("Someone updated");
   expect(headline({ toolkit: "slack", actor: "Cat", title: "" })).toBe("Cat");
 });
+
+test("Notion comments stored before their details were looked up are read again from the trigger logs", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { openDb } = await import("../src/db");
+  const { Feed } = await import("../src/feed");
+  const { Composio } = await import("../src/composio");
+  const home = mkdtempSync(join(tmpdir(), "jin-notion-"));
+  const feed = new Feed(openDb(home));
+  // As the old reading stored it: a thread of its own, "Notion page", nobody, nothing said.
+  feed.add([{ workspace: "w", source: "notion", kind: "notion_comment_created", externalRef: "notion#log_1", title: "commented", summary: "", receivedAt: new Date().toISOString(), thread: { key: "notion:log_1", title: "Notion page", ref: null, url: null }, actor: null }]);
+  const payload = { authors: [{ id: "nu1", type: "person" }], comment_id: "c1", data: { page_id: "p1", parent: { id: "b1", type: "block" } } };
+  const cli = async (args: string[]) => {
+    if (args[1] === "logs") return { data: [{ id: "log_1", appName: "notion", createdAt: new Date().toISOString(), meta: { triggerName: "NOTION_COMMENT_CREATED", triggerClientPayload: JSON.stringify(payload) } }] };
+    if (args[2] === "NOTION_RETRIEVE_COMMENT") return { successful: true, data: { discussion_id: "d-1", display_name: { resolved_name: "Dee Park" }, rich_text: [{ plain_text: "ship Friday?" }] } };
+    if (args[2] === "NOTION_RETRIEVE_PAGE") return { successful: true, data: { url: "https://www.notion.so/Launch-p1", properties: { Name: { type: "title", title: [{ plain_text: "Launch plan" }] } } } };
+    throw new Error(`unexpected ${args.join(" ")}`);
+  };
+  // Composio's own methods, with its CLI and settings stood in for.
+  const fields = { deps: { feed }, settings: { userId: "u", me: {} }, config: { home }, cli, notionNames: null };
+  const c = Object.create(Composio.prototype, Object.fromEntries(Object.entries(fields).map(([k, value]) => [k, { value, writable: true }])));
+  expect(await c.repairNotion()).toBe(1);
+  expect(feed.list()[0]).toMatchObject({ actor: "Dee Park", summary: "ship Friday?", thread: { key: "notion:p1", title: "Launch plan", url: "https://www.notion.so/Launch-p1" } });
+  expect(await c.repairNotion()).toBe(0);
+});
