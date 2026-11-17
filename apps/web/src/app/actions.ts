@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, homeMachine, MACHINE_COOKIE, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -492,4 +492,26 @@ export async function liveLinearTeams(): Promise<{ id: string; name: string; key
 
 export async function liveListener(on: boolean): Promise<void> {
   await daemon("/api/composio/listener", { method: "POST", json: { on } });
+}
+
+// ---------------------------------------------------------------- hooks (on the home)
+
+export async function getHooks(): Promise<HooksStatus> {
+  return daemon<HooksStatus>("/api/event-hooks");
+}
+
+export async function saveHook(h: Partial<Hook>): Promise<Hook | { error: string }> {
+  try {
+    return h.id ? await daemon<Hook>(`/api/event-hooks/${encodeURIComponent(h.id)}`, { method: "PATCH", json: h }) : await daemon<Hook>("/api/event-hooks", { method: "POST", json: h });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function deleteHook(id: string): Promise<{ removed: boolean } | { error: string }> {
+  try {
+    return await daemon<{ removed: boolean }>(`/api/event-hooks/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (err) {
+    return fail(err);
+  }
 }

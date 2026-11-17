@@ -170,7 +170,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
@@ -333,4 +333,33 @@ export interface TaskPR {
   attachedBy: string;
   attachedAt: string;
   updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------- hooks
+
+export type HookEventId = "pr.merged" | "task.merged" | "live.event";
+export interface Hook {
+  id: string;
+  name: string;
+  event: HookEventId;
+  filter: Record<string, string>;
+  instructions: string;
+  enabled: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+export interface HookRun {
+  id: string;
+  hookId: string;
+  hookName: string;
+  event: HookEventId;
+  key: string;
+  at: string;
+  chatId: string | null;
+  error: string | null;
+}
+export interface HooksStatus {
+  hooks: Hook[];
+  events: { id: HookEventId; label: string; description: string; fields: string[] }[];
+  runs: HookRun[];
 }
