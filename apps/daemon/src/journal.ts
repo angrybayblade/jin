@@ -39,7 +39,7 @@ export interface JournalView {
 }
 
 /** Who a terminal is: its task, its tab title, and the task's folder (for short file paths). */
-export type TerminalOf = (terminalId: string) => { taskId: string | null; title: string; root?: string } | null;
+export type TerminalOf = (terminalId: string) => { taskId: string | null; title: string; root?: string; checks?: RegExp[] } | null;
 
 const toEntry = (r: any): JournalEntry => ({
   id: r.id,
@@ -54,11 +54,12 @@ const toEntry = (r: any): JournalEntry => ({
   at: r.at,
 });
 
-const TEST_CMD = /\b(bun test|vitest|jest|pytest|go test|cargo test|(?:npm|pnpm|yarn)(?: run)? test|make test|cws check)\b/;
+const TEST_CMD = /\b(bun test|vitest|jest|pytest|go test|cargo test|(?:npm|pnpm|yarn)(?: run)? test|make test)\b/;
 const COMMIT_CMD = /\bgit\s+commit\b/;
 
 /** The evidence one tool call leaves: a changed file, a commit, a test run; null for the rest. */
-export function evidenceOf(tool: string, input: Record<string, unknown>, root?: string): JournalRef | null {
+/** `checks`: the workspace's own check commands (its provider's), which count as test runs. */
+export function evidenceOf(tool: string, input: Record<string, unknown>, root?: string, checks: RegExp[] = []): JournalRef | null {
   const path = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : null;
   if (path && /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) return { type: "file", text: root && path.startsWith(root) ? relative(root, path) : path };
   if (tool === "Bash" && typeof input.command === "string") {
@@ -67,8 +68,7 @@ export function evidenceOf(tool: string, input: Record<string, unknown>, root?: 
       const m = /-m\s+(?:"([^"]+)"|'([^']+)')/.exec(cmd);
       return { type: "commit", text: (m?.[1] ?? m?.[2] ?? "commit").split("\n")[0]!.slice(0, 120) };
     }
-    const t = TEST_CMD.exec(cmd);
-    if (t) return { type: "test", text: cmd.length > 80 ? `${cmd.slice(0, 79)}…` : cmd };
+    if (TEST_CMD.test(cmd) || checks.some((c) => c.test(cmd))) return { type: "test", text: cmd.length > 80 ? `${cmd.slice(0, 79)}…` : cmd };
   }
   return null;
 }
@@ -116,7 +116,7 @@ export class Journal {
   evidence(terminalId: string, tool: string, input: Record<string, unknown>) {
     const t = this.terminalOf(terminalId);
     if (!t?.taskId) return;
-    const ref = evidenceOf(tool, input, t.root);
+    const ref = evidenceOf(tool, input, t.root, t.checks);
     if (!ref) return;
     const cur = this.current.get(terminalId) ?? { entry: null, change: null };
     const target = cur.entry ?? cur.change;

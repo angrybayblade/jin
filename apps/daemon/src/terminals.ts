@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ReviewedPR, TaskKind } from "./adapters";
+import type { AgentBrief, ReviewedPR, TaskKind } from "./adapters";
 import type { WorkspaceConfig } from "./config";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
@@ -269,6 +269,8 @@ export interface ClaudeLaunch {
   env: (workspace: WorkspaceConfig | undefined) => Record<string, string>;
   /** What a task follows, for its Claude Code's starting context (set once links exist). */
   linksOf?: (taskId: string) => { kind: string; label: string; url: string | null }[];
+  /** What a task's workspace says about working in it (its provider's brief). */
+  briefOf?: (taskId: string) => AgentBrief | undefined;
 }
 
 export interface TerminalDeps {

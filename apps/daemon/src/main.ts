@@ -118,7 +118,9 @@ const journal = new Journal(db, (terminalId) => {
   try {
     const t = terminals.get(terminalId);
     const root = t.taskId ? tasks.get(t.taskId).root : undefined;
-    return { taskId: t.taskId, title: t.title, root };
+    // The workspace's own check commands count as test runs too.
+    const checks = t.taskId ? tasks.adapter(tasks.get(t.taskId).workspace).checkCommands?.() : undefined;
+    return { taskId: t.taskId, title: t.title, root, checks };
   } catch {
     return null;
   }
@@ -344,6 +346,11 @@ linkRoutes(app.router, {
   },
 });
 claude.linksOf = linksOf;
+// What the task's workspace tells its Claude Code: where it starts, what to read, how to set up.
+claude.briefOf = (taskId) => {
+  const t = tasks.get(taskId);
+  return tasks.adapter(t.workspace).agentBrief({ id: t.id, kind: t.kind, root: t.root, repos: t.repos });
+};
 jobs.addLinks = (taskId, urls) => {
   const problems: string[] = [];
   for (const u of urls.map((x) => x.trim()).filter(Boolean)) {

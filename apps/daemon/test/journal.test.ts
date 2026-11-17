@@ -14,6 +14,9 @@ const setup = () => {
 test("evidence: changed files (short paths), commits with their message, test runs; nothing for reads", () => {
   expect(evidenceOf("Edit", { file_path: "/ws/tasks/PLEN-1/platform/limiter.py" }, "/ws/tasks/PLEN-1")).toEqual({ type: "file", text: "platform/limiter.py" });
   expect(evidenceOf("Bash", { command: 'git commit -m "fix(apollo): retry on 429"' })).toEqual({ type: "commit", text: "fix(apollo): retry on 429" });
+  // A workspace's own check command counts as a test run only where that workspace says so.
+  expect(evidenceOf("Bash", { command: "cws check platform" })).toBeNull();
+  expect(evidenceOf("Bash", { command: "cws check platform" }, undefined, [/\bcws check\b/])).toEqual({ type: "test", text: "cws check platform" });
   expect(evidenceOf("Bash", { command: "cd platform && pytest tests/limiter" })?.type).toBe("test");
   expect(evidenceOf("Read", { file_path: "/x" })).toBeNull();
   expect(evidenceOf("Bash", { command: "ls" })).toBeNull();

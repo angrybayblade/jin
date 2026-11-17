@@ -16,7 +16,7 @@ export function parsePrRef(ref: string): { github?: string; repo?: string; numbe
   return short ? { repo: short[1]!, number: Number(short[2]) } : null;
 }
 
-export const REVIEW_PROMPT = "Review the pull requests in this task. TASK.md lists them; start there.";
+export const REVIEW_PROMPT = "Review the pull requests in this task.";
 
 /** A review task for these PRs, or the one already reviewing them. */
 export async function startReview(deps: { tasks: Tasks; jobs: TaskJobs }, refs: string[], opts: { workspace?: string; prompt?: string; setup?: boolean; links?: string[] } = {}): Promise<{ taskId: string; existing: boolean; job?: string }> {

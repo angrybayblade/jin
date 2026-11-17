@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ReviewedPR, TaskKind, WorkspaceAdapter } from "./adapters";
+import type { AgentBrief, ReviewedPR, TaskKind, WorkspaceAdapter } from "./adapters";
 import { taskPluginDir, taskSkills } from "./skills";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, json, type Router } from "./http";
@@ -29,7 +29,7 @@ export function writeClaudeSettings(config: Config): string {
 /** Where a task's Claude Code runs, for its appended context. */
 export interface TaskContext {
   taskId: string;
-  /** The task's folder (Claude Code starts here: its worktrees, TASK.md, task.json). */
+  /** The task's folder (Claude Code starts here: its checkouts, and whatever its workspace keeps there). */
   taskRoot?: string;
   /** The workspace's root (Claude Code may read all of it: --add-dir). */
   workspaceRoot?: string;
@@ -43,6 +43,8 @@ export interface TaskContext {
   skills?: string[];
   /** What the task follows (its PRs, issue, Slack threads and channels, Notion pages). */
   links?: { kind: string; label: string; url: string | null }[];
+  /** What its workspace says about working there (its provider's brief). */
+  brief?: AgentBrief;
 }
 
 /** The task's context: what it follows, and how to get more when the work needs it. */
@@ -59,15 +61,22 @@ function contextRule(c: TaskContext): string {
 /** jin's context and must-follow rules for Claude Code running in a task (appended to its system prompt). */
 export function taskRules(ctx: TaskContext | string): string {
   const c: TaskContext = typeof ctx === "string" ? { taskId: ctx } : ctx;
+  const b = c.brief;
   const skills = c.skills?.length ? `SKILLS: jin added skills for this task: ${c.skills.map((s) => `/jin:${s}`).join(", ")}. Use them for this work: they say how the user wants it done.` : "";
+  // Where it starts and what it may read: the workspace's brief, or a plain default.
+  const start = b?.start || (c.taskRoot ? `You start in the task's folder, ${c.taskRoot}: one checkout per repo.` : "");
+  const readable = b?.readable || (c.workspaceRoot ? `The workspace, ${c.workspaceRoot}, is readable for reference. Make changes only in this task's checkouts.` : "");
+  const rules = (b?.rules ?? []).map((r) => `WORKSPACE RULE: ${r}`);
   if (c.kind === "review") {
     const prs = (c.prs ?? []).map((p) => `${p.repo}#${p.number}${p.title ? ` (${p.title})` : ""}${p.url ? ` ${p.url}` : ""}`).join("; ");
+    const notes = b?.notes ? `in ${b.notes}` : "in your reply";
     return [
-      `You are running inside jin task ${c.taskId}, a REVIEW of pull requests: ${prs || "see TASK.md"}.`,
-      c.taskRoot ? `You start in the task's folder, ${c.taskRoot}: one worktree per repo, each detached at its PR's head, plus TASK.md (read it first; write your findings there).` : "",
-      c.workspaceRoot ? `The whole workspace, ${c.workspaceRoot}, is readable: its docs/map/README.md and map/ (how services fit together) and the other repos, to judge what a change affects.` : "",
-      "MUST-FOLLOW RULES: you review; you do not change the PRs. Never commit, push, approve, request changes or post comments on GitHub unless the user says so for that comment; draft comments in TASK.md and show them. To pick up a new push: `git fetch origin pull/<n>/head && git checkout --detach FETCH_HEAD` in that worktree.",
-      `SETUP IS YOURS TO DECIDE: the worktrees are plain checkouts, with no dependencies installed and nothing running. Reading the change needs neither. If running a repo's tests, typecheck or lint would settle something, install that repo: \`cws install <repo> --task ${c.taskId}\` (then \`cws check <repo>\` in its worktree). If the change can only be judged running (a flow across services, the dashboard), bring the local stack up: \`cws up --task ${c.taskId}\`, and \`cws down\` when done. Say in TASK.md what you set up and why. Nothing is ever deployed; cws refuses deploys.`,
+      `You are running inside jin task ${c.taskId}, a REVIEW of pull requests: ${prs || "see the task's folder"}.`,
+      start,
+      readable,
+      `MUST-FOLLOW RULES: you review; you do not change the PRs. Never commit, push, approve, request changes or post comments on GitHub unless the user says so for that comment; draft comments ${notes} and show them. To pick up a new push: \`git fetch origin pull/<n>/head && git checkout --detach FETCH_HEAD\` in that checkout.`,
+      `SETUP IS YOURS TO DECIDE: the checkouts are plain, with no dependencies installed and nothing running. Reading the change needs neither. ${b?.setup || "If running a repo's tests, typecheck or lint would settle something, install what that repo needs in its checkout first, and say what you set up and why."}`,
+      ...rules,
       contextRule(c),
       skills,
       c.journal
@@ -81,10 +90,9 @@ export function taskRules(ctx: TaskContext | string): string {
     contextRule(c),
     skills,
     `You are running inside jin task ${c.taskId}; jin is the user's orchestrator and tracks this task's pull requests.`,
-    c.taskRoot ? `You start in the task's folder, ${c.taskRoot}: one worktree per repo, plus TASK.md (the task's notes: read it first, and keep it up to date).` : "",
-    c.workspaceRoot
-      ? `The whole workspace, ${c.workspaceRoot}, is readable: its CLAUDE.md, docs/map/README.md and map/ (how services fit together), skills, and the other repos for reference. Make changes only in this task's worktrees; never edit ${c.workspaceRoot}/repos/<repo>, which stays at its pin.`
-      : "",
+    start,
+    readable,
+    ...rules,
     c.parent ? `This task is a sub-task of ${c.parent}: it covers one part of that work, as its own branch and pull request.` : "",
     "MUST-FOLLOW RULE: whenever you create a pull request for this work (with `gh pr create`, a GitHub tool, or any other way), immediately attach it to the task by running:",
     "  jin-task attach-pr <pull request URL>",
@@ -119,6 +127,13 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       return [];
     }
   };
+  const brief = (taskId: string) => {
+    try {
+      return launch.briefOf?.(taskId);
+    } catch {
+      return undefined;
+    }
+  };
   const launch: ClaudeLaunch = {
     // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
     args: (ctx) => [
@@ -140,7 +155,7 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       config.model,
       // The whole workspace is readable from a task's folder; the task's context and rules go in the system prompt.
       ...(ctx?.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
-      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId) })] : []),
+      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId), brief: brief(ctx.taskId) })] : []),
     ],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,

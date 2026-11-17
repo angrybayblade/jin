@@ -67,3 +67,17 @@ test("PRs opened from a task's branch are found, and a detached one stays detach
   await prs.attach("PLEN-4548", "https://github.com/ComposioHQ/platform/pull/15030", "you");
   expect(prs.list("PLEN-4548")).toHaveLength(1);
 });
+
+test("a task's rules carry its workspace's brief, and say nothing workspace-specific without one", () => {
+  const bare = taskRules({ taskId: "T-1", kind: "change", taskRoot: "/w/tasks/T-1", workspaceRoot: "/w" });
+  expect(bare).toContain("You start in the task's folder, /w/tasks/T-1: one checkout per repo.");
+  expect(bare).not.toMatch(/cws|TASK\.md|docs\/map|repos\/<repo>/);
+  const review = taskRules({ taskId: "R-1", kind: "review", taskRoot: "/w/tasks/R-1" });
+  expect(review).toContain("draft comments in your reply");
+  expect(review).not.toMatch(/cws|TASK\.md/);
+  const briefed = taskRules({ taskId: "R-1", kind: "review", brief: { start: "Start in R-1.", notes: "NOTES.md", setup: "Run `make deps`.", rules: ["Never touch vendor/."] } });
+  expect(briefed).toContain("Start in R-1.");
+  expect(briefed).toContain("draft comments in NOTES.md");
+  expect(briefed).toContain("Run `make deps`.");
+  expect(briefed).toContain("WORKSPACE RULE: Never touch vendor/.");
+});
