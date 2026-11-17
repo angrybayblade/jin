@@ -43,6 +43,9 @@ say "notifier (notifications that open the place in jin)"
 
 say "restarting jin's services"
 osascript -e 'quit app "jin"' >/dev/null 2>&1 || true
+# Wait for the old window to be gone: opening while it quits brings back nothing.
+for _ in $(seq 1 40); do pgrep -f "jin.app/Contents/MacOS/launcher" >/dev/null || break; sleep 0.25; done
+pkill -f "jin.app/Contents/MacOS/launcher" 2>/dev/null || true
 if [ -f "$JIN_HOME/daemon.json" ]; then kill "$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$JIN_HOME/daemon.json")" 2>/dev/null || true; fi
 for pid in $(lsof -tiTCP:3917 -sTCP:LISTEN 2>/dev/null); do kill "$pid" 2>/dev/null || true; done
 for _ in $(seq 1 40); do lsof -tiTCP:7317 -sTCP:LISTEN >/dev/null 2>&1 || lsof -tiTCP:3917 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.25; done
@@ -56,3 +59,5 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/jin.app" "$JIN_HOME/notifier/jin.app" >/dev/null 2>&1 || true
 say "installed ~/Applications/jin.app; opening it"
 open "$HOME/Applications/jin.app"
+for _ in $(seq 1 120); do curl -sf -o /dev/null "http://127.0.0.1:3917/" && break; sleep 0.5; done
+curl -sf -o /dev/null "http://127.0.0.1:3917/" && say "jin is up" || echo "jin did not answer on :3917 yet; see $JIN_HOME/logs"
