@@ -19,7 +19,7 @@ export function parsePrRef(ref: string): { github?: string; repo?: string; numbe
 export const REVIEW_PROMPT = "Review the pull requests in this task. TASK.md lists them; start there.";
 
 /** A review task for these PRs, or the one already reviewing them. */
-export async function startReview(deps: { tasks: Tasks; jobs: TaskJobs }, refs: string[], opts: { workspace?: string; prompt?: string } = {}): Promise<{ taskId: string; existing: boolean; job?: string }> {
+export async function startReview(deps: { tasks: Tasks; jobs: TaskJobs }, refs: string[], opts: { workspace?: string; prompt?: string; setup?: boolean } = {}): Promise<{ taskId: string; existing: boolean; job?: string }> {
   const workspace = opts.workspace ?? deps.jobs.defaultWorkspace;
   if (!workspace) throw new HttpError(400, "no workspace configured");
   if (!Array.isArray(refs) || !refs.length) throw new HttpError(400, "prs: one or more pull request links");
@@ -38,14 +38,15 @@ export async function startReview(deps: { tasks: Tasks; jobs: TaskJobs }, refs: 
   const job = await deps.jobs.start(
     workspace,
     { id: "", kind: "review", prs: prs.map((p) => `${p.repo}#${p.number}`), repos: prs.map((p) => p.repo), slug: "" },
-    { prompt: opts.prompt?.trim() || REVIEW_PROMPT },
+    // No setup by default: the reviewer installs a repo (or brings the stack up) only if the review needs it.
+    { prompt: opts.prompt?.trim() || REVIEW_PROMPT, setup: opts.setup === true },
   );
   return { taskId: job.taskId, existing: false, job: job.id };
 }
 
 export function reviewRoutes(router: Router, deps: { tasks: Tasks; jobs: TaskJobs }) {
   router.on("POST", "/api/reviews", async (req) => {
-    const b = await body<{ workspace?: string; prs: string[]; prompt?: string }>(req);
+    const b = await body<{ workspace?: string; prs: string[]; prompt?: string; setup?: boolean }>(req);
     const r = await startReview(deps, b.prs, b);
     return json(r, r.existing ? 200 : 202);
   });

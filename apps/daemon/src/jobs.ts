@@ -137,6 +137,6 @@ export function jobRoutes(router: Router, jobs: TaskJobs) {
       const spec: TaskSpec = review
         ? { id: b.id ?? "", kind: "review", prs: b.prs ?? [], repos: (b.prs ?? []).map((p) => p.split("#")[0]!), slug: b.slug ?? "" }
         : { id: b.id ?? "", kind: "linear", type: b.type, repos: b.repos ?? [], slug: b.slug ?? "" };
-      return json(await jobs.start(workspace, spec, { setup: b.setup, prompt: b.prompt, feedItemId: b.feedItemId }), 202);
+      return json(await jobs.start(workspace, spec, { setup: review ? b.setup === true : b.setup, prompt: b.prompt, feedItemId: b.feedItemId }), 202);
     });
 }

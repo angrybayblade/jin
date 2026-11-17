@@ -11,7 +11,7 @@ import { setupEnv, startDaemon, until, type Daemon, type TestEnv } from "./helpe
 let env: TestEnv;
 let d: Daemon;
 
-// A cws that has task kinds (0.1.1): review tasks are git checkouts at a "PR head".
+// A cws that has task kinds (0.2): review tasks are git checkouts at a "PR head".
 const CWS = `#!/usr/bin/env bun
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ appendFileSync(join(root, "cws.log"), a.join(" ") + "\\n");
 const flag = (n) => { const i = a.indexOf(n); return i >= 0 ? a[i + 1] : undefined; };
 const all = (n) => a.flatMap((x, i) => (x === n ? [a[i + 1]] : []));
 const git = (cwd, ...args) => { const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@e", ...args], { cwd }); return r.stdout.toString().trim(); };
-if (a[0] === "--version") console.log("cws 0.1.1 (test)");
+if (a[0] === "--version") console.log("cws 0.2.0 (test)");
 else if (a[0] === "task" && a[1] === "next-id") {
   const n = existsSync(join(root, "tasks")) ? readdirSync(join(root, "tasks")).filter((x) => x.startsWith("REV-1117")).length : 0;
   console.log("REV-1117" + String(n + 1).padStart(2, "0"));
@@ -72,7 +72,8 @@ test("A25 a PR becomes a review task with the skills tagged for reviews, and goe
   expect(started).toMatchObject({ taskId: "REV-111701", existing: false });
   const task = await until(async () => ((await d.json("/api/tasks")) as { id: string; kind: string }[]).find((t) => t.id === "REV-111701") ?? null, 10_000, "review task");
   expect(task).toMatchObject({ kind: "review", prs: [{ repo: "platform", number: 12, title: "PR 12" }] });
-  expect(cwsLog()).toContain("task new review --id REV-111701 --pr platform#12 --setup");
+  // No setup: a plain checkout; the reviewer installs only what it needs.
+  expect(cwsLog()).toContain("task new review --id REV-111701 --pr platform#12");
 
   // Claude Code starts on it: the review skill as a plugin (not the other), and the review rules.
   await until(() => existsSync(join(env.home, "claude-args.txt")), 10_000, "claude launched");
@@ -83,6 +84,8 @@ test("A25 a PR becomes a review task with the skills tagged for reviews, and goe
   expect(existsSync(join(plugin, "skills", "ship-it"))).toBe(false);
   expect(args).toContain("a REVIEW of pull requests: platform#12 (PR 12)");
   expect(args).toContain("/jin:review-deep");
+  expect(args).toContain("SETUP IS YOURS TO DECIDE");
+  expect(args).toContain("cws install <repo> --task REV-111701");
   expect(args).toContain("Review the pull requests in this task");
 
   // Asking again (as platform#12) opens the same task.

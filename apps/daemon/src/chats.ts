@@ -186,16 +186,17 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
       input: {
         prs: z.array(z.string()).min(1).describe("PR links, or <repo>#<number> (one per repo)"),
         prompt: z.string().optional().describe("what the review should focus on; defaults to reviewing the PRs"),
+        setup: z.boolean().optional().describe("install each repo's dependencies up front; default false (the reviewer installs what it needs)"),
         workspace: z.string().optional(),
         machine: machineArg,
       },
       run: async (a) => {
         const on = remote(a.machine as string | undefined);
         if (on) {
-          const r = await machines!.call<{ taskId: string; existing: boolean }>(on, "POST", "/api/reviews", { prs: a.prs, prompt: a.prompt, workspace: a.workspace });
+          const r = await machines!.call<{ taskId: string; existing: boolean }>(on, "POST", "/api/reviews", { prs: a.prs, prompt: a.prompt, setup: a.setup, workspace: a.workspace });
           return { ...r, machine: on, open: link(on, r.taskId) };
         }
-        const r = await startReview({ tasks, jobs }, a.prs as string[], { workspace: a.workspace as string | undefined, prompt: a.prompt as string | undefined });
+        const r = await startReview({ tasks, jobs }, a.prs as string[], { workspace: a.workspace as string | undefined, prompt: a.prompt as string | undefined, setup: a.setup as boolean | undefined });
         return { ...r, open: `/t/${r.taskId}` };
       },
     },
