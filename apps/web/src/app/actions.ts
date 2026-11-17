@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -533,6 +533,16 @@ export async function chooseNotificationKinds(app: string, kinds: string[]): Pro
 
 // ---------------------------------------------------------------- work journal (the task's machine)
 
-export async function getJournal(taskId: string): Promise<JournalView> {
-  return daemon<JournalView>(`/api/tasks/${encodeURIComponent(taskId)}/journal`);
+/** The task's journal, or why it cannot be shown (an error thrown here would reach the page as React's unreadable #441). */
+export async function getJournal(taskId: string): Promise<JournalView | { error: string }> {
+  try {
+    return await daemon<JournalView>(`/api/tasks/${encodeURIComponent(taskId)}/journal`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/journal: not found$/.test(message)) {
+      const machine = await currentMachine();
+      return { error: `jin on ${machine === "local" ? "this machine" : machine} is older and has no journal yet. Update jin there (Machines → Update jin).` };
+    }
+    return { error: message };
+  }
 }

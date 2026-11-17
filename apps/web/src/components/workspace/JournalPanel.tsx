@@ -56,7 +56,11 @@ export function JournalPanel({ taskId, onOpen }: { taskId: string; onOpen: (path
     let live = true;
     const load = () =>
       void getJournal(taskId).then(
-        (v) => live && (setView(v), setError(null)),
+        (v) => {
+          if (!live) return;
+          if ("error" in v) setError(v.error);
+          else (setView(v), setError(null));
+        },
         (e) => live && setError(String(e)),
       );
     load();
