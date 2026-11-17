@@ -46,19 +46,19 @@ port: 7317               # the daemon's port
 webOrigin: http://127.0.0.1:3917   # the only browser origin the daemon accepts
 ```
 
-Workspaces are `$JIN_HOME/workspaces/<id>.yaml` (the setup page writes one):
+Workspaces are `$JIN_HOME/workspaces/<id>.yaml` (the setup page writes one). `adapter` names
+the workspace provider: `cws` (composio-workspace) or `git` (a folder of git clones); GitHub
+owners are read from the workspace when left out:
 
 ```yaml
-id: composio
-adapter: composio
-root: /Users/you/composio-workspace
-github:
-  owners: [ComposioHQ]
+id: repos
+adapter: git
+root: /Users/you/code
 ```
 
 ## Layout
 
-- `apps/daemon` (Bun): workspace adapters (composio over `cws` and `task.json`), the
+- `apps/daemon` (Bun): workspace providers (`adapters/`: cws, git), the
   GitHub feed, persistent terminals (Claude Code and shells), Claude Code hooks, PRs on
   tasks, notifications, Agent SDK chats with approvals, policy, tickets, first-run setup,
   remote machines over ssh, SQLite.
@@ -66,4 +66,4 @@ github:
   badges), desks, setup and machines, on Zero's design system with light/dark themes.
 - `apps/desktop` (Electrobun): the macOS window; starts jin's services from the release.
 - `tests/acceptance`: the v0 acceptance suite (`bun run acceptance`), black box, with fake
-  `gh` and `cws`; runs on its own port next to a dev server. Unit tests: `bun test apps`.
+  `gh` and `cws` (and real local git repos for the git provider); runs on its own port next to a dev server. Unit tests: `bun test apps`.

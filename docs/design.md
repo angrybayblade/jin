@@ -15,7 +15,7 @@ ideas and drops the multi-tenant machinery.
 | --- | --- |
 | Users | Only me. No organisations, roles or sharing inside Jin. |
 | Where it runs | Your Mac as a desktop app, and any machine you reach with `ssh` (a dev VM), each with its own daemon; the app switches between them. |
-| Workspaces | Pluggable through a workspace adapter. composio-workspace is the first; Jin's core knows nothing about Composio. |
+| Workspaces | Pluggable through workspace providers (cws, git); jin's core knows no particular workspace. Composio the platform (events, desks) stays a dependency, with the user's own key. |
 | Tasks | The workspace is the source of truth for its tasks (the adapter is the task provider); Jin keeps only its own metadata. |
 | Coding | Claude Code's own TUI, in persistent terminals in the browser. Jin's rules reach it through Claude Code hooks. |
 | Chat | Jin's own chat and knowledge desks run on the Claude Agent SDK, with jin's tools and approvals. |
@@ -37,7 +37,7 @@ ideas and drops the multi-tenant machinery.
 └──────────────────────────────────────────┬────────────────────────────────────────────┘
                                 HTTP + websockets (loopback)
 ┌──────────────────────────────── apps/daemon (Bun) ────────────────────────────────────┐
-│ Workspace adapters (composio: cws, task.json)   Feed (GitHub collector)                │
+│ Workspace providers (cws, git)                  Feed (GitHub collector)                │
 │ Terminals: PTYs + headless xterm, saved tabs     Sessions: Agent SDK chats + approvals  │
 │ Claude Code hooks: policy + status               Files and diffs, confined to the task  │
 │ Policy (deny, ask)   Tickets   Bobby companion   SQLite (feed, tasks, sessions, events,  │
@@ -50,26 +50,41 @@ daemon owns.
 
 ## Workspaces and tasks
 
+jin's core knows no particular workspace. A **workspace provider** (`apps/daemon/src/adapters/`)
+implements the contract in `adapters/types.ts`, in two halves:
+
 ```ts
-interface WorkspaceAdapter {
-  config: WorkspaceConfig;            // ~/.jin/workspaces/<id>.yaml
-  repos(): Promise<Repo[]>;
-  listTasks(): ProviderTask[];        // the task provider: the workspace's own tasks
-  startTask(spec): Promise<TaskDirs>; // composio: cws task new ... --setup
-  removeTask(id): Promise<void>;      // composio: cws task rm
-  policy(): PolicyRules;              // extra deny/ask rules
+interface WorkspaceProvider {           // a kind of workspace, before one is in jin
+  id; label; description;               // `adapter: <id>` in ~/.jin/workspaces/<id>.yaml
+  taskKinds: TaskKindSpec[];            // change / review: id hints, change types, notes
+  detectScript(): string;               // sh, here or over SSH: FOUND/PREFERRED <root>
+  check: string;                        // sh: is $ROOT one of these?
+  install?: { defaultRoot; script };    // sh installer (absent: point jin at one)
+  defaultId; owners(root);              // its config
+  tools(): ToolSpec[];                  // extra machine tools: install, status, sign-in, token
+  create(config): WorkspaceAdapter;
+}
+interface WorkspaceAdapter {            // one configured workspace
+  repos(); listTasks();                 // the workspace is the source of truth for its tasks
+  startTask(spec, { setup, onOutput }); removeTask(id); nextTaskId?(kind);
+  agentBrief(task): AgentBrief;         // what Claude Code is told: start, notes, readable, setup, rules
+  checkCommands?(): RegExp[];           // its checks count as test runs in the journal
+  policy(): PolicyRules;                // extra deny/ask rules
 }
 ```
 
-- **composio adapter**: repos from `workspace.yaml` and `.gitmodules`; tasks from
-  `tasks/*/task.json` exactly as `cws task list` reads them (title from the branch); creation
-  and removal through the workspace's own `bin/cws`. Tasks made with `cws` in a terminal show
-  up in Jin; tasks removed there drop out.
+- **cws** (composio-workspace): repos from `workspace.yaml` and `.gitmodules`; tasks from
+  `tasks/*/task.json` as `cws task list` reads them; creation and removal through the
+  workspace's own `bin/cws` (a change is `task new linear`, its id the Linear issue's, which
+  becomes the task's `issue`). Its brief names TASK.md, the map and `cws install`/`up`; it
+  declares Doppler as a tool and installs with its own `install.sh`.
+- **git**: any folder whose subfolders are git clones; a task is a worktree per repo under
+  `.jin-tasks/<id>/` (a branch for a change, detached at the PR head for a review). Nothing to
+  install, no extra tools. It is what proves the core stands alone (acceptance A27).
+- A task's issue (`task.issue`) comes from its workspace, never from the shape of its id.
 - Jin's `tasks` table keeps only Jin's metadata (the feed item a task came from) and records
-  of removed tasks.
-- A future provider (plain git, another organisation's tooling, Linear-backed tasks)
-  implements the same surface; `listTasks()` is synchronous for local files and would serve a
-  cached snapshot for a remote provider.
+  of removed tasks. `listTasks()` is synchronous for local files and would serve a cached
+  snapshot for a remote provider.
 - Each workspace may set `profile.claudeConfigDir` to keep its connectors and logins apart
   (that directory needs its own `claude` login); unset means the machine's default login.
 
@@ -86,10 +101,9 @@ interface WorkspaceAdapter {
 - **The browser side** is xterm.js with the WebGL renderer, Unicode 11 widths, OSC 52
   clipboard, clickable links, Shift+Enter as a newline and Cmd+C on a selection.
 - **Claude Code is launched by Jin** as `claude --settings ~/.jin/claude/settings.json --model <model>`,
-  in the task's folder (its worktrees and TASK.md: `cws` finds the task from there, and each
-  task keeps its own conversations) with `--add-dir <workspace root>` so the whole workspace
-  (CLAUDE.md, docs/map, other repos) is readable; jin's appended prompt names the task, the
-  workspace, and its rules (attach PRs, never edit `repos/<x>`).
+  in the task's folder (each task keeps its own conversations) with `--add-dir <workspace root>`
+  so the whole workspace is readable; jin's appended prompt names the task and jin's rules
+  (attach PRs, sub-tasks, the journal), around the workspace's own brief.
 - **Sub-tasks**: Claude Code can split work into its own task and PR with `jin-task spawn <ID>
   --repos … --slug … --prompt …` (asks the user first); jin records the parent, nests it in the
   sidebar, and `jin-task subtasks` reports each one's setup, Claude Code status and PRs.
@@ -178,8 +192,8 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   lists every connected machine's tasks under its name (opening one switches to it), and a
   machine's notifications (it has no desktop: it keeps them) are collected and shown here.
   More than one jin can use a machine (`webOrigins`). jin finds a workspace already on a
-  machine through its `cws` link (`~/.local/bin/cws` → `<workspace>/bin/cws`) or the usual
-  folders, and offers it before installing one.
+  machine with every provider's detection script (cws: its `cws` link or the usual folders),
+  and offers it before installing one.
 - **Home (hub)**: any machine can be jin's always-on home. Your Mac's line to it also carries a
   reverse port (`-R`), over which the Mac attaches itself (`POST /api/machines/attach`), so the
   hub reaches the Mac without dialling into it. With a home, chats, desks, the feed and approvals
