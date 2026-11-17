@@ -68,6 +68,31 @@ export interface TriggerInstance {
 }
 
 const RECENT = 50;
+/** How often the trigger logs are read; the first read reaches back BACKFILL_MS; older than FRESH_MS is caught up quietly. */
+const POLL_MS = Number(process.env.JIN_COMPOSIO_POLL_MS ?? 15_000);
+const BACKFILL_MS = 12 * 3_600_000;
+const FRESH_MS = 10 * 60_000;
+
+/** One entry of `composio dev logs triggers --include-payload`. */
+export interface TriggerLog {
+  id: string;
+  appName?: string;
+  createdAt: string;
+  meta?: { id?: string; triggerName?: string; triggerClientPayload?: string | null; triggerProviderPayload?: string | null };
+}
+
+/** A trigger log as the event it records (what readEvent reads), or null when it is not one. */
+export function logEvent(log: TriggerLog): Record<string, unknown> | null {
+  const m = log.meta ?? {};
+  if (!m.triggerName) return null;
+  let data: unknown = m.triggerClientPayload ?? m.triggerProviderPayload ?? "{}";
+  try {
+    while (typeof data === "string") data = JSON.parse(data);
+  } catch {
+    data = {};
+  }
+  return { triggerSlug: m.triggerName, id: m.id ?? log.id, timestamp: log.createdAt, toolkitSlug: log.appName, data };
+}
 
 // ---------------------------------------------------------------- events, as jin reads them
 
@@ -173,8 +198,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
 export class Composio {
   private dir: string;
   private file: string;
-  private listener: { proc: Proc | null; state: "off" | "starting" | "running" | "down"; since: string | null; error: string | null; backoff: number; timer: ReturnType<typeof setTimeout> | null; stopped: boolean } = {
-    proc: null,
+  private listener: { state: "off" | "starting" | "running" | "down"; since: string | null; error: string | null; backoff: number; timer: ReturnType<typeof setTimeout> | null; stopped: boolean } = {
     state: "off",
     since: null,
     error: null,
@@ -420,61 +444,50 @@ export class Composio {
 
   // ---------------------------------------------------------------- the listener
 
-  /** Keep `composio dev listen` running while any event is on; restart it when it drops. */
   /** The GitHub watch runs with jin, when it is switched on. */
   resumeNative() {
     if (this.settings.events.github_prs) this.deps.github?.start();
   }
 
+  /**
+   * Keep reading new events while any Composio event is on: Composio's trigger logs, every few
+   * seconds. (`composio dev listen` received nothing for this developer project when run without
+   * a terminal, checked on CLI 0.6.2, while the logs carry every event with its payload.)
+   */
   startListener() {
     const l = this.listener;
     l.stopped = false;
-    if (l.proc) return;
+    if (l.timer) return;
     const composioOn = (Object.keys(this.settings.events) as EventKind[]).some((k) => this.settings.events[k] && EVENTS[k] && !("native" in EVENTS[k]));
     if (!this.installed || !this.project() || !composioOn) {
       l.state = "off";
       return;
     }
     l.state = "starting";
-    // In jin's folder: that is where the developer project is bound.
-    const proc = this.spawn([this.bin, "dev", "listen", "--json", "--user-id", this.settings.userId], { cwd: this.dir });
-    l.proc = proc;
     l.since = new Date().toISOString();
-    let errTail = "";
-    void lines(proc.stdout, (line) => {
-      if (!line.startsWith("{")) return;
-      l.state = "running";
-      try {
-        this.handle(JSON.parse(line) as Record<string, unknown>);
-      } catch {
-        // not an event
-      }
-    });
-    void lines(proc.stderr, (line) => {
-      if (/DeprecationWarning|trace-warnings/.test(line)) return;
-      errTail = line;
-    });
-    // It prints nothing until the first event: alive means listening.
-    setTimeout(() => {
-      if (l.proc === proc && l.state === "starting") l.state = "running";
-    }, 5000);
-    void proc.exited.then((code) => {
-      if (l.proc !== proc) return;
-      l.proc = null;
-      l.state = l.stopped ? "off" : "down";
-      l.error = l.stopped ? null : `composio dev listen exited (${code})${errTail ? `: ${errTail}` : ""}`;
+    l.backoff = POLL_MS;
+    const tick = async () => {
       if (l.stopped) return;
-      l.timer = setTimeout(() => this.startListener(), l.backoff);
-      l.backoff = Math.min(l.backoff * 2, 60_000);
-    });
+      try {
+        await this.readLogs();
+        l.state = "running";
+        l.error = null;
+        l.backoff = POLL_MS;
+      } catch (err) {
+        l.state = "down";
+        l.error = err instanceof Error ? err.message : String(err);
+        l.backoff = Math.min(l.backoff * 2, 120_000);
+      }
+      if (!l.stopped) l.timer = setTimeout(() => void tick(), l.backoff);
+    };
+    l.timer = setTimeout(() => void tick(), 0);
   }
 
   stopListener() {
     const l = this.listener;
     l.stopped = true;
     if (l.timer) clearTimeout(l.timer);
-    l.proc?.kill();
-    l.proc = null;
+    l.timer = null;
     l.state = "off";
   }
 
@@ -483,13 +496,48 @@ export class Composio {
     this.startListener();
   }
 
+  /** Where reading the trigger logs got to: the newest time seen and the ids already handled. */
+  private cursor: { from: number; ids: string[] } | null = null;
+
+  /** New trigger logs since the last look, oldest first, each handled once. */
+  async readLogs() {
+    const file = join(this.config.home, "composio-cursor.json");
+    if (!this.cursor) {
+      try {
+        this.cursor = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { from: number; ids: string[] }) : null;
+      } catch {
+        this.cursor = null;
+      }
+      // The first look reaches back a few hours (into the feed, quietly).
+      this.cursor ??= { from: Date.now() - BACKFILL_MS, ids: [] };
+    }
+    // A minute of overlap: a log can land a little after its time.
+    const from = Math.max(0, this.cursor.from - 60_000);
+    const out = await this.cli<{ data?: TriggerLog[] }>(["dev", "logs", "triggers", "--from", String(from), "--limit", "200", "--include-payload", "--user-id", this.settings.userId]);
+    const logs = [...(out.data ?? [])].sort((x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt));
+    const seen = new Set(this.cursor.ids);
+    let newest = this.cursor.from;
+    for (const log of logs) {
+      const at = Date.parse(log.createdAt);
+      if (Number.isFinite(at) && at > newest) newest = at;
+      const raw = logEvent(log);
+      if (!raw || seen.has(String(raw.id))) continue;
+      seen.add(String(raw.id));
+      // GitHub is jin's own watch now; older Composio GitHub triggers' logs are not events.
+      if (log.appName === "github") continue;
+      this.handle(raw, { quiet: Date.now() - at > FRESH_MS });
+    }
+    this.cursor = { from: newest, ids: [...seen].slice(-1000) };
+    writeFileSync(file, JSON.stringify(this.cursor));
+  }
+
   stopAll() {
     this.stopListener();
     this.login.proc?.kill();
   }
 
-  /** An event: into the feed (and so its desk and catch-up), and a notification when it is for you. */
-  handle(raw: Record<string, unknown>) {
+  /** An event: into the feed (and so its desk and catch-up), and a notification when it is for you; quiet: an old one, feed only. */
+  handle(raw: Record<string, unknown>, opts: { quiet?: boolean } = {}) {
     // The first event of each trigger: its structure (field names and types, no values) goes to
     // the log, so the reading can be checked against real payloads without keeping messages.
     const slug = String(pick(raw, "triggerSlug", "trigger_slug", "type", "metadata.trigger_slug") ?? "?");
@@ -499,22 +547,22 @@ export class Composio {
     }
     const e = readEvent(raw, this.settings.me);
     if (!e) return;
-    this.listener.backoff = 2000;
-    this.deliver(e);
+    this.deliver(e, opts);
   }
 
   /** A live event (from Composio, or jin's own GitHub watch): recent list, feed, and a notification when it is for you. */
-  deliver(e: LiveEvent) {
+  deliver(e: LiveEvent, opts: { quiet?: boolean } = {}) {
     this.recent.unshift(e);
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     const workspace = this.deps.workspaces[0]?.id ?? "live";
     // Distinct per event (two comments link to the same issue), grouped by thread.
     const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor };
     this.deps.feed.add([item]);
+    if (opts.quiet) return; // caught up from earlier: no hooks, no notification
     this.deps.onEvent?.(e);
     if (this.deps.shouldNotify ? this.deps.shouldNotify(e) : e.forYou) {
       const where = e.thread ? [e.thread.ref, e.thread.title].filter(Boolean).join(" ") : undefined;
-      this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: where, body: e.summary, path: `/c/${e.toolkit}` });
+      this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: where, body: e.summary, path: `/c/${e.toolkit}`, url: e.url ?? e.thread?.url ?? undefined });
     }
   }
 

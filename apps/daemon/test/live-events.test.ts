@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readEvent, triggerConfig } from "../src/composio";
+import { logEvent, readEvent, triggerConfig } from "../src/composio";
 
 const me = { slack: "U_ME", linear: "lin-me", github: "me-gh", email: "me@example.com" };
 
@@ -42,4 +42,13 @@ test("summaries drop the markup bots write", () => {
 
 test("a trigger instance's config is read from Composio's doubly encoded JSON", () => {
   expect(triggerConfig({ id: "t", trigger_name: "X", toolkit_slug: "slack", connected_account_id: "c", status: "ACTIVE", disabled_at: null, trigger_data: '"{\\"team_id\\": \\"T1\\"}"' })).toEqual({ team_id: "T1" });
+});
+
+test("a trigger log (as composio dev logs triggers gives it) reads as its event", () => {
+  // The shape of a real SLACK_DIRECT_MESSAGE_RECEIVED log; the values are made up.
+  const payload = { attachments: [], blocks: [], bot_id: null, channel: "D9", channel_type: "im", files: null, parent_user_id: null, subtype: null, team_id: "T1", text: "got a minute?", thread_ts: null, ts: "1700000000.1", user: "U_ALEX" };
+  const raw = logEvent({ id: "log1", appName: "slack", createdAt: "2026-11-17T03:00:00.000Z", meta: { id: "evt1", triggerName: "SLACK_DIRECT_MESSAGE_RECEIVED", triggerClientPayload: JSON.stringify(payload) } });
+  expect(raw).toMatchObject({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "evt1", timestamp: "2026-11-17T03:00:00.000Z" });
+  expect(readEvent(raw!, me)).toMatchObject({ id: "evt1", actor: "U_ALEX", summary: "got a minute?", tags: ["dm"], thread: { key: "slack:dm:D9" }, at: "2026-11-17T03:00:00.000Z" });
+  expect(logEvent({ id: "x", createdAt: "t", meta: {} })).toBeNull();
 });
