@@ -45,6 +45,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
   const [kind, setKind] = useState<"linear" | "review">("linear");
   const [prLinks, setPrLinks] = useState("");
   const [reviewSetup, setReviewSetup] = useState(false);
+  const [links, setLinks] = useState("");
   const [id, setId] = useState("");
   const [slug, setSlug] = useState("");
   const [type, setType] = useState<(typeof TYPES)[number]>("bug");
@@ -73,13 +74,13 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     if (kind === "review") {
-      const r = await startReview(prList, prompt.trim() || undefined, reviewSetup);
+      const r = await startReview(prList, prompt.trim() || undefined, reviewSetup, linkList);
       setBusy(false);
       if ("error" in r) return setError(r.error);
       onClose();
       return router.push(`/t/${encodeURIComponent(r.taskId)}`);
     }
-    const res = await startTaskJob({ id: id.trim(), slug: slug.trim(), type, repos: [...picked], setup, prompt: prompt.trim() || undefined });
+    const res = await startTaskJob({ id: id.trim(), slug: slug.trim(), type, repos: [...picked], setup, prompt: prompt.trim() || undefined, links: linkList });
     setBusy(false);
     if ("error" in res) return setError(res.error);
     onClose();
@@ -87,6 +88,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
   };
 
   // PR links (or repo#123), one per line or separated by spaces.
+  const linkList = links.split(/\s+/).map((l) => l.trim()).filter(Boolean);
   const prList = prLinks.split(/[\s,]+/).map((p) => p.trim()).filter(Boolean);
   const valid = kind === "review" ? prList.length > 0 : /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id.trim()) && slug.trim() && picked.size > 0;
   return (
@@ -152,6 +154,10 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
         </fieldset>
         </>
         )}
+        <label className="field">
+          <span>Follow (optional): Slack threads or channels, Notion pages, one URL per line</span>
+          <textarea value={links} onChange={(e) => setLinks(e.target.value)} rows={2} placeholder={"https://acme.slack.com/archives/C0123/p1700000000123456\nhttps://www.notion.so/acme/Launch-plan-1a2b…"} />
+        </label>
         <label className="field">
           <span>First prompt for Claude Code (optional)</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder={kind === "review" ? "Defaults to: review the pull requests in this task" : "What should Claude Code start on once the task is ready?"} />

@@ -142,3 +142,33 @@ test("A23 live events: a project, an event switched on, a DM in the feed and a n
   expect(off.events.find((e: { kind: string }) => e.kind === "slack_dms")).toMatchObject({ on: false, triggers: 0 });
   expect(off.events.find((e: { kind: string }) => e.kind === "linear")).toMatchObject({ on: true, triggers: 3 });
 }, 60_000);
+
+test("A26 a task's Activity: its Linear issue, and the Slack thread and channel it follows, without a mention", async () => {
+  const event = (o: unknown) => appendFileSync(join(state, "events.jsonl"), `${JSON.stringify(o)}\n`);
+  const sinceLinked = Math.floor(Date.now() / 1000);
+  // A task created with links: a Slack thread and a Slack channel (threads from now on).
+  const job = await d.json("/api/task-jobs", {
+    method: "POST",
+    json: { id: "PLEN-77", repos: ["platform"], slug: "limiter", setup: false, links: ["https://acme.slack.com/archives/C77/p1700000000123456", "https://acme.slack.com/archives/C78"] },
+  });
+  await until(async () => ((await d.json(`/api/task-jobs/${job.id}`)).state === "done" ? true : null), 10_000, "task created");
+  const links = (await d.json("/api/tasks/PLEN-77/links")) as { key: string; how: string }[];
+  expect(links.map((l) => [l.key, l.how])).toEqual([["linear:PLEN-77", "issue"], ["slack:C77:1700000000.123456", "manual"], ["slack-channel:C78", "manual"]]);
+  // Chatter that mentions nobody: in the linked thread, a new thread in the linked channel, elsewhere.
+  event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "lk1", data: { text: "rolling out the limiter", user: "U_BOB", channel: "C77", channel_type: "channel", ts: "1700000500.000001", thread_ts: "1700000000.123456" } });
+  event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "lk2", data: { text: "new thread here", user: "U_BOB", channel: "C78", channel_type: "channel", ts: `${sinceLinked + 5}.000001` } });
+  event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "lk3", data: { text: "unrelated", user: "U_BOB", channel: "C99", channel_type: "channel", ts: `${sinceLinked + 6}.000001` } });
+  // The task's own Linear issue.
+  event({ triggerSlug: "LINEAR_COMMENT_EVENT_TRIGGER", id: "lk4", data: { action: "create", data: { body: "looks good", user: { id: "u2", name: "Bea" }, issue: { identifier: "PLEN-77", title: "Limiter" } } } });
+  const act = await until(async () => {
+    const a = (await d.json("/api/tasks/PLEN-77/activity")) as { items: { thread: { key: string }; actor: string }[] };
+    return a.items.length >= 3 ? a : null;
+  }, 10_000, "activity");
+  expect(act.items.map((i) => i.thread.key).sort()).toEqual(["linear:PLEN-77", `slack:C78:${sinceLinked + 5}.000001`, "slack:C77:1700000000.123456"].sort());
+  // Kept for the task, not notified: nobody mentioned you.
+  expect(notices().some((n) => n.body === "rolling out the limiter")).toBe(false);
+  // Unlinking the thread: it leaves the Activity.
+  await d.api(`/api/tasks/PLEN-77/links?key=${encodeURIComponent("slack:C77:1700000000.123456")}`, { method: "DELETE" });
+  const after = (await d.json("/api/tasks/PLEN-77/activity")) as { items: { thread: { key: string } }[] };
+  expect(after.items.map((i) => i.thread.key)).not.toContain("slack:C77:1700000000.123456");
+}, 60_000);

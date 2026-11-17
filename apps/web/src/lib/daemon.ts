@@ -41,6 +41,22 @@ export interface Task {
   prs?: { repo: string; number: number; head?: string; title?: string; url?: string }[];
 }
 
+/** What a task follows: its PRs and issue (by themselves), Slack threads and channels and Notion pages (linked by hand). */
+export interface TaskLink {
+  taskId: string;
+  key: string;
+  kind: "github" | "linear" | "slack-thread" | "slack-channel" | "notion";
+  url: string | null;
+  label: string;
+  since: string | null;
+  how: "manual" | "pr" | "issue";
+  addedAt: string;
+}
+export interface TaskActivity {
+  links: TaskLink[];
+  items: FeedItem[];
+}
+
 /** One of jin's skills (a SKILL.md), tagged; tasks get the ones their kind asks for. */
 export interface Skill {
   name: string;

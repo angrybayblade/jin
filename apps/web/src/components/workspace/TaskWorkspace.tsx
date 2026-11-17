@@ -1,6 +1,6 @@
 "use client";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Archive, ArchiveRestore, ClipboardCopy, File, FolderTree, GitCompare, NotebookPen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
+import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FolderTree, GitCompare, NotebookPen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
@@ -109,7 +109,7 @@ export function TaskWorkspace({
   useEffect(() => {
     try {
       const t = localStorage.getItem("jin-task-side");
-      if (t === "files" || t === "journal") setSideState(t);
+      if (t === "files" || t === "journal" || t === "activity") setSideState(t);
     } catch {}
   }, []);
   const setSide = (t: SideTab) => {
@@ -490,6 +490,9 @@ export function TaskWorkspace({
             </button>
             <button type="button" role="tab" aria-selected={side === "journal"} className={`button quiet icon-only${side === "journal" ? " is-active" : ""}`} onClick={() => setSide("journal")} title="Journal: what Claude Code decided and did" aria-label="Journal">
               <NotebookPen size={14} />
+            </button>
+            <button type="button" role="tab" aria-selected={side === "activity"} className={`button quiet icon-only${side === "activity" ? " is-active" : ""}`} onClick={() => setSide("activity")} title="Activity: its PRs, issue, and the Slack threads and Notion pages it follows" aria-label="Activity">
+              <Activity size={14} />
             </button>
           </div>
           <button type="button" className="button quiet icon-only" onClick={showChanges} title="Changes: the task's uncommitted diff" aria-label="Show changes">

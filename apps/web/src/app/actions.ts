@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { currentMachine, daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -131,7 +131,7 @@ export async function listRepos(workspace?: string): Promise<Repo[]> {
 }
 
 /** Create a task in the background; its page shows setup progress until it is ready. */
-export async function startTaskJob(input: { id: string; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string }): Promise<{ job: TaskJob } | { error: string }> {
+export async function startTaskJob(input: { id: string; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string; links?: string[] }): Promise<{ job: TaskJob } | { error: string }> {
   try {
     const job = await daemon<TaskJob>("/api/task-jobs", { method: "POST", json: input });
     revalidatePath("/", "layout");
@@ -546,12 +546,38 @@ export async function deleteSkill(name: string): Promise<{ removed: boolean } | 
   }
 }
 
+// ---------------------------------------------------------------- what a task follows
+
+export async function getActivity(taskId: string): Promise<TaskActivity | { error: string }> {
+  try {
+    return await daemon<TaskActivity>(`/api/tasks/${encodeURIComponent(taskId)}/activity`);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function addTaskLink(taskId: string, url: string): Promise<TaskLink | { error: string }> {
+  try {
+    return await daemon<TaskLink>(`/api/tasks/${encodeURIComponent(taskId)}/links`, { method: "POST", json: { url } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function removeTaskLink(taskId: string, key: string): Promise<{ removed: boolean } | { error: string }> {
+  try {
+    return await daemon<{ removed: boolean }>(`/api/tasks/${encodeURIComponent(taskId)}/links?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ---------------------------------------------------------------- reviewing PRs as tasks
 
 /** A review task for these PRs (links or <repo>#<n>) on this machine, or the one already reviewing them. */
-export async function startReview(prs: string[], prompt?: string, setup?: boolean): Promise<{ taskId: string; existing: boolean } | { error: string }> {
+export async function startReview(prs: string[], prompt?: string, setup?: boolean, links?: string[]): Promise<{ taskId: string; existing: boolean } | { error: string }> {
   try {
-    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt, setup } });
+    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt, setup, links } });
     revalidatePath("/", "layout");
     return r;
   } catch (err) {

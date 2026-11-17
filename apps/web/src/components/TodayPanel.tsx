@@ -98,6 +98,17 @@ function Group({ g }: { g: FeedGroup }) {
   );
 }
 
+/** Feed items as threads (a task's Activity uses it too). */
+export function FeedThreads({ items }: { items: FeedItem[] }) {
+  return (
+    <ul className="feed-groups">
+      {groupFeed(items).map((g) => (
+        <Group key={g.key} g={g} />
+      ))}
+    </ul>
+  );
+}
+
 /** Jin's right pane: what is waiting, grouped by thread, newest first. Ask jin in the chat to act on it. */
 export function TodayPanel({ items, title = "Today", note }: { items: FeedItem[]; title?: string; note?: string }) {
   const open = items.filter((i) => i.state === "new");
