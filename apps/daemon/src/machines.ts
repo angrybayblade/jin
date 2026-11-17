@@ -107,6 +107,11 @@ const REPO = resolve(import.meta.dir, "../../..");
 // Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
 export const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
 
+/** A port on the home for this jin's line back: the same every time (two laptops get different ones); `n` moves past ones still held. */
+export function reversePortFor(id: string, n = 0): number {
+  return 20000 + ((Number.parseInt(Bun.hash(id).toString(16).slice(-4), 16) + n * 7919) % 20000);
+}
+
 export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
 
 /** A short id from what you typed: `me@dev-box.example.com` → `dev-box`. */
@@ -284,7 +289,7 @@ ${providerTools()
 `;
 
 
-export type Proc = { stdin: { write(d: string | Uint8Array): unknown; end(): unknown; flush?(): unknown } | null; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill(): void };
+export type Proc = { stdin: { write(d: string | Uint8Array): unknown; end(): unknown; flush?(): unknown } | null; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill(signal?: number): void };
 export type Spawn = (cmd: string[], opts?: { stdin?: "pipe" | "ignore" | Blob; cwd?: string }) => Proc;
 export const defaultSpawn: Spawn = (cmd, opts = {}) => Bun.spawn(cmd, { stdin: opts.stdin ?? "ignore", stdout: "pipe", stderr: "pipe", cwd: opts.cwd }) as unknown as Proc;
 
@@ -316,6 +321,10 @@ interface Tunnel {
   stopped: boolean;
   backoff: number;
   timer: ReturnType<typeof setTimeout> | null;
+  /** Health checks failed in a row while ssh still runs (a dead line ssh has not noticed yet). */
+  misses?: number;
+  /** To the home: the line back (-R), on an ssh connection of its own so the line there never waits on it. */
+  rev?: { proc: Proc | null; backoff: number; timer: ReturnType<typeof setTimeout> | null; tries: number };
 }
 
 export interface SignIn {
@@ -594,23 +603,67 @@ export class Machines {
     const port = await this.freePort(m.localPort);
     if (port !== m.localPort) this.update(id, { localPort: port });
     t.state = "connecting";
-    // To the home (hub), the same connection also lets the hub reach this jin back (-R): a
-    // laptop behind NAT cannot be dialled, so it keeps the line open itself.
-    const reverse = m.reversePort && this.identity ? ["-R", `127.0.0.1:${m.reversePort}:127.0.0.1:${this.identity.port}`] : [];
-    const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${m.remotePort}`, ...reverse, m.host]);
+    const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${m.remotePort}`, m.host]);
+    // To the home (hub), a second connection lets the hub reach this jin back (-R): a laptop
+    // behind NAT cannot be dialled, so it keeps the line open itself.
+    if (m.reversePort && this.identity) this.openReverse(id, t);
     t.proc = proc;
     void this.probe(id);
-    void proc.exited.then(() => {
+    void proc.exited.then((code) => {
       if (t.proc !== proc) return;
       t.proc = null;
       t.state = "down";
       if (t.stopped) return;
+      console.error(`tunnel to ${m.label}: ssh exited (${code}); reopening in ${t.backoff / 1000}s`);
       t.timer = setTimeout(() => void this.openTunnel(id).catch(() => {}), t.backoff);
       t.backoff = Math.min(t.backoff * 2, 30_000);
     });
+    // Health checks every 5s: a dead line is found (and reconnected) within about 10s.
     this.health ??= setInterval(() => {
       for (const mid of this.tunnels.keys()) void this.probe(mid);
-    }, 10_000);
+    }, 5_000);
+  }
+
+  /**
+   * The line back from the home. Its own ssh: when the home still holds the port from a line
+   * that died (after sleep or a network change, some ssh servers keep a dead client's forward
+   * for a long time), only this fails, and it moves to another port and tells the home.
+   */
+  private openReverse(id: string, t: Tunnel) {
+    const m = this.record(id);
+    if (!m.reversePort || !this.identity || t.stopped) return;
+    const rev = (t.rev ??= { proc: null, backoff: 1000, timer: null, tries: 0 });
+    if (rev.proc) return;
+    const port = m.reversePort;
+    const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-R", `127.0.0.1:${port}:127.0.0.1:${this.identity.port}`, m.host]);
+    rev.proc = proc;
+    const err = new Response(proc.stderr).text().catch(() => "");
+    // Up for a few seconds: the forward took. Tell the home where to reach this jin.
+    const settled = setTimeout(() => {
+      if (rev.proc !== proc) return;
+      rev.backoff = 1000;
+      rev.tries = 0;
+      void this.attachToHome(id).catch((e) => console.error(`attaching to ${m.label}: ${e}`));
+    }, 3000);
+    void proc.exited.then(async (code) => {
+      clearTimeout(settled);
+      if (rev.proc !== proc) return;
+      rev.proc = null;
+      if (t.stopped || this.tunnels.get(id) !== t) return;
+      const why = (await err).trim();
+      if (/remote port forwarding failed/i.test(why)) {
+        // The home still holds this port: take the next one (and tell the home once it is up).
+        rev.tries += 1;
+        const next = reversePortFor(this.identity?.id ?? "jin", rev.tries);
+        console.error(`line back from ${m.label}: port ${port} is still held there; moving to ${next}`);
+        this.update(id, { reversePort: next });
+        rev.timer = setTimeout(() => this.openReverse(id, t), 500);
+        return;
+      }
+      console.error(`line back from ${m.label}: ssh exited (${code}); reopening in ${rev.backoff / 1000}s`);
+      rev.timer = setTimeout(() => this.openReverse(id, t), rev.backoff);
+      rev.backoff = Math.min(rev.backoff * 2, 30_000);
+    });
   }
 
   private async probe(id: string) {
@@ -623,10 +676,12 @@ export class Machines {
         .then((r) => r.ok)
         .catch(() => false);
       if (ok) {
+        if (!wasUp && t.misses) console.error(`tunnel to ${m.label}: up again`);
         t.state = "up";
         t.backoff = 1000;
-        // Each time the line to the home comes up, tell the hub how to reach this jin.
-        if (m.home && !wasUp) void this.attachToHome(id).catch((err) => console.error(`attaching to ${m.label}: ${err}`));
+        t.misses = 0;
+        // Each time the line to the home comes up, tell the hub how to reach this jin (once the line back is up too).
+        if (m.home && !wasUp && t.rev?.proc) void this.attachToHome(id).catch((err) => console.error(`attaching to ${m.label}: ${err}`));
         // And learn which jin it runs now (it may have been deployed to since).
         if (!wasUp && !m.attached) void this.refreshVersion(id);
         return;
@@ -634,6 +689,15 @@ export class Machines {
       if (t.state === "connecting") await Bun.sleep(300);
     }
     if (t.proc || t.attached) t.state = t.state === "up" || t.attached ? "down" : t.state;
+    // ssh still runs but nothing answers through it: after sleep or a network change it can take
+    // ssh a minute to notice the line is dead. Two misses in a row: end it and reconnect now.
+    t.misses = (t.misses ?? 0) + 1;
+    if (t.proc && !t.stopped && t.misses >= 2 && t.state !== "connecting") {
+      console.error(`tunnel to ${m.label}: not answering through ssh; reconnecting`);
+      t.misses = 0;
+      t.backoff = 1000;
+      t.proc.kill(9); // a hung ssh may not take a polite signal
+    }
   }
 
   // ---------------------------------------------------------------- home (hub)
@@ -662,7 +726,7 @@ export class Machines {
       void this.openTunnel(other.id);
     }
     // A port on the hub for this jin, the same every time (two laptops get different ones).
-    const reversePort = home ? 20000 + (Number.parseInt(Bun.hash(this.identity?.id ?? "jin").toString(16).slice(-4), 16) % 20000) : null;
+    const reversePort = home ? reversePortFor(this.identity?.id ?? "jin") : null;
     this.update(id, { home: false, reversePort });
     this.closeTunnel(id);
     await this.openTunnel(id);
@@ -763,6 +827,8 @@ export class Machines {
     t.stopped = true;
     if (t.timer) clearTimeout(t.timer);
     t.proc?.kill();
+    if (t.rev?.timer) clearTimeout(t.rev.timer);
+    t.rev?.proc?.kill();
     this.tunnels.delete(id);
   }
 
