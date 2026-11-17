@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "./config";
 import { body, json, type Router } from "./http";
@@ -124,13 +125,34 @@ export class Notifier {
 function defaultDelivery(config: Config): (n: Notice, s: NotificationSettings) => void {
   const log = process.env.JIN_NOTIFY_LOG;
   if (log) return (n, s) => appendFileSync(log, `${JSON.stringify({ ...n, sound: s.sound })}\n`);
-  return (n, s) => deliverNative(n, s, config.webOrigin);
+  return (n, s) => deliverNative(n, s, config.webOrigin, config.home);
 }
 
-/** macOS: terminal-notifier when installed (click opens jin), else AppleScript. Linux: notify-send. */
-export function deliverNative(n: Notice, s: NotificationSettings, webOrigin: string) {
+/** jin's notifier app (apps/notifier, installed by scripts/release-local.sh): notifications as jin that open the place on click. */
+export function notifierPath(home: string): string | null {
+  const p = join(home, "notifier", "jin.app", "Contents", "MacOS", "jin-notifier");
+  return existsSync(p) ? p : null;
+}
+
+/** Where a click takes you: jin's window (jin://, when the desktop app is installed), else the web app in a browser. */
+export function clickTarget(n: Pick<Notice, "path" | "chat">, webOrigin: string, apps = [join(homedir(), "Applications", "jin.app"), "/Applications/jin.app"]): string {
+  const where = n.path + (n.chat ? `${n.path.includes("?") ? "&" : "?"}chat=${encodeURIComponent(n.chat)}` : "");
+  if (apps.some((a) => existsSync(a))) return `jin://open?path=${encodeURIComponent(where)}`;
+  return new URL(where, webOrigin).toString();
+}
+
+/** macOS: jin's notifier (click opens the place in jin), else terminal-notifier, else AppleScript. Linux: notify-send. */
+export function deliverNative(n: Notice, s: NotificationSettings, webOrigin: string, home = join(homedir(), ".jin")) {
   const quiet = { stdout: "ignore", stderr: "ignore" } as const;
   if (process.platform === "darwin") {
+    const own = notifierPath(home);
+    if (own) {
+      const args = [own, "--title", n.title, "--body", n.body || " ", "--group", n.key.split(":")[0] ?? "jin", "--open", clickTarget(n, webOrigin)];
+      if (n.subtitle) args.push("--subtitle", n.subtitle);
+      if (s.sound) args.push("--sound");
+      Bun.spawn(args, quiet);
+      return;
+    }
     const tn = Bun.which("terminal-notifier");
     if (tn) {
       const args = [tn, "-title", n.title, "-message", n.body || " ", "-group", n.key, "-open", new URL(n.path + (n.chat ? `?chat=${n.chat}` : ""), webOrigin).toString()];

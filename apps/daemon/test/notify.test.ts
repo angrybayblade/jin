@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../src/config";
-import { chatPath, lastAssistantText, type Notice, Notifier, plain } from "../src/notify";
+import { chatPath, lastAssistantText, type Notice, Notifier, plain, clickTarget } from "../src/notify";
 
 const home = mkdtempSync(join(tmpdir(), "jin-notify-"));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
@@ -67,4 +67,11 @@ test("Claude Code's last words come from the hook input or its transcript", () =
   ].join("\n"));
   expect(lastAssistantText({ transcript_path: file })).toBe("Fixed the retry loop.");
   expect(lastAssistantText({ transcript_path: join(home, "missing.jsonl") })).toBe("");
+});
+
+test("a click opens the place in jin's window when the app is installed, else in the browser", () => {
+  const here = [import.meta.dir]; // a path that exists, standing in for jin.app
+  expect(clickTarget({ path: "/t/PLEN-1" }, "http://127.0.0.1:3917", here)).toBe("jin://open?path=%2Ft%2FPLEN-1");
+  expect(clickTarget({ path: "/", chat: "c 1" }, "http://127.0.0.1:3917", here)).toBe(`jin://open?path=${encodeURIComponent("/?chat=c%201")}`);
+  expect(clickTarget({ path: "/c/slack" }, "http://127.0.0.1:3917", ["/nowhere/jin.app"])).toBe("http://127.0.0.1:3917/c/slack");
 });
