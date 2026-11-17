@@ -163,6 +163,21 @@ const MIGRATIONS: string[] = [
   );
   create index journal_task on journal (task_id, at);
   `,
+  // 9: what a task follows (Slack threads and channels, Notion pages, Linear issues), linked by
+  // hand; and Notion threads keyed by the page id without dashes, as links name them.
+  `
+  create table task_links (
+    task_id text not null,
+    key text not null,
+    kind text not null,
+    url text,
+    label text not null,
+    since text,
+    added_at text not null,
+    primary key (task_id, key)
+  );
+  update feed_items set thread_key = 'notion:' || lower(replace(substr(thread_key, 8), '-', '')) where thread_key like 'notion:%';
+  `,
 ];
 
 export function openDb(home: string): Database {
