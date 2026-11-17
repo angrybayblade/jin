@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type Session, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -511,6 +511,21 @@ export async function saveHook(h: Partial<Hook>): Promise<Hook | { error: string
 export async function deleteHook(id: string): Promise<{ removed: boolean } | { error: string }> {
   try {
     return await daemon<{ removed: boolean }>(`/api/event-hooks/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ---------------------------------------------------------------- what notifies (on the home)
+
+export async function getNotificationKinds(): Promise<NotificationKinds[]> {
+  return daemon<NotificationKinds[]>("/api/notifications/kinds");
+}
+
+export async function chooseNotificationKinds(app: string, kinds: string[]): Promise<NotificationKinds[] | { error: string }> {
+  try {
+    await daemon<NotificationSettings>("/api/notifications", { method: "PATCH", json: { sources: { [app]: kinds } } });
+    return await daemon<NotificationKinds[]>("/api/notifications/kinds");
   } catch (err) {
     return fail(err);
   }

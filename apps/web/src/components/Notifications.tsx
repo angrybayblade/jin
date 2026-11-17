@@ -1,6 +1,6 @@
 "use client";
-import { Bell, BellOff, BellRing, Send } from "lucide-react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { Bell, BellOff, BellRing, Send, SlidersHorizontal } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { reportPresence, setNotifications, testNotification } from "@/app/actions";
 import type { NotificationSettings } from "@/lib/daemon";
@@ -46,11 +46,12 @@ type Mode = "sound" | "silent" | "off";
 const modeOf = (s: NotificationSettings): Mode => (!s.enabled ? "off" : s.sound ? "sound" : "silent");
 const NEXT: Record<Mode, Mode> = { sound: "silent", silent: "off", off: "sound" };
 const LABEL: Record<Mode, string> = { sound: "Notifications with sound", silent: "Notifications without sound", off: "Notifications off" };
-const settingsOf = (m: Mode): NotificationSettings => ({ enabled: m !== "off", sound: m === "sound" });
+const settingsOf = (m: Mode): Pick<NotificationSettings, "enabled" | "sound"> => ({ enabled: m !== "off", sound: m === "sound" });
 
 /** Sidebar bell: click cycles sound → silent → off; right-click to choose or send a test. */
 export function NotificationToggle({ initial }: { initial: NotificationSettings }) {
   const [mode, setMode] = useState<Mode>(modeOf(initial));
+  const router = useRouter();
   const choose = (m: Mode) => {
     setMode(m);
     void setNotifications(settingsOf(m)).catch(() => setMode(mode));
@@ -69,6 +70,7 @@ export function NotificationToggle({ initial }: { initial: NotificationSettings 
         { label: "Without sound", icon: Bell, hint: mode === "silent" ? "on" : undefined, run: () => choose("silent") },
         { label: "Off", icon: BellOff, hint: mode === "off" ? "on" : undefined, run: () => choose("off") },
         { divider: true },
+        { label: "Choose what notifies…", icon: SlidersHorizontal, run: () => router.push("/notifications") },
         { label: "Send a test notification", icon: Send, run: () => void testNotification() },
       ])}
     >

@@ -317,6 +317,14 @@ export interface LiveStatus {
 export interface NotificationSettings {
   enabled: boolean;
   sound: boolean;
+  sources?: Record<string, string[]>;
+}
+
+/** Per app, the kinds of live event that can notify, and whether each is chosen. */
+export interface NotificationKinds {
+  app: string;
+  label: string;
+  kinds: { id: string; label: string; on: boolean; chosen: boolean }[];
 }
 
 export interface TaskPR {
