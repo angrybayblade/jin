@@ -25,6 +25,7 @@ import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
 import { claudeHookRoutes, claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude-cli";
+import { Journal, journalRoutes } from "./journal";
 import { prRoutes, TaskPRs } from "./prs";
 import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
@@ -96,6 +97,18 @@ const hooks = new Hooks(config.home, {
 });
 hookRoutes(app.router, hooks);
 const onClaudeStatus = watchForNotifications(notifier, { sessions, jobs, terminals });
+// A task's work journal: Claude Code writes decisions, work and findings by concern (jin's
+// `journal` MCP tool); the hooks add the files, commits and test runs they see.
+const journal = new Journal(db, (terminalId) => {
+  try {
+    const t = terminals.get(terminalId);
+    const root = t.taskId ? tasks.get(t.taskId).root : undefined;
+    return { taskId: t.taskId, title: t.title, root };
+  } catch {
+    return null;
+  }
+});
+journalRoutes(app.router, journal);
 claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
   return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
@@ -103,7 +116,7 @@ claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   // Claude Code created a PR in a task: attach it, whatever it does next.
   const taskId = terminals.get(terminalId).taskId;
   if (taskId) for (const url of urls) void prs.attach(taskId, url, "hook").catch(() => {});
-});
+}, journal);
 
 // Pull requests attached to tasks; open ones are refreshed from GitHub every few minutes.
 const prs = new TaskPRs(db);

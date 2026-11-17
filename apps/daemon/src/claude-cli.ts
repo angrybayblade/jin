@@ -34,6 +34,8 @@ export interface TaskContext {
   workspaceRoot?: string;
   /** The task this one was spawned from. */
   parent?: string | null;
+  /** Claude Code has jin's `journal` tool. */
+  journal?: boolean;
 }
 
 /** jin's context and must-follow rules for Claude Code running in a task (appended to its system prompt). */
@@ -54,6 +56,9 @@ export function taskRules(ctx: TaskContext | string): string {
     '  jin-task spawn <ID> --repos <repo,repo> --slug "<short title>" --prompt "<what its Claude Code should do>" [--type feature|enhancement|refactor|patch|bug] [--no-setup]',
     "It creates the task with the workspace's tooling and opens Claude Code there with your prompt; the user approves it first. Use an id like " +
       `${c.taskId}-a. Give the prompt everything the sub-task needs (it does not see this conversation). \`jin-task subtasks\` shows each one's state, its Claude Code status and its pull requests. For research inside this task, use your own subagents instead.`,
+    c.journal
+      ? "WORK JOURNAL: the user follows your work in jin's journal, grouped by concern (a short label for one area of the work, e.g. \"rate limiter\" or \"migration\"; reuse labels). Call the `journal` tool when you make a decision (kind decision, with why), finish a piece of work (done) or learn something that shapes the work (found). One line each, a few per concern, not every step; files, commits and tests are recorded for you. Send it alongside your next tool call rather than on its own, and never read the journal back."
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -72,13 +77,23 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
   return {
     // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
     args: (ctx) => [
+      // The work journal: jin's `journal` tool, through `jin-task mcp` (it knows its terminal). First:
+      // both flags take lists, so the next argument must be another flag, never the prompt.
+      ...(ctx?.taskId && ctx.terminalId && binDir
+        ? [
+            "--mcp-config",
+            JSON.stringify({ mcpServers: { jin: { type: "stdio", command: join(binDir, "jin-task"), args: ["mcp"], env: { JIN_TERMINAL_ID: ctx.terminalId, JIN_HOME: config.home } } } }),
+            "--allowedTools",
+            "mcp__jin__journal",
+          ]
+        : []),
       "--settings",
       settingsFile,
       "--model",
       config.model,
       // The whole workspace is readable from a task's folder; the task's context and rules go in the system prompt.
       ...(ctx?.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
-      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId })] : []),
+      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId) })] : []),
     ],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,
@@ -98,6 +113,8 @@ export function claudeHookRoutes(
   onStatus?: (terminalId: string, before: AgentStatus, after: AgentStatus, event: string, input: Record<string, any>) => void,
   /** A tool call created pull requests (attached to the terminal's task). */
   onPrsCreated?: (terminalId: string, urls: string[]) => void,
+  /** The task's work journal: turns start, and tool calls leave evidence. */
+  journal?: { turnStarted: (terminalId: string) => void; evidence: (terminalId: string, tool: string, input: Record<string, unknown>) => void },
 ) {
   router.on("POST", "/api/hooks/claude", async (req) => {
     const { event, terminalId, input } = await body<{ event: string; terminalId: string | null; input: Record<string, any> }>(req);
@@ -111,6 +128,10 @@ export function claudeHookRoutes(
       if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse") terminals.setStatus(terminalId, "working");
       else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting");
       else if (event === "Stop" || event === "SessionStart") terminals.setStatus(terminalId, "idle");
+    }
+    if (terminalId && journal) {
+      if (event === "UserPromptSubmit") journal.turnStarted(terminalId);
+      else if (event === "PostToolUse") journal.evidence(terminalId, String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>);
     }
     if (event === "PostToolUse" && terminalId && onPrsCreated) {
       const urls = createdPrs(String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>, input.tool_response);
