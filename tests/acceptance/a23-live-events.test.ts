@@ -2,7 +2,8 @@
 // folder; `dev listen` emits whatever the test appends to a file), so the whole path runs:
 // choose a project, switch an event on (its trigger is made), jin reads the trigger logs, a DM
 // lands in the feed and notifies, channel chatter without a mention does not, an event from hours
-// ago is caught up quietly, and switching off works.
+// ago is caught up quietly, a Notion comment (only ids in it) reads with its author, page and
+// text, and switching off works.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -48,6 +49,8 @@ else if (c1 === "dev" && c2 === "triggers" && c3 === "create") {
 } else if (c1 === "dev" && c2 === "playground-execute") {
   if (c3 === "SLACK_TEST_AUTH") out({ successful: true, data: { user_id: "U_ME" } });
   else if (c3 === "SLACK_RETRIEVE_DETAILED_USER_INFORMATION" && JSON.parse(flag("-d")).user === "U0CAT00001") out({ successful: true, data: { ok: true, user: { name: "cat", real_name: "Cat Lee", profile: { real_name: "Cat Lee", display_name: "cat" } } } });
+  else if (c3 === "NOTION_RETRIEVE_COMMENT") out({ successful: true, data: { discussion_id: "discussion://d-1", display_name: { type: "user", resolved_name: "Dee Park" }, rich_text: [{ plain_text: "Can we " }, { plain_text: "ship Friday?" }] } });
+  else if (c3 === "NOTION_RETRIEVE_PAGE") out({ successful: true, data: { url: "https://www.notion.so/Launch-plan-p1", properties: { Name: { type: "title", title: [{ plain_text: "Launch plan" }] } } } });
   else if (c3 === "LINEAR_GET_CURRENT_USER") out({ successful: true, data: { user: { id: "lin-me", email: "me@example.com" } } });
   else if (c3 === "LINEAR_LIST_LINEAR_TEAMS") out({ successful: true, data: { teams: [{ id: "team-1", name: "Platform" }] } });
   else process.exit(1);
@@ -113,21 +116,24 @@ test("A23 live events: a project, an event switched on, a DM in the feed and a n
   event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "ev3", data: { text: "<@U_ME> thoughts?", user: "U_BOB", channel_type: "channel" } });
   // A real-looking Slack id: shown by name (looked up once through the Slack connection).
   event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev4", data: { text: "hi <@U_ME>", user: "U0CAT00001", channel: "D4" } });
+  // A Notion comment names only ids: jin reads the comment, its author and the page.
+  event({ triggerSlug: "NOTION_COMMENT_CREATED", id: "ev5", data: { authors: [{ id: "nu1", type: "person" }], comment_id: "cm1", data: { page_id: "p1", parent: { id: "b1", type: "block" } } } });
   // From two hours ago (before jin looked): into the feed, without a notification.
   event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev0", at: new Date(Date.now() - 2 * 3_600_000).toISOString(), data: { text: "earlier", user: "U_OLD", channel: "D2" } });
   const recent = await until(async () => {
     const r = (await d.json("/api/composio")).recent as { id: string; title: string; forYou: boolean }[];
-    return r.length >= 4 ? r : null;
+    return r.length >= 5 ? r : null;
   }, 10_000, "events received");
-  expect(recent.map((e) => e.id).sort()).toEqual(["ev0", "ev1", "ev3", "ev4"]);
+  expect(recent.map((e) => e.id).sort()).toEqual(["ev0", "ev1", "ev3", "ev4", "ev5"]);
   // Each lands in the feed under its thread: the DM, and the channel thread it was mentioned in.
   const feed = (await d.json("/api/feed")) as { source: string; actor: string; thread: { key: string; title: string } }[];
   expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["Cat Lee", "DM with Cat Lee"], ["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"], ["U_OLD", "DM with U_OLD"]]);
   expect(notices().some((n) => n.title === "Cat Lee")).toBe(true);
   await until(() => notices().some((n) => n.title === "U_ALEX"), 5_000, "notification");
-  expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "DM with U_ALEX", body: "can you review today?", path: "/c/slack" });
+  expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "Slack · DM with U_ALEX", body: "can you review today?", path: "/c/slack" });
   expect(notices().find((n) => n.title === "U_BOB mentioned you")).toBeDefined();
   expect(notices().some((n) => n.title === "U_OLD")).toBe(false);
+  expect(notices().find((n) => n.title === "Dee Park commented")).toMatchObject({ subtitle: "Notion · Launch plan", body: "Can we ship Friday?", url: "https://www.notion.so/Launch-plan-p1?d=d1" });
 
   // Linear needs teams; switching DMs off disables their trigger.
   expect((await d.json("/api/composio/linear-teams")) as unknown[]).toEqual([{ id: "team-1", name: "Platform", key: null }]);
