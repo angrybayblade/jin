@@ -59,5 +59,5 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/jin.app" "$JIN_HOME/notifier/jin.app" >/dev/null 2>&1 || true
 say "installed ~/Applications/jin.app; opening it"
 open "$HOME/Applications/jin.app"
-for _ in $(seq 1 120); do curl -sf -o /dev/null "http://127.0.0.1:3917/" && break; sleep 0.5; done
-curl -sf -o /dev/null "http://127.0.0.1:3917/" && say "jin is up" || echo "jin did not answer on :3917 yet; see $JIN_HOME/logs"
+for _ in $(seq 1 120); do curl -sf -o /dev/null "http://127.0.0.1:3917/healthz" && break; sleep 0.5; done
+curl -sf -o /dev/null "http://127.0.0.1:3917/healthz" && say "jin is up" || echo "jin did not answer on :3917 yet; see $JIN_HOME/logs"
