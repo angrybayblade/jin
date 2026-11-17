@@ -466,6 +466,7 @@ export class Composio {
     l.state = "starting";
     l.since = new Date().toISOString();
     l.backoff = POLL_MS;
+    void this.nameKnownSlackIds();
     const tick = async () => {
       if (l.stopped) return;
       try {
@@ -525,7 +526,7 @@ export class Composio {
       seen.add(String(raw.id));
       // GitHub is jin's own watch now; older Composio GitHub triggers' logs are not events.
       if (log.appName === "github") continue;
-      this.handle(raw, { quiet: Date.now() - at > FRESH_MS });
+      await this.handle(raw, { quiet: Date.now() - at > FRESH_MS });
     }
     this.cursor = { from: newest, ids: [...seen].slice(-1000) };
     writeFileSync(file, JSON.stringify(this.cursor));
@@ -536,8 +537,72 @@ export class Composio {
     this.login.proc?.kill();
   }
 
+  // ---------------------------------------------------------------- Slack names
+
+  /** Slack user and channel names by id, looked up once through your Slack connection and kept. */
+  private names: Record<string, string> | null = null;
+  private namesFile() {
+    return join(this.config.home, "slack-names.json");
+  }
+
+  /** The name for a Slack user (U…/W…) or channel (C…/G…) id; null when it cannot be looked up. */
+  async slackName(id: string): Promise<string | null> {
+    if (!this.names) {
+      try {
+        this.names = existsSync(this.namesFile()) ? (JSON.parse(readFileSync(this.namesFile(), "utf8")) as Record<string, string>) : {};
+      } catch {
+        this.names = {};
+      }
+    }
+    if (this.names[id]) return this.names[id]!;
+    const user = /^[UW][A-Z0-9]{5,}$/.test(id);
+    if (!user && !/^[CG][A-Z0-9]{5,}$/.test(id)) return null;
+    try {
+      const r = await this.cli<{ data?: Record<string, unknown> }>(
+        ["dev", "playground-execute", user ? "SLACK_RETRIEVE_DETAILED_USER_INFORMATION" : "SLACK_RETRIEVE_CONVERSATION_INFORMATION", "--user-id", this.settings.userId, "-d", JSON.stringify(user ? { user: id } : { channel: id })],
+      );
+      const name = user ? str(pick(r.data, "user.real_name", "user.profile.real_name", "user.profile.display_name", "user.name")) : str(pick(r.data, "channel.name"));
+      if (!name) return null;
+      this.names[id] = user ? name : `#${name}`;
+      writeFileSync(this.namesFile(), JSON.stringify(this.names, null, 1));
+      // Past items of this person or channel show the name too.
+      this.deps.feed.rename("slack", id, this.names[id]!);
+      return this.names[id]!;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Slack items already in the feed: look up the ids they show, once, so they read with names. */
+  private namedOnce = false;
+  private async nameKnownSlackIds() {
+    if (this.namedOnce) return;
+    this.namedOnce = true;
+    const ids = new Set<string>();
+    for (const i of this.deps.feed.list()) {
+      if (i.source !== "slack") continue;
+      for (const t of [i.actor ?? "", i.thread?.title ?? ""]) for (const m of t.matchAll(/\b([UWCG][A-Z0-9]{8,})\b/g)) ids.add(m[1]!);
+    }
+    for (const id of [...ids].slice(0, 50)) await this.slackName(id);
+  }
+
+  /** A Slack event with names in place of ids: who, the thread's title, and @mentions in the text. */
+  async withSlackNames(e: LiveEvent): Promise<LiveEvent> {
+    if (e.toolkit !== "slack") return e;
+    const ids = new Set<string>();
+    for (const t of [e.actor ?? "", e.thread?.title ?? "", e.summary]) for (const m of t.matchAll(/\b([UWCG][A-Z0-9]{8,})\b/g)) ids.add(m[1]!);
+    const known = new Map<string, string>();
+    for (const id of [...ids].slice(0, 6)) {
+      const n = await this.slackName(id);
+      if (n) known.set(id, n);
+    }
+    if (!known.size) return e;
+    const swap = (t: string) => t.replace(/\b([UWCG][A-Z0-9]{8,})\b/g, (id) => known.get(id) ?? id).replace(/##/g, "#");
+    return { ...e, actor: e.actor ? swap(e.actor) : e.actor, summary: swap(e.summary), title: swap(e.title), thread: e.thread ? { ...e.thread, title: swap(e.thread.title) } : e.thread };
+  }
+
   /** An event: into the feed (and so its desk and catch-up), and a notification when it is for you; quiet: an old one, feed only. */
-  handle(raw: Record<string, unknown>, opts: { quiet?: boolean } = {}) {
+  async handle(raw: Record<string, unknown>, opts: { quiet?: boolean } = {}) {
     // The first event of each trigger: its structure (field names and types, no values) goes to
     // the log, so the reading can be checked against real payloads without keeping messages.
     const slug = String(pick(raw, "triggerSlug", "trigger_slug", "type", "metadata.trigger_slug") ?? "?");
@@ -547,7 +612,7 @@ export class Composio {
     }
     const e = readEvent(raw, this.settings.me);
     if (!e) return;
-    this.deliver(e, opts);
+    this.deliver(await this.withSlackNames(e), opts);
   }
 
   /** A live event (from Composio, or jin's own GitHub watch): recent list, feed, and a notification when it is for you. */

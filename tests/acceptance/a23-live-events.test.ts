@@ -47,6 +47,7 @@ else if (c1 === "dev" && c2 === "triggers" && c3 === "create") {
   out({ ok: true });
 } else if (c1 === "dev" && c2 === "playground-execute") {
   if (c3 === "SLACK_TEST_AUTH") out({ successful: true, data: { user_id: "U_ME" } });
+  else if (c3 === "SLACK_RETRIEVE_DETAILED_USER_INFORMATION" && JSON.parse(flag("-d")).user === "U0CAT00001") out({ successful: true, data: { ok: true, user: { name: "cat", real_name: "Cat Lee", profile: { real_name: "Cat Lee", display_name: "cat" } } } });
   else if (c3 === "LINEAR_GET_CURRENT_USER") out({ successful: true, data: { user: { id: "lin-me", email: "me@example.com" } } });
   else if (c3 === "LINEAR_LIST_LINEAR_TEAMS") out({ successful: true, data: { teams: [{ id: "team-1", name: "Platform" }] } });
   else process.exit(1);
@@ -110,16 +111,19 @@ test("A23 live events: a project, an event switched on, a DM in the feed and a n
   event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev1", data: { text: "can you review today?", user: "U_ALEX", channel: "D1" } });
   event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "ev2", data: { text: "deploy is green", user: "U_BOB", channel_type: "channel" } });
   event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "ev3", data: { text: "<@U_ME> thoughts?", user: "U_BOB", channel_type: "channel" } });
+  // A real-looking Slack id: shown by name (looked up once through the Slack connection).
+  event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev4", data: { text: "hi <@U_ME>", user: "U0CAT00001", channel: "D4" } });
   // From two hours ago (before jin looked): into the feed, without a notification.
   event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev0", at: new Date(Date.now() - 2 * 3_600_000).toISOString(), data: { text: "earlier", user: "U_OLD", channel: "D2" } });
   const recent = await until(async () => {
     const r = (await d.json("/api/composio")).recent as { id: string; title: string; forYou: boolean }[];
-    return r.length >= 3 ? r : null;
+    return r.length >= 4 ? r : null;
   }, 10_000, "events received");
-  expect(recent.map((e) => e.id).sort()).toEqual(["ev0", "ev1", "ev3"]);
+  expect(recent.map((e) => e.id).sort()).toEqual(["ev0", "ev1", "ev3", "ev4"]);
   // Each lands in the feed under its thread: the DM, and the channel thread it was mentioned in.
   const feed = (await d.json("/api/feed")) as { source: string; actor: string; thread: { key: string; title: string } }[];
-  expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"], ["U_OLD", "DM with U_OLD"]]);
+  expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["Cat Lee", "DM with Cat Lee"], ["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"], ["U_OLD", "DM with U_OLD"]]);
+  expect(notices().some((n) => n.title === "Cat Lee")).toBe(true);
   await until(() => notices().some((n) => n.title === "U_ALEX"), 5_000, "notification");
   expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "DM with U_ALEX", body: "can you review today?", path: "/c/slack" });
   expect(notices().find((n) => n.title === "U_BOB mentioned you")).toBeDefined();
