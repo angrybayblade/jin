@@ -18,29 +18,35 @@ export function parsePrRef(ref: string): { github?: string; repo?: string; numbe
 
 export const REVIEW_PROMPT = "Review the pull requests in this task. TASK.md lists them; start there.";
 
+/** A review task for these PRs, or the one already reviewing them. */
+export async function startReview(deps: { tasks: Tasks; jobs: TaskJobs }, refs: string[], opts: { workspace?: string; prompt?: string } = {}): Promise<{ taskId: string; existing: boolean; job?: string }> {
+  const workspace = opts.workspace ?? deps.jobs.defaultWorkspace;
+  if (!workspace) throw new HttpError(400, "no workspace configured");
+  if (!Array.isArray(refs) || !refs.length) throw new HttpError(400, "prs: one or more pull request links");
+  const repos = await deps.tasks.adapter(workspace).repos();
+  const prs = refs.map((ref) => {
+    const p = parsePrRef(ref);
+    if (!p) throw new HttpError(400, `not a pull request: ${ref}`);
+    const repo = p.repo ? repos.find((r) => r.name === p.repo) : repos.find((r) => r.github?.toLowerCase() === p.github!.toLowerCase());
+    if (!repo) throw new HttpError(400, `${p.github ?? p.repo} is not a repo of ${workspace}`);
+    return { repo: repo.name, number: p.number };
+  });
+  // Already reviewing these? Open that task.
+  const open = deps.tasks.list().filter((t) => t.kind === "review" && t.state === "ready" && !t.archived);
+  const existing = open.find((t) => prs.every((p) => t.prs.some((q) => q.repo === p.repo && q.number === p.number)));
+  if (existing) return { taskId: existing.id, existing: true };
+  const job = await deps.jobs.start(
+    workspace,
+    { id: "", kind: "review", prs: prs.map((p) => `${p.repo}#${p.number}`), repos: prs.map((p) => p.repo), slug: "" },
+    { prompt: opts.prompt?.trim() || REVIEW_PROMPT },
+  );
+  return { taskId: job.taskId, existing: false, job: job.id };
+}
+
 export function reviewRoutes(router: Router, deps: { tasks: Tasks; jobs: TaskJobs }) {
   router.on("POST", "/api/reviews", async (req) => {
     const b = await body<{ workspace?: string; prs: string[]; prompt?: string }>(req);
-    const workspace = b.workspace ?? deps.jobs.defaultWorkspace;
-    if (!workspace) throw new HttpError(400, "no workspace configured");
-    if (!Array.isArray(b.prs) || !b.prs.length) throw new HttpError(400, "prs: one or more pull request links");
-    const repos = await deps.tasks.adapter(workspace).repos();
-    const prs = b.prs.map((ref) => {
-      const p = parsePrRef(ref);
-      if (!p) throw new HttpError(400, `not a pull request: ${ref}`);
-      const repo = p.repo ? repos.find((r) => r.name === p.repo) : repos.find((r) => r.github?.toLowerCase() === p.github!.toLowerCase());
-      if (!repo) throw new HttpError(400, `${p.github ?? p.repo} is not a repo of ${workspace}`);
-      return { repo: repo.name, number: p.number };
-    });
-    // Already reviewing these? Open that task.
-    const open = deps.tasks.list().filter((t) => t.kind === "review" && t.state === "ready" && !t.archived);
-    const existing = open.find((t) => prs.every((p) => t.prs.some((q) => q.repo === p.repo && q.number === p.number)));
-    if (existing) return json({ taskId: existing.id, existing: true });
-    const job = await deps.jobs.start(
-      workspace,
-      { id: "", kind: "review", prs: prs.map((p) => `${p.repo}#${p.number}`), repos: prs.map((p) => p.repo), slug: "" },
-      { prompt: b.prompt?.trim() || REVIEW_PROMPT },
-    );
-    return json({ taskId: job.taskId, job: job.id, existing: false }, 202);
+    const r = await startReview(deps, b.prs, b);
+    return json(r, r.existing ? 200 : 202);
   });
 }

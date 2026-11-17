@@ -8,6 +8,7 @@ import type { TaskPRs } from "./prs";
 import type { Tasks } from "./tasks";
 import type { TaskJobs } from "./jobs";
 import { HOOK_EVENTS, type Hook, type Hooks } from "./hooks";
+import { startReview } from "./reviews";
 import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
 
 export const CHAT_KINDS = ["jin", "slack", "linear", "notion", "gmail", "github"] as const;
@@ -29,7 +30,7 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
         ws,
         "Your job: catch the user up, help them decide what matters, and hand work to task agents.",
         "- When asked to catch up (or at the start of a conversation), call jin_catch_up and give a short brief: what is blocked on them first (approvals, failing checks on their PRs, review requests), then what changed, then what can wait. Number the items so the user can say 'take 2'.",
-        "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
+        "- To work on something: propose a task id, type and the repos it touches (read docs/map/README.md in the workspace when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. To review someone's pull requests, call jin_review_prs with the links (no Linear issue needed). It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
         "- Hooks run an agent with fixed instructions when an event happens (a task's PR merged, all its PRs merged, a live event from Slack, Linear, Notion, Gmail or GitHub). jin_list_hooks shows them; jin_save_hook creates or changes one once the user agrees; jin_delete_hook removes one.",
         "- jin_update_feed snoozes, dismisses or marks items done once the user decides (several at once with itemIds).",
         "- jin_archive_task closes tasks the user is finished with: they leave the sidebar, their worktrees and branches stay (archived: false brings one back). jin_remove_task deletes a finished task's worktrees and branches; it refuses if work would be lost, and the user approves each call. Use it only when the user asks or during a merge cleanup.",
@@ -176,6 +177,26 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           else out.push(...shape(r.machine, r.data as T[], await machines!.call<P[]>(r.machine, "GET", "/api/prs").catch(() => [])));
         }
         return out;
+      },
+    },
+    {
+      name: "jin_review_prs",
+      description:
+        "Review pull requests as a task: a REV-<month><day><n> task with each repo checked out at its PR's head, and Claude Code started on the review (with the user's skills tagged pr-review). If a review task already covers these PRs, returns that one instead. Returns at once.",
+      input: {
+        prs: z.array(z.string()).min(1).describe("PR links, or <repo>#<number> (one per repo)"),
+        prompt: z.string().optional().describe("what the review should focus on; defaults to reviewing the PRs"),
+        workspace: z.string().optional(),
+        machine: machineArg,
+      },
+      run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        if (on) {
+          const r = await machines!.call<{ taskId: string; existing: boolean }>(on, "POST", "/api/reviews", { prs: a.prs, prompt: a.prompt, workspace: a.workspace });
+          return { ...r, machine: on, open: link(on, r.taskId) };
+        }
+        const r = await startReview({ tasks, jobs }, a.prs as string[], { workspace: a.workspace as string | undefined, prompt: a.prompt as string | undefined });
+        return { ...r, open: `/t/${r.taskId}` };
       },
     },
     {
