@@ -23,10 +23,10 @@ test("comments, reviews, and others' commits on PRs you review; not your own act
       [pr(2, { reviews: [{ id: "r1", url: "ur", body: "", state: "CHANGES_REQUESTED", submittedAt: "t", author: { login: "bob" }, comments: { nodes: [{ id: "x", url: "ux", body: "rename this", author: { login: "bob" } }] } }], commits: [{ commit: { oid: "def", url: "ud", messageHeadline: "wip", committedDate: "t", author: { user: { login: "me" } } } }] })],
     ),
   );
-  expect(ev.map((e) => [e.id, e.title])).toEqual([
-    ["c:c1", "Comment by alex on o/r#1 PR 1 (reviewing)"],
-    ["k:abc", "New commit by alex on o/r#1 PR 1 (reviewing)"],
-    ["r:r1", "Changes requested by bob on o/r#2 PR 2"],
+  expect(ev.map((e) => [e.id, e.actor, e.title, e.thread?.key])).toEqual([
+    ["c:c1", "alex", "commented", "github:o/r#1"],
+    ["k:abc", "alex", "pushed", "github:o/r#1"],
+    ["r:r1", "bob", "requested changes", "github:o/r#2"],
   ]);
   expect(ev[2]).toMatchObject({ summary: "rename this", forYou: true, toolkit: "github" });
 });

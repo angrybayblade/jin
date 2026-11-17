@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Config, WorkspaceConfig } from "./config";
-import type { Feed, NewItem } from "./feed";
+import { githubThread, type Feed, type FeedThread, type NewItem } from "./feed";
 import { body, HttpError, json, type Router } from "./http";
 import { defaultSpawn, lines, type Proc, type Spawn } from "./machines";
 import type { Notice } from "./notify";
+import { oneLine } from "./text";
 
 /**
  * Live events through Composio: jin keeps `composio dev listen` running on this machine (the
@@ -48,6 +49,8 @@ export interface LiveEvent {
   summary: string;
   url: string | null;
   actor: string | null;
+  /** What it belongs to, so the feed groups it: a PR, a Linear issue, a Slack thread or DM, a Notion page, a mail thread. */
+  thread?: FeedThread;
   /** For you: a DM, a mention, mail from a person, activity on your PR. */
   forYou: boolean;
 }
@@ -75,10 +78,8 @@ const pick = (o: unknown, ...paths: string[]): unknown => {
   }
   return undefined;
 };
-const oneLine = (s: string, max = 200) => {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-};
+/** "alex commented": who did what, for a notification's title. */
+export const headline = (e: Pick<LiveEvent, "actor" | "title">) => (e.actor ? `${e.actor} ${e.title}`.trim() : e.title.charAt(0).toUpperCase() + e.title.slice(1));
 
 /**
  * One event from `composio dev listen --json`, as jin shows it. Payloads differ per trigger,
@@ -92,9 +93,11 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
   const id = String(pick(raw, "id", "metadata.id", "metadata.nano_id", "uuid") ?? pick(data, "id", "ts", "message_id", "messageId") ?? `${trigger}:${Date.now()}`);
   const at = new Date((pick(raw, "timestamp", "metadata.timestamp", "createdAt") as string | number | undefined) ?? Date.now()).toISOString();
   const text = str(pick(data, "text", "message.text", "body", "comment.body", "data.body", "preview.body", "messageText", "snippet", "rich_text.0.plain_text")) ?? "";
+  // title is the action, short ("commented", "sent a DM"); the thread says on what.
   let title = trigger.replace(/_TRIGGER$/, "").replace(/_/g, " ").toLowerCase();
   let actor = str(pick(data, "user_name", "user", "sender", "from", "actor.name", "comment.user.login", "review.user.login", "author", "created_by.name"));
   let url = str(pick(data, "permalink", "url", "html_url", "comment.html_url", "review.html_url", "pull_request.html_url", "issue.url", "data.url"));
+  let thread: FeedThread | undefined;
   let forYou = false;
 
   if (toolkit === "slack") {
@@ -103,44 +106,58 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {})
     const mentionsMe = Boolean(me.slack && text.includes(`<@${me.slack}>`));
     if (!dm && !mentionsMe) return null; // channel chatter that is not for you
     if (me.slack && actor === me.slack) return null; // your own message
-    title = dm ? `Slack DM${actor ? ` from ${actor}` : ""}` : `Slack mention${actor ? ` by ${actor}` : ""}`;
+    const channel = str(pick(data, "channel", "channel_id", "event.channel")) ?? "";
+    const root = str(pick(data, "thread_ts", "event.thread_ts")) ?? str(pick(data, "ts", "event.ts"));
+    const channelName = str(pick(data, "channel_name", "event.channel_name"));
+    thread = dm
+      ? { key: `slack:dm:${channel || actor}`, title: `DM with ${actor ?? "someone"}`, ref: null, url: null }
+      : { key: `slack:${channel}:${root ?? id}`, title: `Thread in ${channelName ? `#${channelName}` : channel || "Slack"}`, ref: null, url };
+    title = dm ? "" : "mentioned you";
     forYou = true;
   } else if (toolkit === "gmail") {
     const from = str(pick(data, "sender", "from", "payload.from")) ?? "";
     const subject = str(pick(data, "subject", "payload.subject")) ?? "(no subject)";
-    title = `Mail: ${subject}`;
-    actor = from || actor;
+    title = "";
+    // "Alex Doe <alex@x.com>" reads as Alex Doe.
+    actor = (from.replace(/\s*<[^>]*>\s*$/, "").replace(/^"|"$/g, "") || from) || actor;
     // Mail from a person (the trigger already keeps to the primary inbox); not automated senders.
     forYou = !/no-?reply|notifications?@|mailer-daemon|newsletter|digest/i.test(from) && !(me.email && from.includes(me.email));
     if (!url) {
       const mid = str(pick(data, "messageId", "message_id", "id"));
       if (mid) url = `https://mail.google.com/mail/u/0/#inbox/${mid}`;
     }
+    const tid = str(pick(data, "threadId", "thread_id"));
+    thread = { key: `gmail:${tid ?? id}`, title: subject, ref: null, url: tid ? `https://mail.google.com/mail/u/0/#inbox/${tid}` : url };
   } else if (toolkit === "linear") {
     const issue = (pick(data, "issue", "data.issue", "data") ?? {}) as Record<string, unknown>;
     const ident = str(pick(issue, "identifier")) ?? str(pick(data, "identifier"));
-    const ititle = str(pick(issue, "title")) ?? str(pick(data, "title"));
-    const kind = trigger.includes("COMMENT") ? "comment on" : trigger.includes("CREATED") ? "new issue" : "updated";
-    title = `Linear ${kind} ${[ident, ititle].filter(Boolean).join(" ")}`.trim();
+    const ititle = str(pick(issue, "title")) ?? str(pick(data, "title")) ?? "Linear issue";
+    title = trigger.includes("COMMENT") ? "commented" : trigger.includes("CREATED") ? "opened" : "updated";
     url = url ?? str(pick(issue, "url"));
+    const issueUrl = str(pick(issue, "url"));
+    thread = { key: `linear:${ident ?? str(pick(issue, "id")) ?? id}`, title: ititle, ref: ident, url: issueUrl ?? url };
     const assignee = str(pick(issue, "assignee.id", "assigneeId")) ?? str(pick(data, "assigneeId"));
     const mentions = Boolean(me.linear && JSON.stringify(data).includes(me.linear));
     forYou = Boolean(me.linear && (assignee === me.linear || mentions));
     if (actor && me.linear && JSON.stringify(pick(data, "actor", "user") ?? "").includes(me.linear)) return null; // your own change
   } else if (toolkit === "notion") {
-    title = `Notion comment${actor ? ` by ${actor}` : ""}`;
-    forYou = Boolean(me.email && JSON.stringify(data).includes(me.email)) || true; // comments are few; each is worth a look
+    title = "commented";
+    const page = str(pick(data, "page_id", "parent.page_id", "comment.parent.page_id", "discussion.parent.page_id", "parent.block_id")) ?? id;
+    const pageTitle = str(pick(data, "page_title", "page.title", "title")) ?? "Notion page";
+    thread = { key: `notion:${page}`, title: pageTitle, ref: null, url: page !== id ? `https://www.notion.so/${page.replace(/-/g, "")}` : url };
+    forYou = true; // comments are few; each is worth a look
   } else if (toolkit === "github") {
     const pr = str(pick(data, "pull_request.title", "issue.title", "title"));
     const num = pick(data, "pull_request.number", "issue.number", "number", "pull_number");
     const repo = str(pick(data, "repository.full_name", "repo"));
-    const what = trigger.includes("REVIEW_COMMENT") ? "review comment" : trigger.includes("ISSUE_COMMENT") ? "comment" : trigger.includes("REVIEW_SUBMITTED") ? "review" : trigger.includes("COMMIT") ? "new commits" : "activity";
-    title = `GitHub ${what} on ${repo ?? ""}#${num ?? ""}${pr ? ` ${pr}` : ""}`.replace(/\s+/g, " ").trim();
+    title = trigger.includes("REVIEW_COMMENT") ? "commented on a review" : trigger.includes("ISSUE_COMMENT") ? "commented" : trigger.includes("REVIEW_SUBMITTED") ? "reviewed" : trigger.includes("COMMIT") ? "pushed" : "updated";
+    const prUrl = str(pick(data, "pull_request.html_url", "issue.html_url"));
+    if (repo && num != null) thread = githubThread(repo, Number(num), pr ?? `${repo}#${num}`, prUrl ?? url ?? `https://github.com/${repo}/pull/${num}`);
     if (me.github && actor && actor.toLowerCase() === me.github.toLowerCase()) return null; // your own
     forYou = true; // jin only watches PRs you review or wrote
   }
 
-  return { id, at, toolkit, trigger, title: oneLine(title, 120), summary: oneLine(text || title), url, actor, forYou };
+  return { id, at, toolkit, trigger, title: oneLine(title, 80), summary: oneLine(text), url, actor, thread, forYou };
 }
 
 // ---------------------------------------------------------------- the module
@@ -483,11 +500,12 @@ export class Composio {
     this.recent.unshift(e);
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     const workspace = this.deps.workspaces[0]?.id ?? "live";
-    const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url ?? e.id, title: e.title, summary: e.summary, receivedAt: e.at };
+    // Distinct per event (two comments link to the same issue), grouped by thread.
+    const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor };
     this.deps.feed.add([item]);
     if (e.forYou) {
-      const desk = e.toolkit === "gmail" ? "/c/gmail" : `/c/${e.toolkit}`;
-      this.deps.notify({ key: `live:${e.id}`, title: e.title, subtitle: e.actor ?? undefined, body: e.summary, path: desk });
+      const where = e.thread ? [e.thread.ref, e.thread.title].filter(Boolean).join(" ") : undefined;
+      this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: where, body: e.summary, path: `/c/${e.toolkit}` });
     }
   }
 

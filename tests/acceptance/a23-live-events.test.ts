@@ -108,10 +108,12 @@ test("A23 live events: a project, an event switched on, a DM in the feed and a n
     return r.length >= 2 ? r : null;
   }, 10_000, "events received");
   expect(recent.map((e) => e.id).sort()).toEqual(["ev1", "ev3"]);
-  const feed = (await d.json("/api/feed")) as { source: string; title: string }[];
-  expect(feed.filter((f) => f.source === "slack").map((f) => f.title).sort()).toEqual(["Slack DM from U_ALEX", "Slack mention by U_BOB"]);
-  await until(() => notices().some((n) => n.title === "Slack DM from U_ALEX"), 5_000, "notification");
-  expect(notices().find((n) => n.title === "Slack DM from U_ALEX")).toMatchObject({ body: "can you review today?", path: "/c/slack" });
+  // Each lands in the feed under its thread: the DM, and the channel thread it was mentioned in.
+  const feed = (await d.json("/api/feed")) as { source: string; actor: string; thread: { key: string; title: string } }[];
+  expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"]]);
+  await until(() => notices().some((n) => n.title === "U_ALEX"), 5_000, "notification");
+  expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "DM with U_ALEX", body: "can you review today?", path: "/c/slack" });
+  expect(notices().find((n) => n.title === "U_BOB mentioned you")).toBeDefined();
 
   // Linear needs teams; switching DMs off disables their trigger.
   expect((await d.json("/api/composio/linear-teams")) as unknown[]).toEqual([{ id: "team-1", name: "Platform", key: null }]);

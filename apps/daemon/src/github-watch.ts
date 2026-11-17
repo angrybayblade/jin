@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LiveEvent } from "./composio";
+import { githubThread } from "./feed";
+import { oneLine as line } from "./text";
 
 /**
  * GitHub activity on the PRs you review or wrote, watched with gh on this machine: one GraphQL
@@ -39,21 +41,16 @@ export interface WatchData {
   mine: { nodes: (PR | Record<string, never>)[] };
 }
 
-const line = (s: string, max = 200) => {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-};
-
 /** Everything on the watched PRs as events (newest information first is not needed: ids decide what is new). */
 export function prEvents(data: WatchData): LiveEvent[] {
   const me = data.viewer.login.toLowerCase();
   const out: LiveEvent[] = [];
   const seen = new Set<string>();
-  const add = (pr: PR, role: "reviewing" | "yours", e: Omit<LiveEvent, "toolkit" | "forYou" | "title"> & { what: string }) => {
+  const add = (pr: PR, _role: "reviewing" | "yours", e: Omit<LiveEvent, "toolkit" | "forYou" | "title" | "thread"> & { what: string }) => {
     if (seen.has(e.id) || (e.actor && e.actor.toLowerCase() === me)) return;
     seen.add(e.id);
-    const ref = `${pr.repository.nameWithOwner}#${pr.number}`;
-    out.push({ id: e.id, at: e.at, toolkit: "github", trigger: e.trigger, url: e.url, actor: e.actor, summary: e.summary, forYou: true, title: line(`${e.what} on ${ref} ${pr.title}${role === "yours" ? "" : " (reviewing)"}`, 120) });
+    const thread = githubThread(pr.repository.nameWithOwner, pr.number, pr.title, pr.url);
+    out.push({ id: e.id, at: e.at, toolkit: "github", trigger: e.trigger, url: e.url, actor: e.actor, summary: e.summary, forYou: true, title: e.what, thread });
   };
   for (const [role, list] of [
     ["reviewing", data.reviewing.nodes],
@@ -62,16 +59,16 @@ export function prEvents(data: WatchData): LiveEvent[] {
     for (const n of list) {
       if (!("number" in n)) continue;
       const pr = n as PR;
-      for (const c of pr.comments.nodes) add(pr, role, { id: `c:${c.id}`, at: c.createdAt, trigger: "GITHUB_PR_COMMENT", url: c.url, actor: c.author?.login ?? null, summary: line(c.body), what: `Comment by ${c.author?.login ?? "someone"}` });
+      for (const c of pr.comments.nodes) add(pr, role, { id: `c:${c.id}`, at: c.createdAt, trigger: "GITHUB_PR_COMMENT", url: c.url, actor: c.author?.login ?? null, summary: line(c.body), what: "commented" });
       for (const r of pr.reviews.nodes) {
         if (r.state === "PENDING") continue;
-        const verb = r.state === "APPROVED" ? "Approved" : r.state === "CHANGES_REQUESTED" ? "Changes requested" : "Review";
-        add(pr, role, { id: `r:${r.id}`, at: r.submittedAt, trigger: "GITHUB_PR_REVIEW", url: r.url, actor: r.author?.login ?? null, summary: line(r.body || r.comments.nodes[0]?.body || verb), what: `${verb} by ${r.author?.login ?? "someone"}` });
+        const verb = r.state === "APPROVED" ? "approved" : r.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed";
+        add(pr, role, { id: `r:${r.id}`, at: r.submittedAt, trigger: "GITHUB_PR_REVIEW", url: r.url, actor: r.author?.login ?? null, summary: line(r.body || r.comments.nodes[0]?.body || ""), what: verb });
       }
       // New commits matter when someone else pushes to a PR you review (time to look again).
       if (role === "reviewing") {
         for (const { commit } of pr.commits.nodes) {
-          add(pr, role, { id: `k:${commit.oid}`, at: commit.committedDate, trigger: "GITHUB_PR_COMMIT", url: commit.url, actor: commit.author?.user?.login ?? null, summary: line(commit.messageHeadline), what: `New commit by ${commit.author?.user?.login ?? "someone"}` });
+          add(pr, role, { id: `k:${commit.oid}`, at: commit.committedDate, trigger: "GITHUB_PR_COMMIT", url: commit.url, actor: commit.author?.user?.login ?? null, summary: line(commit.messageHeadline), what: "pushed" });
         }
       }
     }
