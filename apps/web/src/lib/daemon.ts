@@ -1,7 +1,7 @@
 // Server-only access to the jin daemon. The token is read from $JIN_HOME/daemon.json
 // on the server; the browser never sees it and never talks to the daemon directly.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -173,8 +173,6 @@ export interface Status {
 
 export class DaemonUnavailable extends Error {}
 
-/** Which machine the app is showing: "local", or a remote machine's id (a cookie, set by the machine switcher). */
-export const MACHINE_COOKIE = "jin-machine";
 
 const jinHome = () => process.env.JIN_HOME ?? join(homedir(), ".jin");
 
@@ -202,15 +200,18 @@ export function knownMachines(): string[] {
   }
 }
 
+/**
+ * The machine this request is about: the one in its URL (/m/<machine>/…, which the proxy turns
+ * into a header, for the page and the server actions it posts), else this machine.
+ */
 export async function currentMachine(): Promise<string> {
   try {
-    const id = (await cookies()).get(MACHINE_COOKIE)?.value;
-    if (id === "local") return "local";
+    const id = (await headers()).get("x-jin-machine");
     if (id && /^[a-z0-9-]+$/.test(id) && existsSync(join(jinHome(), "machines", `${id}.json`))) return id;
   } catch {
     // outside a request
   }
-  return homeMachine(); // the home, when there is one; else this machine
+  return "local";
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
@@ -280,13 +281,18 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
   return (await res.json()) as T;
 }
 
-/** Another machine's tasks, for the sidebar (the one the app shows has the full set). */
-export interface Elsewhere {
+/** One machine's tasks, for the sidebar: every connected machine is listed the same way. */
+export interface MachineTasks {
   id: string;
   label: string;
   tasks: Task[];
   terminals: TerminalInfo[];
+  jobs: TaskJob[];
   prs: TaskPR[];
+  /** It has a workspace (else it can run no tasks yet). */
+  hasWorkspace: boolean;
+  /** It did not answer in time (shown, greyed, until it does). */
+  down?: boolean;
 }
 
 export interface MachineStep {

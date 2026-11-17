@@ -1,60 +1,50 @@
 "use client";
 import { RetrySoon } from "./AutoRefresh";
-import { Bell, Monitor, Plus, Radio, Server, Settings2, Sparkles, Webhook, Wrench } from "lucide-react";
+import { Bell, Monitor, Plus, Radio, Server, Settings2, Sparkles, Webhook } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { switchMachine } from "@/app/actions";
 import type { Machine } from "@/lib/daemon";
 import { openContextMenu, type MenuItem } from "./ContextMenu";
 import { machineState } from "./Machines";
 
-/** The sidebar's footer: which machine's jin you're looking at; click to switch, add or manage machines. */
-export function MachineSwitcher({ machines, current, workspace }: { machines: Machine[]; current: string; workspace: string }) {
+/** The sidebar's footer: jin's settings, and the machines it reaches (to add or manage; tasks on any of them are in the list above). */
+export function SettingsMenu({ machines, workspace }: { machines: Machine[]; workspace: string }) {
   const router = useRouter();
-  const on = machines.find((m) => m.id === current);
-  const go = (id: string) =>
-    void switchMachine(id).then(() => {
-      router.push("/");
-      router.refresh();
-    });
   const items = (): MenuItem[] => [
     { header: "Machines" },
-    { label: "This machine", icon: Monitor, hint: current === "local" ? "current" : undefined, run: () => go("local") },
+    { label: "This machine", icon: Monitor, hint: workspace, run: () => router.push("/setup") },
     ...machines.map((m) => {
       const s = machineState(m);
-      return { label: m.label, icon: Server, hint: current === m.id ? "current" : s.label, disabled: !m.connected && current !== m.id, run: () => go(m.id) } satisfies MenuItem;
+      return { label: m.label, icon: Server, hint: s.label, run: () => router.push(`/machines?m=${m.id}`) } satisfies MenuItem;
     }),
-    { divider: true },
     { label: "Add a machine…", icon: Plus, run: () => router.push("/machines") },
-    { label: "Set up this machine", icon: Wrench, run: () => router.push("/setup") },
+    { divider: true },
     { label: "Live events", icon: Radio, run: () => router.push("/live") },
     { label: "Hooks", icon: Webhook, run: () => router.push("/hooks") },
     { label: "Skills", icon: Sparkles, run: () => router.push("/skills") },
     { label: "Notifications", icon: Bell, run: () => router.push("/notifications") },
-    ...(machines.length ? [{ label: "Manage machines", icon: Settings2, run: () => router.push(on ? `/machines?m=${on.id}` : "/machines") } satisfies MenuItem] : []),
   ];
-  const tone = on ? machineState(on).tone : "ok";
+  const down = machines.filter((m) => machineState(m).tone === "bad").length;
   return (
     <button
       type="button"
       className="machine-switcher"
       onClick={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
-        // Above the line over the sidebar's footer, its left edge in line with the switcher.
+        // Above the line over the sidebar's footer, its left edge in line with the button.
         const footer = e.currentTarget.closest(".sidebar-bottom")?.getBoundingClientRect().top ?? r.top;
         openContextMenu({ clientX: r.left, clientY: footer - 10, preventDefault: () => e.preventDefault() }, items(), { above: true });
       }}
-      title="Switch machine"
+      title="Machines and settings"
     >
-      {on ? <Server size={13} /> : <Monitor size={13} />}
-      <span className="machine-switcher-name">{on ? on.label : "This machine"}</span>
-      {on && <span className={`machine-dot is-${tone}`} />}
-      <span className="meta machine-switcher-where">{workspace}</span>
+      <Settings2 size={13} />
+      <span className="machine-switcher-name">{machines.length ? `${machines.length + 1} machines` : "Settings"}</span>
+      {down > 0 && <span className="machine-dot is-bad" title={`${down} not answering`} />}
     </button>
   );
 }
 
-/** A remote machine's jin is not answering: say so, and offer the way back. */
-export function MachineDown({ name, message }: { name: string; message: string }) {
+/** A page on a machine that is not answering: it retries until the machine is back. */
+export function MachineDown({ id, name, message }: { id: string; name: string; message: string }) {
   const router = useRouter();
   return (
     <main className="daemon-down">
@@ -62,10 +52,7 @@ export function MachineDown({ name, message }: { name: string; message: string }
       <p>{message}</p>
       <RetrySoon />
       <span className="machine-actions">
-        <button type="button" className="button primary" onClick={() => void switchMachine("local").then(() => router.refresh())}>
-          Back to this machine
-        </button>
-        <button type="button" className="button" onClick={() => void switchMachine("local").then(() => router.push(`/machines`))}>
+        <button type="button" className="button" onClick={() => router.push(`/machines?m=${id}`)}>
           Check {name}
         </button>
       </span>

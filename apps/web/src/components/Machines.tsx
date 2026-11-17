@@ -17,7 +17,6 @@ import {
   setupMachineWorkspace,
   startMachineSignIn,
   submitMachineSignInCode,
-  switchMachine,
 } from "@/app/actions";
 import type { Machine, MachineAuth, MachineStep } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
@@ -428,7 +427,7 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
   );
 }
 
-function MachineDetail({ initial, current, onRemoved }: { initial: Machine; current: boolean; onRemoved: () => void }) {
+function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: () => void }) {
   const router = useRouter();
   const [m, setM] = useState(initial);
   const refresh = () => void getMachine(m.id).then(setM, () => {});
@@ -471,24 +470,6 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
           <span className="meta">ssh {m.host}</span>
         </div>
         <div className="md-actions">
-          {current ? (
-            <span className="meta">Showing this machine</span>
-          ) : (
-            m.connected && (
-              <button
-                type="button"
-                className="button small primary"
-                onClick={() =>
-                  void switchMachine(m.id).then(() => {
-                    router.push("/");
-                    router.refresh();
-                  })
-                }
-              >
-                Open
-              </button>
-            )
-          )}
           <button type="button" className="button small" disabled={m.busy} onClick={() => void rerunMachineSetup(m.id).then(refresh)} title="Runs every step again; also updates jin there to this jin's commit">
             <RefreshCw size={12} /> {ready ? "Update jin" : "Retry setup"}
           </button>
@@ -565,7 +546,7 @@ function MachineDetail({ initial, current, onRemoved }: { initial: Machine; curr
 }
 
 /** Remote machines: add one by its ssh host, watch it set up, sign in, and open it. */
-export function Machines({ machines, current, selected }: { machines: Machine[]; current: string; selected: string | null }) {
+export function Machines({ machines, selected }: { machines: Machine[]; selected: string | null }) {
   const router = useRouter();
   const [host, setHost] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -582,29 +563,18 @@ export function Machines({ machines, current, selected }: { machines: Machine[];
       </header>
       <div className="machines-body" data-scroll="y">
         <aside className="machines-list">
-          <button
-            type="button"
-            className={`machines-item ${current === "local" ? "is-current" : ""}`}
-            onClick={() =>
-              void switchMachine("local").then(() => {
-                router.push("/");
-                router.refresh();
-              })
-            }
-            title="Show this machine's jin"
-          >
+          <button type="button" className="machines-item" onClick={() => router.push("/setup")} title="This machine's setup">
             <Monitor size={14} />
             <span className="machines-item-name">This machine</span>
-            {current === "local" && <span className="meta">current</span>}
           </button>
           {machines.map((m) => {
             const s = machineState(m);
             return (
-              <button key={m.id} type="button" className={`machines-item ${pick === m.id ? "is-selected" : ""} ${current === m.id ? "is-current" : ""}`} onClick={() => setPick(m.id)}>
+              <button key={m.id} type="button" className={`machines-item ${pick === m.id ? "is-selected" : ""}`} onClick={() => setPick(m.id)}>
                 <span className={`machine-dot is-${s.tone}`} />
                 <span className="machines-item-name">{m.label}</span>
                 {m.home && <span className="machine-pill is-home">home</span>}
-                <span className="meta">{current === m.id ? "current" : s.label}</span>
+                <span className="meta">{s.label}</span>
               </button>
             );
           })}
@@ -639,7 +609,7 @@ export function Machines({ machines, current, selected }: { machines: Machine[];
         </aside>
         <main className="machines-main">
           {chosen ? (
-            <MachineDetail key={chosen.id} initial={chosen} current={current === chosen.id} onRemoved={() => (setPick(null), router.refresh())} />
+            <MachineDetail key={chosen.id} initial={chosen} onRemoved={() => (setPick(null), router.refresh())} />
           ) : (
             <div className="machines-empty">
               <Server size={28} />

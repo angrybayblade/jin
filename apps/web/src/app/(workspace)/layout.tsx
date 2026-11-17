@@ -6,59 +6,58 @@ import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
-import { MachineDown } from "@/components/MachineSwitcher";
-import { currentMachine, daemon, DaemonUnavailable, homeMachine, type Elsewhere, type Machine, type Approval, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, DaemonUnavailable, homeMachine, type MachineTasks, type Machine, type Approval, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
 /** The persistent workspace shell: sidebar, then each page's chat and side pane. */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
-  const machine = await currentMachine();
+  // The machine of the page being shown (from its URL): only for where a new task goes by default.
+  const here = await currentMachine();
   const machines = await daemon<Machine[]>("/api/machines", { local: true }).catch(() => [] as Machine[]);
-  // Every other machine's tasks, for the sidebar: this one's when a remote is showing, and each connected remote's.
-  const others = [{ id: "local", label: "This machine" }, ...machines.filter((m) => m.connected).map((m) => ({ id: m.id, label: m.label }))].filter((m) => m.id !== machine);
-  const elsewhereP = (async () =>
-    (await Promise.all(
-      others.map(async (m): Promise<Elsewhere | null> => {
-        const o = { machine: m.id, timeoutMs: 1500 };
-        try {
-          const [tasks, terminals, prs] = await Promise.all([daemon<Task[]>("/api/tasks", o), daemon<TerminalInfo[]>("/api/terminals", o), daemon<TaskPR[]>("/api/prs", o).catch(() => [] as TaskPR[])]);
-          return { ...m, tasks: tasks.filter((t) => t.state === "ready" && !t.archived), terminals, prs };
-        } catch {
-          return null; // offline or slow: left out until it answers
-        }
-      }),
-    )).filter((e): e is Elsewhere => e !== null && e.tasks.length > 0))();
-  let elsewhere: Elsewhere[] = [];
-  let shell: { status: Status; tasks: Task[]; sessions: Session[]; approvals: Approval[]; terminals: TerminalInfo[]; jobs: TaskJob[]; notifications: NotificationSettings; prs: TaskPR[] };
+  // Every machine's tasks, listed the same way: this one, then each connected one. There is no
+  // machine to switch to; a task opens on the machine it is on.
+  const remote = machines.filter((m) => m.connected).map((m) => ({ id: m.id, label: m.label }));
+  const tasksOf = async (m: { id: string; label: string }, required: boolean): Promise<MachineTasks> => {
+    const o = { machine: m.id, ...(required ? {} : { timeoutMs: 2500 }) };
+    try {
+      const [tasks, terminals, jobs, prs, status] = await Promise.all([
+        daemon<Task[]>("/api/tasks", o),
+        daemon<TerminalInfo[]>("/api/terminals", o),
+        daemon<TaskJob[]>("/api/task-jobs", o).catch(() => [] as TaskJob[]),
+        daemon<TaskPR[]>("/api/prs", o).catch(() => [] as TaskPR[]),
+        daemon<Status>("/api/status", o).catch(() => null),
+      ]);
+      return { ...m, tasks, terminals, jobs, prs, hasWorkspace: (status?.workspaces.length ?? 0) > 0 };
+    } catch (err) {
+      if (required) throw err;
+      return { ...m, tasks: [], terminals: [], jobs: [], prs: [], hasWorkspace: false, down: true };
+    }
+  };
   // Chats and approvals live on the home (hub). When it is not answering (a restart, sleep, a
-  // network change) the machine's own tasks still show; only those wait for it.
+  // network change) the tasks still show; only those wait for it.
   const home = homeMachine();
   let homeDown: string | null = null;
   const fromHome = <T,>(p: Promise<T>, empty: T): Promise<T> =>
-    home === machine
+    home === "local"
       ? p
       : p.catch((err) => {
           if (!(err instanceof DaemonUnavailable)) throw err;
           homeDown = machines.find((m) => m.id === home)?.label ?? home;
           return empty;
         });
+  let shell: { status: Status; sessions: Session[]; approvals: Approval[]; notifications: NotificationSettings; groups: MachineTasks[] };
   try {
-    const [status, tasks, sessions, approvals, terminals, jobs, notifications, prs] = await Promise.all([
-      daemon<Status>("/api/status"),
-      daemon<Task[]>("/api/tasks"),
+    const [status, sessions, approvals, notifications, groups] = await Promise.all([
+      daemon<Status>("/api/status", { local: true }),
       fromHome(daemon<Session[]>("/api/sessions"), [] as Session[]),
       fromHome(daemon<Approval[]>("/api/approvals?state=pending"), [] as Approval[]),
-      daemon<TerminalInfo[]>("/api/terminals"),
-      daemon<TaskJob[]>("/api/task-jobs"),
       daemon<NotificationSettings>("/api/notifications").catch(() => ({ enabled: true, sound: true })),
-      daemon<TaskPR[]>("/api/prs").catch(() => [] as TaskPR[]),
+      Promise.all([tasksOf({ id: "local", label: "This machine" }, true), ...remote.map((m) => tasksOf(m, false))]),
     ]);
-    shell = { status, tasks, sessions, approvals, terminals, jobs, notifications, prs };
-    elsewhere = await elsewhereP;
+    shell = { status, sessions, approvals, notifications, groups };
   } catch (err) {
     if (!(err instanceof DaemonUnavailable)) throw err;
-    if (machine !== "local") return <MachineDown name={machines.find((m) => m.id === machine)?.label ?? machine} message={err.message} />;
     return (
       <main className="daemon-down">
         <ThermalMark size={40} state="queued" variant="workflow" />
@@ -76,21 +75,17 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         </div>
       )}
       <Sidebar
-        tasks={shell.tasks}
+        groups={shell.groups}
+        here={here}
         sessions={shell.sessions}
-        terminals={shell.terminals}
-        jobs={shell.jobs}
         pendingApprovals={shell.approvals.length}
         workspace={shell.status.workspaces.join(", ") || "no workspace"}
         mode={shell.status.mode}
         notifications={shell.notifications}
-        prs={shell.prs}
         machines={machines}
-        machine={machine}
-        elsewhere={elsewhere}
       />
       <SidebarResizer />
-      <Palette tasks={shell.tasks} />
+      <Palette tasks={shell.groups.flatMap((g) => g.tasks.map((t) => ({ ...t, machine: g.id, machineLabel: g.label })))} />
       <ContextMenuHost />
       <Suspense fallback={null}>
         <PresenceReporter />

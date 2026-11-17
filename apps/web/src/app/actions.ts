@@ -1,7 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
-import { currentMachine, daemon, homeMachine, MACHINE_COOKIE, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -72,8 +71,10 @@ export async function attachTicket(terminalId: string): Promise<string> {
   return ticket;
 }
 
-export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number; forkFrom?: string }): Promise<TerminalInfo> {
-  const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json: opts });
+/** `machine`: the task's machine, from a page that is not on it (the sidebar); else the page's own. */
+export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number; forkFrom?: string; machine?: string }): Promise<TerminalInfo> {
+  const { machine, ...json } = opts;
+  const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json, machine });
   revalidatePath("/", "layout");
   return t;
 }
@@ -126,19 +127,20 @@ export async function openInBobby(pr: string): Promise<{ url: string } | { error
 // ---------------------------------------------------------------- new tasks
 
 /** The kinds of task the (first) workspace runs, for the new-task form. */
-export async function listTaskKinds(): Promise<TaskKindSpec[]> {
-  return (await daemon<{ id: string; taskKinds?: TaskKindSpec[] }[]>("/api/workspaces"))[0]?.taskKinds ?? [];
+export async function listTaskKinds(machine?: string): Promise<TaskKindSpec[]> {
+  return (await daemon<{ id: string; taskKinds?: TaskKindSpec[] }[]>("/api/workspaces", { machine }))[0]?.taskKinds ?? [];
 }
 
-export async function listRepos(workspace?: string): Promise<Repo[]> {
-  const ws = workspace ?? (await daemon<{ id: string }[]>("/api/workspaces"))[0]?.id;
-  return ws ? daemon<Repo[]>(`/api/workspaces/${encodeURIComponent(ws)}/repos`) : [];
+export async function listRepos(workspace?: string, machine?: string): Promise<Repo[]> {
+  const ws = workspace ?? (await daemon<{ id: string }[]>("/api/workspaces", { machine }))[0]?.id;
+  return ws ? daemon<Repo[]>(`/api/workspaces/${encodeURIComponent(ws)}/repos`, { machine }) : [];
 }
 
 /** Create a task in the background; its page shows setup progress until it is ready. */
-export async function startTaskJob(input: { id: string; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string; links?: string[] }): Promise<{ job: TaskJob } | { error: string }> {
+export async function startTaskJob(input: { id: string; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string; links?: string[]; machine?: string }): Promise<{ job: TaskJob } | { error: string }> {
   try {
-    const job = await daemon<TaskJob>("/api/task-jobs", { method: "POST", json: input });
+    const { machine, ...json } = input;
+    const job = await daemon<TaskJob>("/api/task-jobs", { method: "POST", json, machine });
     revalidatePath("/", "layout");
     return { job };
   } catch (err) {
@@ -162,15 +164,15 @@ export async function searchFiles(taskId: string, q: string): Promise<{ path: st
 
 // ---------------------------------------------------------------- context menus: rename, archive, remove
 
-export async function updateTask(id: string, patch: { title?: string | null; archived?: boolean }): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
+export async function updateTask(id: string, patch: { title?: string | null; archived?: boolean }, machine?: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", json: patch, machine });
   revalidatePath("/", "layout");
 }
 
 /** Remove a task with the workspace's own tooling. */
-export async function removeTask(id: string): Promise<{ ok: true } | { error: string }> {
+export async function removeTask(id: string, machine?: string): Promise<{ ok: true } | { error: string }> {
   try {
-    await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE", machine });
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {
@@ -178,8 +180,8 @@ export async function removeTask(id: string): Promise<{ ok: true } | { error: st
   }
 }
 
-export async function revealTask(id: string): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(id)}/reveal`, { method: "POST" });
+export async function revealTask(id: string, machine?: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(id)}/reveal`, { method: "POST", machine });
 }
 
 export async function updateSession(id: string, patch: { title?: string; archived?: boolean }): Promise<void> {
@@ -325,18 +327,9 @@ export async function setupMachineWorkspace(id: string, opts: { provider: string
 
 export async function removeMachine(id: string): Promise<void> {
   await daemon(machinePath(id), { method: "DELETE", local: true });
-  const jar = await cookies();
-  if (jar.get(MACHINE_COOKIE)?.value === id) jar.delete(MACHINE_COOKIE);
   revalidatePath("/", "layout");
 }
 
-/** Show another machine's jin ("local" for this one): tasks, terminals and chats all come from it. */
-export async function switchMachine(id: string): Promise<void> {
-  const jar = await cookies();
-  // "local" is kept explicitly: with a home set, no cookie means the home.
-  jar.set(MACHINE_COOKIE, id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
-  revalidatePath("/", "layout");
-}
 
 // ---------------------------------------------------------------- first-run setup (this machine's daemon)
 
@@ -581,9 +574,9 @@ export async function removeTaskLink(taskId: string, key: string): Promise<{ rem
 // ---------------------------------------------------------------- reviewing PRs as tasks
 
 /** A review task for these PRs (links or <repo>#<n>) on this machine, or the one already reviewing them. */
-export async function startReview(prs: string[], prompt?: string, setup?: boolean, links?: string[]): Promise<{ taskId: string; existing: boolean } | { error: string }> {
+export async function startReview(prs: string[], prompt?: string, setup?: boolean, links?: string[], machine?: string): Promise<{ taskId: string; existing: boolean } | { error: string }> {
   try {
-    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt, setup, links } });
+    const r = await daemon<{ taskId: string; existing: boolean }>("/api/reviews", { method: "POST", json: { prs, prompt, setup, links }, machine });
     revalidatePath("/", "layout");
     return r;
   } catch (err) {

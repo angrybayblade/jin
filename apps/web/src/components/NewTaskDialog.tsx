@@ -4,9 +4,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { listRepos, listTaskKinds, startReview, startTaskJob } from "@/app/actions";
 import type { Repo, TaskKindSpec } from "@/lib/daemon";
+import { taskHref } from "@/lib/paths";
+
+type Target = { id: string; label: string };
 
 /** "+" next to Tasks: create a task with the workspace's own tooling, set up in the background. */
-export function NewTaskButton() {
+/** `targets`: the machines a task can go on (with a workspace); `here`: the page's machine, the default. */
+export function NewTaskButton({ targets = [], here = "local" }: { targets?: Target[]; here?: string }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -29,15 +33,16 @@ export function NewTaskButton() {
       <button type="button" className="nav-section-action" onClick={() => setOpen(true)} title="New task (⌘⇧N)" aria-label="New task">
         <Plus size={13} />
       </button>
-      {open && <NewTaskDialog onClose={() => setOpen(false)} />}
+      {open && <NewTaskDialog targets={targets} initial={targets.some((t) => t.id === here) ? here : (targets[0]?.id ?? "local")} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function NewTaskDialog({ onClose }: { onClose: () => void }) {
+function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initial: string; onClose: () => void }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
   const idInput = useRef<HTMLInputElement>(null);
+  const [machine, setMachine] = useState(initial);
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   // The kinds of task the workspace runs (its provider says), the first by default.
@@ -59,12 +64,17 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
     dialog.current?.showModal();
     // showModal focuses the first control (the close button); the Task ID is where you start.
     idInput.current?.focus();
-    void listRepos().then(setRepos, (e) => setError(String(e)));
-    void listTaskKinds().then((k) => {
-      setKinds(k);
-      if (k[0]) setKind(k[0].id);
-    }, () => setKinds([]));
   }, []);
+  // The chosen machine's repos and kinds of task.
+  useEffect(() => {
+    setRepos(null);
+    setPicked(new Set());
+    void listRepos(undefined, machine).then(setRepos, (e) => setError(String(e)));
+    void listTaskKinds(machine).then((k) => {
+      setKinds(k);
+      setKind((cur) => (k.some((x) => x.id === cur) ? cur : (k[0]?.id ?? "change")));
+    }, () => setKinds([]));
+  }, [machine]);
 
   const toggle = (name: string) =>
     setPicked((p) => {
@@ -79,17 +89,17 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     if (kind === "review") {
-      const r = await startReview(prList, prompt.trim() || undefined, reviewSetup, linkList);
+      const r = await startReview(prList, prompt.trim() || undefined, reviewSetup, linkList, machine);
       setBusy(false);
       if ("error" in r) return setError(r.error);
       onClose();
-      return router.push(`/t/${encodeURIComponent(r.taskId)}`);
+      return router.push(taskHref(machine, r.taskId));
     }
-    const res = await startTaskJob({ id: id.trim(), slug: slug.trim(), type: spec?.types?.length ? type || spec.types[0] : undefined, repos: [...picked], setup, prompt: prompt.trim() || undefined, links: linkList });
+    const res = await startTaskJob({ id: id.trim(), slug: slug.trim(), type: spec?.types?.length ? type || spec.types[0] : undefined, repos: [...picked], setup, prompt: prompt.trim() || undefined, links: linkList, machine });
     setBusy(false);
     if ("error" in res) return setError(res.error);
     onClose();
-    router.push(`/t/${encodeURIComponent(res.job.taskId)}`);
+    router.push(taskHref(machine, res.job.taskId));
   };
 
   // PR links (or repo#123), one per line or separated by spaces.
@@ -105,6 +115,18 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
             <X size={14} />
           </button>
         </header>
+        {targets.length > 1 && (
+          <label className="field">
+            <span>Machine</span>
+            <select value={machine} onChange={(e) => setMachine(e.target.value)}>
+              {targets.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {(kinds?.length ?? 0) > 1 && (
           <div className="segmented" role="tablist" aria-label="Kind of task">
             {kinds!.map((k) => (

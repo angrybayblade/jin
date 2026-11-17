@@ -1,4 +1,5 @@
 "use client";
+import { splitPath, taskHref } from "@/lib/paths";
 import {
   ArrowRight,
   Bell,
@@ -65,10 +66,12 @@ const isMac = () => typeof navigator !== "undefined" && /Mac/.test(navigator.pla
  * Ctrl+Tab in the desktop app). In the switcher, keep ⌘ held and press E again to move down,
  * release to switch, as with Ctrl+Tab in an editor. ">" switches to commands, "#" to search.
  */
-export function Palette({ tasks }: { tasks: Task[] }) {
+export function Palette({ tasks }: { tasks: (Task & { machine: string; machineLabel: string })[] }) {
   const router = useRouter();
   const path = usePathname();
-  const taskId = path.startsWith("/t/") ? decodeURIComponent(path.slice(3).split("/")[0]!) : null;
+  const at = splitPath(path);
+  const taskId = at.path.startsWith("/t/") ? decodeURIComponent(at.path.slice(3).split("/")[0]!) : null;
+  const several = new Set(tasks.map((t) => t.machine)).size > 1;
   const pageId = taskId ? "task" : path.startsWith("/c/") ? "desk" : "home";
   const tabs = useTabs();
   const [mode, setMode] = useState<Mode | null>(null);
@@ -106,7 +109,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
   const commands = useMemo<Item[]>(() => {
     const go = (href: string) => () => router.push(href);
     const items: Item[] = [{ id: "go:home", title: "Go to Jin", detail: "your orchestrator", icon: Layers, run: go("/") }];
-    for (const t of tasks.filter((x) => x.state === "ready")) items.push({ id: `go:task:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: `task · ${t.repos.join(", ")}`, icon: ArrowRight, run: go(`/t/${encodeURIComponent(t.id)}`) });
+    for (const t of tasks.filter((x) => x.state === "ready")) items.push({ id: `go:task:${t.machine}:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: `task · ${t.repos.join(", ")}${several ? ` · ${t.machineLabel}` : ""}`, icon: ArrowRight, run: go(taskHref(t.machine, t.id)) });
     for (const d of DESKS) items.push({ id: `go:desk:${d.kind}`, title: `${d.label} desk`, icon: d.icon, run: go(`/c/${d.kind}`) });
     items.push({ id: "task:new", title: "New task…", detail: "⌘⇧N", icon: Plus, run: openNewTaskDialog });
     items.push({ id: "notify:test", title: "Send a test notification", detail: "desktop notification and sound", icon: Bell, run: () => void testNotification() });
@@ -149,7 +152,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
     const icon = (t: TabEntry): Pick<Item, "icon" | "mark"> => (t.group === "claude" ? { mark: "claude" } : { icon: t.group === "shell" ? SquareTerminal : File });
     const items: Item[] = ordered.map((t) => ({ id: `tab:${t.id}`, title: t.label, detail: t.detail, ...icon(t), run: t.activate }));
     // Other tasks follow the open tabs.
-    for (const t of tasks.filter((x) => x.state === "ready" && x.id !== taskId)) items.push({ id: `tab:task:${t.id}`, title: t.id, detail: t.title ?? t.slug, icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) });
+    for (const t of tasks.filter((x) => x.state === "ready" && !(x.id === taskId && x.machine === at.machine))) items.push({ id: `tab:task:${t.machine}:${t.id}`, title: t.id, detail: `${t.title ?? t.slug}${several ? ` · ${t.machineLabel}` : ""}`, icon: ArrowRight, run: () => router.push(taskHref(t.machine, t.id)) });
     return items;
   }, [tabs, tasks, taskId, router]);
 
@@ -169,7 +172,7 @@ export function Palette({ tasks }: { tasks: Task[] }) {
     if (mode === "files" && !taskId) {
       return tasks
         .filter((t) => t.state === "ready")
-        .map((t) => ({ id: `go:task:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: "open a task to find its files", icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) }))
+        .map((t) => ({ id: `go:task:${t.machine}:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: "open a task to find its files", icon: ArrowRight, run: () => router.push(taskHref(t.machine, t.id)) }))
         .filter((it) => fuzzy(q, it.title) !== null);
     }
     return [];

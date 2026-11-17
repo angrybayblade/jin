@@ -1,24 +1,35 @@
 import { redirect } from "next/navigation";
 import { TaskView } from "@/components/workspace/TaskView";
 import { TaskSetup } from "@/components/TaskSetup";
-import { currentMachine, daemon, daemonWsBase, knownMachines, type Task, type TaskJob, type TaskPR, type TerminalInfo } from "@/lib/daemon";
+import { MachineDown } from "@/components/MachineSwitcher";
+import { currentMachine, daemon, DaemonUnavailable, daemonWsBase, knownMachines, type Machine, type Task, type TaskJob, type TaskPR, type TerminalInfo } from "@/lib/daemon";
+import { taskHref } from "@/lib/paths";
 
 export const dynamic = "force-dynamic";
 
 /** A task: Claude Code sessions, terminals, files and the diff as one row of tabs; the file tree on the right. */
 export default async function TaskPage({ params }: { params: Promise<{ taskId: string }> }) {
   const { taskId } = await params;
+  const machine = await currentMachine();
+  // The machine in the URL is not answering: say so, and retry until it does.
+  let jobs: TaskJob[];
+  try {
+    jobs = await daemon<TaskJob[]>("/api/task-jobs");
+  } catch (err) {
+    if (!(err instanceof DaemonUnavailable) || machine === "local") throw err;
+    const label = (await daemon<Machine[]>("/api/machines", { local: true }).catch(() => [] as Machine[])).find((m) => m.id === machine)?.label ?? machine;
+    return <MachineDown id={machine} name={label} message={err.message} />;
+  }
   // Being set up (or its setup failed): show the setup's progress until the task is ready.
-  const job = (await daemon<TaskJob[]>("/api/task-jobs")).find((j) => j.taskId === taskId);
+  const job = jobs.find((j) => j.taskId === taskId);
   if (job && job.state !== "done") return <TaskSetup key={job.id} initial={job} />;
   let task: Task | null = null;
   try {
     task = await daemon<Task>(`/api/tasks/${encodeURIComponent(taskId)}`);
   } catch {
-    // Not on the machine the app shows (a link from a notification, the palette or a new review
-    // can point at a task on another machine): show the machine that has it.
+    // Not on the machine in the URL (an old link, or one that named no machine): open it on the machine that has it.
     const elsewhere = await findTask(taskId);
-    if (elsewhere) redirect(`/m/${elsewhere}/t/${encodeURIComponent(taskId)}`);
+    if (elsewhere) redirect(taskHref(elsewhere, taskId));
   }
   if (!task) {
     return (

@@ -26,11 +26,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useState, type ComponentType } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, Elsewhere, Machine, NotificationSettings, Session, Task, TaskJob, TaskPR, TerminalInfo } from "@/lib/daemon";
+import type { AgentStatus, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
+import { splitPath, taskHref } from "@/lib/paths";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
-import { MachineSwitcher } from "./MachineSwitcher";
+import { SettingsMenu } from "./MachineSwitcher";
 import { RenameInput } from "./RenameInput";
 import { DensityToggle, HistoryButtons, SidebarToggle } from "./ShellControls";
 import { StatusMark } from "./ThermalMark";
@@ -56,83 +57,81 @@ const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | 
 const copy = (text: string) => void navigator.clipboard?.writeText(text);
 
 /** A machine's name above its tasks, when the sidebar lists more than one machine's. */
-function MachineLabel({ label, current = false, empty = false }: { label: string; current?: boolean; empty?: boolean }) {
+function MachineLabel({ label, local, note }: { label: string; local: boolean; note?: string }) {
   return (
-    <div className={`nav-machine ${current ? "is-current" : ""}`} title={current ? `${label}: the machine jin is showing` : `Tasks on ${label}`}>
-      <span className="nav-machine-icon">{label === "This machine" ? <Monitor size={12} /> : <Server size={12} />}</span>
+    <div className="nav-machine" title={`Tasks on ${label}`}>
+      <span className="nav-machine-icon">{local ? <Monitor size={12} /> : <Server size={12} />}</span>
       <span className="nav-machine-name">{label}</span>
-      {empty && <span className="nav-machine-empty">no tasks</span>}
+      {note && <span className="nav-machine-empty">{note}</span>}
     </div>
   );
 }
 
 export function Sidebar({
-  tasks,
+  groups,
+  here = "local",
   sessions,
-  terminals,
-  jobs,
   pendingApprovals,
   workspace,
   mode,
   notifications,
-  prs = [],
   machines = [],
-  machine = "local",
-  elsewhere = [],
 }: {
-  tasks: Task[];
+  /** Every connected machine's tasks, this machine's first. */
+  groups: MachineTasks[];
+  /** The machine of the page being shown (where a new task goes by default). */
+  here?: string;
   sessions: Session[];
-  terminals: TerminalInfo[];
-  jobs: TaskJob[];
   pendingApprovals: number;
   workspace: string;
   mode: string;
   notifications: NotificationSettings;
-  prs?: TaskPR[];
   machines?: Machine[];
-  machine?: string;
-  elsewhere?: Elsewhere[];
 }) {
   const path = usePathname();
   const router = useRouter();
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived, setShowArchived] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const latest = (pred: (s: Session) => boolean) => sessions.find(pred);
   const jin = latest((s) => s.kind === "jin");
-  const ready = tasks.filter((t) => t.state === "ready");
-  const live = ready.filter((t) => !t.archived);
-  const archived = ready.filter((t) => t.archived);
+  // The task open now: its machine and id, from the URL.
+  const at = splitPath(path);
+  const openId = at.path.startsWith("/t/") ? decodeURIComponent(at.path.slice(3).split("/")[0]!) : null;
+  const isOpen = (machine: string, id: string) => at.machine === machine && openId === id;
+  const several = groups.length > 1;
+  // Where a new task can go: machines with a workspace, the page's own first.
+  const targets = groups.filter((g) => g.hasWorkspace && !g.down).map((g) => ({ id: g.id, label: g.label }));
 
-  const taskMenu = (t: Task): MenuItem[] => [
-    { header: t.id },
-    { label: "Open", icon: ArrowRight, run: () => router.push(`/t/${encodeURIComponent(t.id)}`) },
+  const taskMenu = (machine: string, t: Task): MenuItem[] => [
+    { header: several ? `${t.id} · ${groups.find((g) => g.id === machine)?.label ?? machine}` : t.id },
+    { label: "Open", icon: ArrowRight, run: () => router.push(taskHref(machine, t.id)) },
     {
       label: "New Claude Code session",
       icon: Plus,
       run: async () => {
-        await openTerminal({ taskId: t.id, kind: "claude" });
-        router.push(`/t/${encodeURIComponent(t.id)}`);
+        await openTerminal({ taskId: t.id, kind: "claude", machine });
+        router.push(taskHref(machine, t.id));
       },
     },
     { divider: true },
-    { label: "Rename", icon: Pencil, run: () => setRenaming(`task:${t.id}`) },
+    { label: "Rename", icon: Pencil, run: () => setRenaming(`task:${machine}:${t.id}`) },
     ...(t.branch ? [{ label: "Copy branch", icon: GitBranch, hint: t.branch, run: () => copy(t.branch!) }] : []),
     { label: "Copy path", icon: ClipboardCopy, run: () => copy(t.root) },
-    { label: "Reveal in Finder", icon: FolderOpen, run: () => revealTask(t.id) },
+    ...(machine === "local" ? [{ label: "Reveal in Finder", icon: FolderOpen, run: () => revealTask(t.id, machine) }] : []),
     { divider: true },
     t.archived
-      ? { label: "Unarchive", icon: ArchiveRestore, run: () => updateTask(t.id, { archived: false }).then(() => router.refresh()) }
-      : { label: "Archive", icon: Archive, hint: "hide from the list", run: () => updateTask(t.id, { archived: true }).then(() => router.refresh()) },
+      ? { label: "Unarchive", icon: ArchiveRestore, run: () => updateTask(t.id, { archived: false }, machine).then(() => router.refresh()) }
+      : { label: "Archive", icon: Archive, hint: "hide from the list", run: () => updateTask(t.id, { archived: true }, machine).then(() => router.refresh()) },
     {
       label: "Remove task",
       icon: Trash2,
       danger: true,
       confirm: "Remove its checkouts (with the workspace's own tooling)?",
       run: async () => {
-        const res = await removeTask(t.id);
+        const res = await removeTask(t.id, machine);
         if ("error" in res) setError(res.error);
-        else if (path === `/t/${t.id}`) router.push("/");
+        else if (isOpen(machine, t.id)) router.push("/");
         router.refresh();
       },
     },
@@ -157,7 +156,8 @@ export function Sidebar({
     return out;
   };
 
-  const taskRow = (t: Task, depth = 0) => {
+  const taskRow = (g: MachineTasks, t: Task, depth = 0) => {
+    const { terminals, prs } = g;
     // Claude Code's status (from its hooks), else the latest SDK session's.
     const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
     const s = latest((x) => x.taskId === t.id);
@@ -168,24 +168,25 @@ export function Sidebar({
     const needsYou = open.filter((p) => p.checks === "failing" || p.review === "CHANGES_REQUESTED");
     return (
       <Link
-        key={t.id}
-        href={`/t/${encodeURIComponent(t.id)}`}
-        className={`nav-item task ${path === `/t/${t.id}` ? "active" : ""} ${t.archived ? "is-archived" : ""} ${depth ? "is-subtask" : ""}`}
+        key={`${g.id}:${t.id}`}
+        href={taskHref(g.id, t.id)}
+        prefetch={g.id === "local"}
+        className={`nav-item task ${isOpen(g.id, t.id) ? "active" : ""} ${t.archived ? "is-archived" : ""} ${depth ? "is-subtask" : ""}`}
         style={depth ? { paddingLeft: 8 + depth * 14 } : undefined}
-        title={t.parent ? `${title} · sub-task of ${t.parent}` : title}
-        {...contextMenu(() => taskMenu(t))}
+        title={`${t.parent ? `${title} · sub-task of ${t.parent}` : title}${several ? ` · on ${g.label}` : ""}`}
+        {...contextMenu(() => taskMenu(g.id, t))}
       >
         {mark ? <StatusMark state={mark} /> : <span className="status-dot" aria-hidden="true" />}
         <span className="nav-label">
           <span className="mono">{t.id}</span>{" "}
-          {renaming === `task:${t.id}` ? (
+          {renaming === `task:${g.id}:${t.id}` ? (
             <RenameInput
               value={title}
               label={`Rename ${t.id}`}
               onCancel={() => setRenaming(null)}
               onSave={(v) => {
                 setRenaming(null);
-                void updateTask(t.id, { title: v }).then(() => router.refresh());
+                void updateTask(t.id, { title: v }, g.id).then(() => router.refresh());
               }}
             />
           ) : (
@@ -238,68 +239,65 @@ export function Sidebar({
 
         <div className="nav-section">
           <span>Tasks</span>
-          <NewTaskButton />
+          <NewTaskButton targets={targets} here={here} />
         </div>
         {error && (
           <p className="sidebar-error" role="alert" onClick={() => setError(null)} title="Dismiss">
             {error}
           </p>
         )}
-        {elsewhere.length > 0 && (
-          <MachineLabel label={machines.find((m) => m.id === machine)?.label ?? "This machine"} current empty={live.length === 0 && jobs.every((j) => j.state === "done")} />
-        )}
-        {jobs
-          .filter((j) => j.state !== "done" && !live.some((t) => t.id === j.taskId && j.state === "failed"))
-          .map((j) => (
-            <Link key={j.id} href={`/t/${encodeURIComponent(j.taskId)}`} className={`nav-item task ${path === `/t/${j.taskId}` ? "active" : ""}`} title={j.slug}>
-              <StatusMark state={j.state === "running" ? "running" : "failed"} />
-              <span className="nav-label">
-                <span className="mono">{j.taskId}</span> <span className="nav-sub">{j.state === "running" ? "setting up…" : "setup failed"}</span>
-              </span>
-            </Link>
-          ))}
-        {live.length === 0 && jobs.every((j) => j.state === "done") &&
-          (workspace === "no workspace" && machine === "local" ? (
-            <p className="sidebar-empty">
-              No workspace yet. <Link href="/setup">Set up jin</Link>
-            </p>
-          ) : elsewhere.length === 0 ? (
-            <p className="sidebar-empty">Ask jin to start one, or press +.</p>
-          ) : null)}
-        {nested(live.filter((t) => !jobs.some((j) => j.taskId === t.id && j.state === "running"))).map(({ task, depth }) => taskRow(task, depth))}
-        {archived.length > 0 && (
-          <>
-            <button type="button" className="nav-archived-toggle" onClick={() => setShowArchived((v) => !v)} aria-expanded={showArchived}>
-              {showArchived ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <span className="nav-label">Archived ({archived.length})</span>
-            </button>
-            {showArchived && archived.map((t) => taskRow(t))}
-          </>
-        )}
-
-        {elsewhere.map((e) => (
-          <Fragment key={e.id}>
-            <MachineLabel label={e.label} />
-            {e.tasks.map((t) => {
-              const cli = e.terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
-              const open = e.prs.filter((p) => p.taskId === t.id && p.state === "OPEN");
-              const href = `/m/${e.id}/t/${encodeURIComponent(t.id)}`;
-              return (
-                <Link key={`${e.id}:${t.id}`} href={href} prefetch={false} className="nav-item task is-elsewhere" title={`${t.title ?? t.slug} · on ${e.label}`} {...contextMenu(() => [{ header: `${t.id} · ${e.label}` }, { label: `Open on ${e.label}`, icon: ArrowRight, run: () => router.push(href) }])}>
-                  {cli ? <StatusMark state={AGENT_MARK[cli.status]} /> : <span className="status-dot" aria-hidden="true" />}
+        {groups.map((g) => {
+          const ready = g.tasks.filter((t) => t.state === "ready");
+          const live = ready.filter((t) => !t.archived);
+          const archived = ready.filter((t) => t.archived);
+          const pending = g.jobs.filter((j) => j.state !== "done" && !live.some((t) => t.id === j.taskId && j.state === "failed"));
+          const empty = live.length === 0 && pending.length === 0;
+          // A machine without a workspace or tasks needs no row, unless it is the only one.
+          if (several && empty && !g.down && g.id !== "local" && !g.hasWorkspace) return null;
+          return (
+            <Fragment key={g.id}>
+              {several && <MachineLabel label={g.label} local={g.id === "local"} note={g.down ? "not answering" : empty ? "no tasks" : undefined} />}
+              {pending.map((j) => (
+                <Link key={`${g.id}:job:${j.id}`} href={taskHref(g.id, j.taskId)} className={`nav-item task ${isOpen(g.id, j.taskId) ? "active" : ""}`} title={j.slug}>
+                  <StatusMark state={j.state === "running" ? "running" : "failed"} />
                   <span className="nav-label">
-                    <span className="mono">{t.id}</span> <span className="nav-sub">{t.title ?? t.slug}</span>
+                    <span className="mono">{j.taskId}</span> <span className="nav-sub">{j.state === "running" ? "setting up…" : "setup failed"}</span>
                   </span>
-                  {open.length > 0 && (
-                    <span className={`nav-pr ${open.some((p) => p.checks === "failing" || p.review === "CHANGES_REQUESTED") ? "is-attention" : ""}`}>
-                      <GitPullRequest size={12} />
-                    </span>
-                  )}
                 </Link>
-              );
-            })}
-          </Fragment>
-        ))}
+              ))}
+              {!several && empty &&
+                (!g.hasWorkspace && g.id === "local" && workspace === "no workspace" ? (
+                  <p className="sidebar-empty">
+                    No workspace yet. <Link href="/setup">Set up jin</Link>
+                  </p>
+                ) : (
+                  <p className="sidebar-empty">Ask jin to start one, or press +.</p>
+                ))}
+              {nested(live.filter((t) => !g.jobs.some((j) => j.taskId === t.id && j.state === "running"))).map(({ task, depth }) => taskRow(g, task, depth))}
+              {archived.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="nav-archived-toggle"
+                    onClick={() =>
+                      setShowArchived((v) => {
+                        const n = new Set(v);
+                        if (n.has(g.id)) n.delete(g.id);
+                        else n.add(g.id);
+                        return n;
+                      })
+                    }
+                    aria-expanded={showArchived.has(g.id)}
+                  >
+                    {showArchived.has(g.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    <span className="nav-label">Archived ({archived.length})</span>
+                  </button>
+                  {showArchived.has(g.id) && archived.map((t) => taskRow(g, t))}
+                </>
+              )}
+            </Fragment>
+          );
+        })}
 
         <div className="nav-section">Desks</div>
         {DESKS.map(({ kind, label, icon: Icon }) => {
@@ -315,7 +313,7 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <MachineSwitcher machines={machines} current={machine} workspace={workspace} />
+        <SettingsMenu machines={machines} workspace={workspace} />
         <span className="sidebar-controls">
           {mode !== "vm" && <NotificationToggle initial={notifications} />}
           <DensityToggle />
