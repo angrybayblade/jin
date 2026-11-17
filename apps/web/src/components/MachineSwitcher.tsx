@@ -37,7 +37,8 @@ export function MachineSwitcher({ machines, current, workspace }: { machines: Ma
       className="machine-switcher"
       onClick={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
-        openContextMenu({ clientX: r.left, clientY: r.top - 8, preventDefault: () => e.preventDefault() }, items());
+        // Just above the switcher, its left edge in line.
+        openContextMenu({ clientX: r.left, clientY: r.top - 4, preventDefault: () => e.preventDefault() }, items(), { above: true });
       }}
       title="Switch machine"
     >

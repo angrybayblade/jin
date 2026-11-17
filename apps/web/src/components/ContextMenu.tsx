@@ -20,6 +20,8 @@ interface Open {
   x: number;
   y: number;
   items: MenuItem[];
+  /** Open upwards: y is where the menu's bottom edge goes (for buttons at the bottom of the window). */
+  above?: boolean;
 }
 
 let current: Open | null = null;
@@ -30,10 +32,10 @@ const set = (v: Open | null) => {
 };
 
 /** Open a context menu at the pointer (or under an element for keyboard use). */
-export function openContextMenu(e: { clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void }, items: MenuItem[]) {
+export function openContextMenu(e: { clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void }, items: MenuItem[], opts: { above?: boolean } = {}) {
   e.preventDefault?.();
   e.stopPropagation?.();
-  set({ x: e.clientX, y: e.clientY, items });
+  set({ x: e.clientX, y: e.clientY, items, above: opts.above });
 }
 
 /** onContextMenu handler for an element: right-click (or Shift+F10 / the menu key) opens `items()`. */
@@ -72,7 +74,8 @@ export function ContextMenuHost() {
     setActive(-1);
     if (!open || !ref.current) return setPos(null);
     const r = ref.current.getBoundingClientRect();
-    setPos({ left: Math.min(open.x, window.innerWidth - r.width - 8), top: Math.min(open.y, window.innerHeight - r.height - 8) });
+    const top = open.above ? Math.max(8, open.y - r.height) : Math.min(open.y, window.innerHeight - r.height - 8);
+    setPos({ left: Math.min(open.x, window.innerWidth - r.width - 8), top });
   }, [open]);
 
   // Focus once it is placed and visible (a hidden element cannot take focus).
