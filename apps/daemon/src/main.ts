@@ -189,7 +189,7 @@ const fireEvent = (ev: Omit<FiredEvent, "machine">) => {
 prs.onMerged((taskId, pr) => {
   const t = tasks.get(taskId);
   if (t.kind === "review") return; // someone else's PR: its merge is not this task's work done
-  const task = { id: t.id, title: t.title ?? t.slug };
+  const task = { id: t.id, title: t.title ?? t.slug, issue: t.issue };
   fireEvent({ event: "pr.merged", key: pr.url, payload: { task, pr: { url: pr.url, repo: pr.repo, number: pr.number, title: pr.title } } });
   const all = prs.list(taskId);
   if (all.every((p) => p.state === "MERGED" || p.state === "CLOSED")) {

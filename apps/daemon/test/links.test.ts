@@ -25,7 +25,7 @@ test("a task's Activity: its PRs, its issue, and what it links, by exact thread"
   links.add("PLEN-244", "https://acme.slack.com/archives/C1/p1700000000123456");
   links.add("PLEN-244", "https://www.notion.so/acme/Plan-1a2b3c4d5e6f40718293a4b5c6d7e8f9");
   const chan = links.add("PLEN-244", "https://acme.slack.com/archives/C2");
-  const own = ownLinks({ id: "PLEN-244", kind: "change", createdAt: "t" }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]);
+  const own = ownLinks({ id: "PLEN-244", createdAt: "t", issue: { tracker: "linear", id: "PLEN-244" } }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]);
   expect(own.map((l) => [l.key, l.how])).toEqual([["linear:PLEN-244", "issue"], ["github:composiohq/platform#12", "pr"]]);
   const all = [...own, ...links.list("PLEN-244")];
   const item = (key: string, at = "2026-11-17T12:00:00Z") => ({ id: key, thread: { key, title: "", ref: null, url: null }, receivedAt: at }) as any;
@@ -42,8 +42,9 @@ test("a task's Activity: its PRs, its issue, and what it links, by exact thread"
   ];
   expect(activity(all, items).map((i) => i.id).sort()).toEqual(["github:composiohq/platform#12", "linear:PLEN-244", "notion:1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9", "slack:C1:1700000000.123456", `slack:C2:${after}.000100`].sort());
   expect(belongs(item("slack:C2:1600000000.000100"), chan)).toBe(false);
-  // A review task has no issue of its own.
-  expect(ownLinks({ id: "REV-111701", kind: "review", createdAt: "t" }, [])).toEqual([]);
+  // Only an issue the workspace names: an id that looks like one is not enough.
+  expect(ownLinks({ id: "REV-111701", createdAt: "t", issue: null }, [])).toEqual([]);
+  expect(ownLinks({ id: "ABC-12", createdAt: "t" }, [])).toEqual([]);
 });
 
 test("on the home, Slack chatter in a followed thread or channel is kept, quietly", () => {
@@ -61,7 +62,7 @@ test("the context Claude Code asks for: PRs, what the task follows with how to r
   const { renderContext } = await import("../src/links");
   const at = Date.parse("2026-11-17T12:00:00Z");
   const links = [
-    ...ownLinks({ id: "PLEN-244", kind: "change", createdAt: "t" }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]),
+    ...ownLinks({ id: "PLEN-244", createdAt: "t", issue: { tracker: "linear", id: "PLEN-244" } }, [{ repo: "ComposioHQ/platform", number: 12, url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry" }]),
     { taskId: "PLEN-244", key: "slack:C1:1700000000.123456", kind: "slack-thread" as const, url: "https://acme.slack.com/archives/C1/p1700000000123456", label: "Slack thread in C1", since: null, how: "manual" as const, addedAt: "t" },
   ];
   const item = (key: string, title: string, actor: string, summary: string, mins: number) => ({ id: `${key}${mins}`, kind: "x", actor, title, summary, receivedAt: new Date(at - mins * 60_000).toISOString(), thread: { key, title: key.startsWith("slack") ? "Thread in #eng" : "Limiter", ref: key.startsWith("linear") ? "PLEN-244" : null, url: null } }) as any;

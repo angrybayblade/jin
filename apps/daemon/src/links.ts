@@ -11,7 +11,7 @@ import { body, HttpError, json, type Router } from "./http";
  * themselves; Slack threads, Slack channels and Notion pages are linked by hand (a URL).
  *
  *   github:owner/repo#12          a PR attached to the task          (how: pr)
- *   linear:PLEN-244               the task's own issue               (how: issue)
+ *   linear:PLEN-244               the issue the task is for          (how: issue, from its workspace)
  *   slack:C123:1700000000.123456  a Slack thread                     (how: manual)
  *   slack-channel:C123            threads started in it after `since` (how: manual)
  *   notion:<32 hex>               comments on a Notion page          (how: manual)
@@ -110,10 +110,11 @@ export class TaskLinks {
   }
 }
 
-/** The links that come with a task: its PRs, and a Linear task's own issue. */
-export function ownLinks(task: { id: string; kind: string; createdAt: string }, prs: { repo: string; number: number; url: string; title: string | null }[]): TaskLink[] {
+/** The links that come with a task: its PRs, and the issue it is for (as its workspace says). */
+export function ownLinks(task: { id: string; createdAt: string; issue?: { tracker: string; id: string; url?: string | null } | null }, prs: { repo: string; number: number; url: string; title: string | null }[]): TaskLink[] {
   const out: TaskLink[] = prs.map((p) => ({ taskId: task.id, key: githubThread(p.repo, p.number, "", p.url).key, kind: "github", url: p.url, label: `${p.repo.split("/")[1] ?? p.repo}#${p.number}${p.title ? ` ${p.title}` : ""}`, since: null, how: "pr", addedAt: task.createdAt }));
-  if (task.kind !== "review" && /^[A-Z][A-Z0-9]*-\d+$/.test(task.id)) out.unshift({ taskId: task.id, key: `linear:${task.id}`, kind: "linear", url: null, label: task.id, since: null, how: "issue", addedAt: task.createdAt });
+  const issue = task.issue;
+  if (issue && issue.tracker === "linear") out.unshift({ taskId: task.id, key: `linear:${issue.id}`, kind: "linear", url: issue.url ?? null, label: issue.id, since: null, how: "issue", addedAt: task.createdAt });
   return out;
 }
 

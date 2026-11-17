@@ -38,6 +38,8 @@ export interface Task {
   parent?: string | null;
   /** A change from a Linear issue, or a review of pull requests. */
   kind?: "change" | "review";
+  /** The issue it is for, when its workspace ties tasks to issues. */
+  issue?: { tracker: string; id: string; url?: string | null } | null;
   prs?: { repo: string; number: number; head?: string; title?: string; url?: string }[];
 }
 

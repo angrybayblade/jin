@@ -76,9 +76,12 @@ export function setupEnv(opts: { mode?: "local" | "vm" } = {}): Env {
 root=$(cd "$(dirname "$0")/.." && pwd)
 printf '%s\\n' "$*" >> "$root/cws.log"
 if [ "$1" = task ] && [ "$2" = new ]; then
-  id=$3; repos=""
-  while [ $# -gt 0 ]; do [ "$1" = --repos ] && repos=$2; shift; done
+  id=$3; repos=""; title=""
+  while [ $# -gt 0 ]; do [ "$1" = --repos ] && repos=$2; [ "$1" = --slug ] && title=$2; shift; done
   for r in $(echo "$repos" | tr ',' ' '); do mkdir -p "$root/tasks/$id/$r"; done
+  # As cws does: the task's record, which jin lists the workspace's tasks from.
+  mkdir -p "$root/tasks/$id"
+  printf '{"id":"%s","title":"%s","repos":["%s"],"created":"%s"}\n' "$id" "$title" "$(echo "$repos" | sed 's/,/","/g')" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$root/tasks/$id/task.json"
   echo "created tasks/$id"
 elif [ "$1" = task ] && [ "$2" = rm ]; then
   rm -rf "$root/tasks/$3"

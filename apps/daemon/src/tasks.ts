@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { AdapterError, provider, type ProviderTask, type ReviewedPR, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./adapters";
+import { AdapterError, provider, type ProviderTask, type ReviewedPR, type TaskIssue, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./adapters";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -21,10 +21,12 @@ export interface Task {
   archived: boolean;
   /** The task this one was spawned from (jin-task spawn), if any. */
   parent: string | null;
-  /** A change from a Linear issue, or a review of pull requests. */
+  /** A change to make, or a review of pull requests. */
   kind: TaskKind;
   /** A review task's pull requests. */
   prs: ReviewedPR[];
+  /** The issue it is for, when its workspace ties tasks to issues. */
+  issue: TaskIssue | null;
 }
 
 interface Meta {
@@ -54,6 +56,7 @@ const toTask = (r: any): Task => {
     parent: null,
     kind: r.type === "review" ? "review" : "change",
     prs: [],
+    issue: null,
   };
 };
 
@@ -74,6 +77,7 @@ const fromProvider = (workspace: string, t: ProviderTask, sourceItem: string | n
   parent: null,
   kind: t.kind ?? (t.type === "review" ? "review" : "change"),
   prs: t.prs ?? [],
+  issue: t.issue ?? null,
 });
 
 export class Tasks {

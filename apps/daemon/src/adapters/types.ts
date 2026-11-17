@@ -26,6 +26,14 @@ export interface TaskSpec {
   prs?: string[];
 }
 
+/** The issue a task is for, in an issue tracker, when the workspace ties tasks to issues. */
+export interface TaskIssue {
+  /** The tracker, e.g. "linear". */
+  tracker: string;
+  id: string;
+  url?: string | null;
+}
+
 /** A pull request a review task checks out. */
 export interface ReviewedPR {
   repo: string;
@@ -55,6 +63,8 @@ export interface ProviderTask {
   createdAt: string;
   kind?: TaskKind;
   prs?: ReviewedPR[];
+  /** The issue it is for, when the workspace knows. */
+  issue?: TaskIssue | null;
 }
 
 /** Deny and approval rules a workspace contributes on top of jin's own. */

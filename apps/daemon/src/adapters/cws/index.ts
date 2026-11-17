@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { WorkspaceConfig } from "../../config";
 import { AdapterError, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type ToolSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
 
+const LINEAR_ID = /^[A-Z][A-Z0-9]*-\d+$/;
+
 /** Parse .gitmodules into submodule name -> keys (path, url, branch). */
 export function parseGitmodules(text: string): Map<string, Record<string, string>> {
   const out = new Map<string, Record<string, string>>();
@@ -96,6 +98,8 @@ export class CwsAdapter implements WorkspaceAdapter {
           type: t.type ?? null,
           slug: t.title?.trim() || slugFromBranch(t.branch, t.id ?? id),
           kind: t.kind === "review" ? "review" : "change",
+          // A cws change is `task new linear --id <issue>`: its id is the Linear issue's.
+          issue: t.kind !== "review" && LINEAR_ID.test(t.id ?? id) ? { tracker: "linear", id: t.id ?? id } : null,
           ...(Array.isArray(t.prs) ? { prs: t.prs } : {}),
           branch: t.branch || null,
           repos,
