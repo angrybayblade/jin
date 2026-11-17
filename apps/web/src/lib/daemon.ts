@@ -17,6 +17,8 @@ export interface FeedItem {
   state: "new" | "snoozed" | "done" | "dismissed" | "promoted";
   taskId: string | null;
   priority: { score: number; why: string } | null;
+  thread?: { key: string; title: string; ref: string | null; url: string | null } | null;
+  actor?: string | null;
 }
 
 export interface Task {

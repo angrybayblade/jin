@@ -20,14 +20,20 @@ export async function collectGithub() {
   revalidatePath("/", "layout");
 }
 
+/** Snooze or dismiss feed items: one, or a whole thread (several itemId fields). */
 export async function feedAction(form: FormData) {
-  const id = encodeURIComponent(text(form, "itemId"));
+  const ids = form.getAll("itemId").map(String).filter(Boolean);
   const action = text(form, "action");
-  if (action === "dismiss" || action === "done") await daemon(`/api/feed/${id}/${action}`, { method: "POST" });
-  else if (action === "snooze") {
-    const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await daemon(`/api/feed/${id}/snooze`, { method: "POST", json: { until } });
-  } else throw new Error(`unknown feed action ${action}`);
+  if (!ids.length) throw new Error("no feed items");
+  const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await Promise.all(
+    ids.map((raw) => {
+      const id = encodeURIComponent(raw);
+      if (action === "dismiss" || action === "done") return daemon(`/api/feed/${id}/${action}`, { method: "POST" });
+      if (action === "snooze") return daemon(`/api/feed/${id}/snooze`, { method: "POST", json: { until } });
+      throw new Error(`unknown feed action ${action}`);
+    }),
+  );
   revalidatePath("/", "layout");
 }
 
