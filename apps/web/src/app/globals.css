@@ -2076,6 +2076,14 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   width: 18px;
   height: 18px;
 }
+/* Confirming a close: the button fits "Close?" and the tab widens so nothing is cut off. */
+:is(.task-tabs, .chat-tabs) .file-tab-close.is-armed {
+  width: auto;
+  flex: none;
+}
+:is(.task-tabs, .chat-tabs) :is(.term-tab, .chat-tab):has(.file-tab-close.is-armed) {
+  max-width: none;
+}
 .task-bar .tab-new {
   align-self: center;
 }
