@@ -15,6 +15,7 @@ import { exportHistory, historyRoutes } from "./history";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
 import { subtaskRoutes } from "./subtasks";
+import { type FiredEvent, Hooks, hookRoutes } from "./hooks";
 import { Composio, composioRoutes, type LiveEvent } from "./composio";
 import { GithubWatch } from "./github-watch";
 import { claudeHarness } from "./harness";
@@ -82,13 +83,18 @@ const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude
 jobRoutes(app.router, jobs);
 sessions.provideJinTools(() =>
   jinTools({
-    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs,
+    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs, hooks,
     machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
   }),
 );
 // Desktop notifications when a turn or a setup finishes, or something needs you.
 const notifier = new Notifier(config);
 notifyRoutes(app.router, notifier);
+const hooks = new Hooks(config.home, {
+  startChat: async (title, prompt) => sessions.startChat("jin", prompt, undefined, title),
+  notify: (n) => void notifier.notify(n),
+});
+hookRoutes(app.router, hooks);
 const onClaudeStatus = watchForNotifications(notifier, { sessions, jobs, terminals });
 claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
   const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
@@ -118,6 +124,27 @@ const machines = new Machines(config, app.workspaces);
 // Chats run with the first workspace's Claude profile (if it has one), so their transcripts are there.
 const chatClaudeDir = () => app.workspaces[0]?.profile.claudeConfigDir;
 machineRoutes(app.router, machines, () => exportHistory(db, { claudeDir: chatClaudeDir() }));
+
+// Hooks: an event (a PR merged, a task's PRs all merged, a live event) starts a jin chat with
+// the hook's instructions. They run where chats do: with a home, this machine sends its events
+// there.
+const homeLink = () => machines.list().find((m) => m.home && m.connected) ?? null;
+const fireEvent = (ev: Omit<FiredEvent, "machine">) => {
+  const home = homeLink();
+  const sent = home
+    ? machines.call(home.id, "POST", "/api/event-hooks/emit", { ...ev, machine: machines.identity?.id ?? null })
+    : hooks.fire({ ...ev, machine: null });
+  void sent.catch((err) => console.error(`hook event ${ev.event} ${ev.key}: ${err}`));
+};
+prs.onMerged((taskId, pr) => {
+  const t = tasks.get(taskId);
+  const task = { id: t.id, title: t.title ?? t.slug };
+  fireEvent({ event: "pr.merged", key: pr.url, payload: { task, pr: { url: pr.url, repo: pr.repo, number: pr.number, title: pr.title } } });
+  const all = prs.list(taskId);
+  if (all.every((p) => p.state === "MERGED" || p.state === "CLOSED")) {
+    fireEvent({ event: "task.merged", key: taskId, payload: { task, prs: all.map((p) => ({ url: p.url, repo: p.repo, number: p.number, title: p.title, state: p.state })) } });
+  }
+});
 historyRoutes(app.router, db, { home: config.home, claudeDir: chatClaudeDir });
 // What a machine's agents want you to know shows here, under its name; a click opens it there.
 // With a home (hub), only the home is collected: it gathers its machines' notices itself, so
@@ -231,7 +258,13 @@ machines.resume();
 // GitHub activity on your PRs is watched with gh here (one call every two minutes), not with triggers.
 let liveDeliver: (e: LiveEvent) => void = () => {};
 const githubWatch = new GithubWatch(config.home, (e) => liveDeliver(e));
-const composio = new Composio(config, { feed, workspaces: app.workspaces, notify: (n) => void notifier.notify(n), github: githubWatch });
+const composio = new Composio(config, {
+  feed,
+  workspaces: app.workspaces,
+  notify: (n) => void notifier.notify(n),
+  onEvent: (e) => fireEvent({ event: "live.event", key: e.id, payload: { ...e } }),
+  github: githubWatch,
+});
 liveDeliver = (e) => composio.deliver(e);
 composioRoutes(app.router, composio);
 composio.startListener();

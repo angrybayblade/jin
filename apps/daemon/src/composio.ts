@@ -180,7 +180,7 @@ export class Composio {
 
   constructor(
     private config: Config,
-    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
+    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
     private spawn: Spawn = defaultSpawn,
     private bin = process.env.JIN_COMPOSIO_BIN ?? (Bun.which("composio") || join(homedir(), ".local", "bin", "composio")),
   ) {
@@ -503,6 +503,7 @@ export class Composio {
     // Distinct per event (two comments link to the same issue), grouped by thread.
     const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor };
     this.deps.feed.add([item]);
+    this.deps.onEvent?.(e);
     if (e.forYou) {
       const where = e.thread ? [e.thread.ref, e.thread.title].filter(Boolean).join(" ") : undefined;
       this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: where, body: e.summary, path: `/c/${e.toolkit}` });

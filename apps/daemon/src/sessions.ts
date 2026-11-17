@@ -274,12 +274,12 @@ export class Sessions {
   }
 
   /** Jin's own chat or a knowledge chat, in a scratch directory of its own. */
-  startChat(kind: ChatKind, prompt: string, workspace?: string): Session {
+  startChat(kind: ChatKind, prompt: string, workspace?: string, name?: string): Session {
     const ws = workspace ?? this.deps.workspaces[0]?.id;
     if (ws && !this.deps.workspaces.some((w) => w.id === ws)) throw new HttpError(404, `unknown workspace ${ws}`);
     const cwd = join(this.deps.config.home, "chats", kind);
     mkdirSync(cwd, { recursive: true });
-    const title = prompt.trim().replace(/\s+/g, " ").slice(0, 80);
+    const title = (name?.trim() || prompt.trim()).replace(/\s+/g, " ").slice(0, 80);
     return this.create({ kind, workspace: ws, title, cwd }, prompt);
   }
 
@@ -349,9 +349,9 @@ export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<
       return json({ deleted: true });
     })
     .on("POST", "/api/chats", async (req) => {
-      const { kind, prompt, workspace } = await body<{ kind: string; prompt: string; workspace?: string }>(req);
+      const { kind, prompt, workspace, title } = await body<{ kind: string; prompt: string; workspace?: string; title?: string }>(req);
       if (!isChatKind(kind)) throw new HttpError(400, `kind must be one of jin, slack, linear, notion, gmail, github`);
-      return json(sessions.startChat(kind, prompt, workspace), 201);
+      return json(sessions.startChat(kind, prompt, workspace, title), 201);
     })
     .on("GET", "/api/sessions/:id", (_req, p) => json(sessions.get(p.id!)))
     .on("GET", "/api/sessions/:id/events", (_req, p, url) => {
