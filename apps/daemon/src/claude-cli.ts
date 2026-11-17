@@ -1,6 +1,7 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { WorkspaceAdapter } from "./adapters";
+import type { ReviewedPR, TaskKind, WorkspaceAdapter } from "./adapters";
+import { taskPluginDir, taskSkills } from "./skills";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, json, type Router } from "./http";
 import { evaluate } from "./policy";
@@ -36,12 +37,33 @@ export interface TaskContext {
   parent?: string | null;
   /** Claude Code has jin's `journal` tool. */
   journal?: boolean;
+  kind?: TaskKind;
+  prs?: ReviewedPR[];
+  /** jin's skills in the task's plugin (/jin:<name>). */
+  skills?: string[];
 }
 
 /** jin's context and must-follow rules for Claude Code running in a task (appended to its system prompt). */
 export function taskRules(ctx: TaskContext | string): string {
-  const c = typeof ctx === "string" ? { taskId: ctx } : ctx;
+  const c: TaskContext = typeof ctx === "string" ? { taskId: ctx } : ctx;
+  const skills = c.skills?.length ? `SKILLS: jin added skills for this task: ${c.skills.map((s) => `/jin:${s}`).join(", ")}. Use them for this work: they say how the user wants it done.` : "";
+  if (c.kind === "review") {
+    const prs = (c.prs ?? []).map((p) => `${p.repo}#${p.number}${p.title ? ` (${p.title})` : ""}${p.url ? ` ${p.url}` : ""}`).join("; ");
+    return [
+      `You are running inside jin task ${c.taskId}, a REVIEW of pull requests: ${prs || "see TASK.md"}.`,
+      c.taskRoot ? `You start in the task's folder, ${c.taskRoot}: one worktree per repo, each detached at its PR's head, plus TASK.md (read it first; write your findings there).` : "",
+      c.workspaceRoot ? `The whole workspace, ${c.workspaceRoot}, is readable: its docs/map/README.md and map/ (how services fit together) and the other repos, to judge what a change affects.` : "",
+      "MUST-FOLLOW RULES: you review; you do not change the PRs. Never commit, push, approve, request changes or post comments on GitHub unless the user says so for that comment; draft comments in TASK.md and show them. To pick up a new push: `git fetch origin pull/<n>/head && git checkout --detach FETCH_HEAD` in that worktree.",
+      skills,
+      c.journal
+        ? "WORK JOURNAL: the user follows your review in jin's journal, grouped by concern (a short label for one area, e.g. \"rate limiter\"; reuse labels). Call the `journal` tool for each finding (kind found, with why it matters) and each conclusion (decision). One line each; send it alongside your next tool call, and never read the journal back."
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   return [
+    skills,
     `You are running inside jin task ${c.taskId}; jin is the user's orchestrator and tracks this task's pull requests.`,
     c.taskRoot ? `You start in the task's folder, ${c.taskRoot}: one worktree per repo, plus TASK.md (the task's notes: read it first, and keep it up to date).` : "",
     c.workspaceRoot
@@ -89,11 +111,13 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
         : []),
       "--settings",
       settingsFile,
+      // jin's skills for this task (by its tags), as a plugin: /jin:<name>.
+      ...(ctx?.taskId && existsSync(taskPluginDir(config.home, ctx.taskId)) ? ["--plugin-dir", taskPluginDir(config.home, ctx.taskId)] : []),
       "--model",
       config.model,
       // The whole workspace is readable from a task's folder; the task's context and rules go in the system prompt.
       ...(ctx?.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
-      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId) })] : []),
+      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId) })] : []),
     ],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,

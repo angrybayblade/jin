@@ -10,6 +10,8 @@ import { collectGithub, Feed, feedRoutes } from "./feed";
 import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
+import { reviewRoutes } from "./reviews";
+import { skillRoutes, Skills, tagsFor, writeTaskPlugin, type SkillBody } from "./skills";
 import { localVersion, machineId, machineRoutes, Machines } from "./machines";
 import { exportHistory, historyRoutes } from "./history";
 import { LocalSetup, setupRoutes } from "./setup";
@@ -79,9 +81,21 @@ const claude = claudeLaunch(config, writeClaudeSettings(config), writeJinTaskCom
 tasks.onRemoved((taskId) => {
   for (const t of [...terminals.list({ taskId }), ...terminals.list({ taskId, archived: true })]) terminals.close(t.id);
 });
-terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude });
+// jin's skills: kept on the home, tagged; a task's Claude Code gets the ones its kind asks for
+// (a review: pr-review) as a plugin, fetched from the home when this machine has one.
+const skills = new Skills(config.home);
+skillRoutes(app.router, skills);
+const prepareSkills = async (taskId: string) => {
+  const tags = tagsFor(tasks.get(taskId).kind);
+  const home = homeLink();
+  const list = home ? await machines.call<SkillBody[]>(home.id, "GET", `/api/skills/bundle?tags=${encodeURIComponent(tags.join(","))}`) : skills.bundle(tags);
+  writeTaskPlugin(config.home, taskId, list);
+};
+terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude, prepare: prepareSkills });
 const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
+jobs.prepare = prepareSkills;
 jobRoutes(app.router, jobs);
+reviewRoutes(app.router, { tasks, jobs });
 sessions.provideJinTools(() =>
   jinTools({
     feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs, hooks,
@@ -124,6 +138,28 @@ prRoutes(app.router, prs, tasks, terminals);
 // A task's Claude Code can split work into sub-tasks (jin-task spawn).
 subtaskRoutes(app.router, { terminals, tasks, jobs, prs });
 tasks.onRemoved((taskId) => prs.removeTask(taskId));
+// A review task follows its PRs (attached once it is made); when they are all merged or closed,
+// it is archived and, when nothing would be lost, removed.
+jobs.onFinish((job) => {
+  if (job.state !== "done") return;
+  void (async () => {
+    const t = tasks.get(job.taskId);
+    if (t.kind !== "review") return;
+    const repos = await tasks.adapter(t.workspace).repos();
+    for (const p of t.prs) {
+      const url = p.url ?? (repos.find((r) => r.name === p.repo)?.github ? `https://github.com/${repos.find((r) => r.name === p.repo)!.github}/pull/${p.number}` : null);
+      if (url) await prs.attach(t.id, url, "review").catch(() => {});
+    }
+  })().catch((err) => console.error(`review ${job.taskId}: ${err}`));
+});
+prs.onEnded((taskId) => {
+  void (async () => {
+    const t = tasks.get(taskId);
+    if (t.kind !== "review" || !prs.list(taskId).every((p) => p.state === "MERGED" || p.state === "CLOSED")) return;
+    tasks.update(taskId, { archived: true });
+    await tasks.removeIfClean(taskId).catch((err) => console.log(`review ${taskId} archived, kept: ${err instanceof Error ? err.message : err}`));
+  })().catch(() => {});
+});
 // Every few minutes (and soon after start): find PRs opened from tasks' branches, refresh open ones.
 const syncPrs = async () => {
   for (const t of tasks.list().filter((x) => x.state === "ready")) await prs.discover(t).catch(() => {});
@@ -151,6 +187,7 @@ const fireEvent = (ev: Omit<FiredEvent, "machine">) => {
 };
 prs.onMerged((taskId, pr) => {
   const t = tasks.get(taskId);
+  if (t.kind === "review") return; // someone else's PR: its merge is not this task's work done
   const task = { id: t.id, title: t.title ?? t.slug };
   fireEvent({ event: "pr.merged", key: pr.url, payload: { task, pr: { url: pr.url, repo: pr.repo, number: pr.number, title: pr.title } } });
   const all = prs.list(taskId);

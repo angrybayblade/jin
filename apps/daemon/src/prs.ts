@@ -141,6 +141,12 @@ export class TaskPRs {
     this.mergedHooks.push(fn);
   }
 
+  private endedHooks: ((taskId: string, pr: TaskPR) => void)[] = [];
+  /** Run when a PR jin saw open is now merged or closed. */
+  onEnded(fn: (taskId: string, pr: TaskPR) => void) {
+    this.endedHooks.push(fn);
+  }
+
   async refreshOne(taskId: string, url: string) {
     const before = this.list(taskId).find((p) => p.url === url)?.state ?? null;
     const raw = await this.gh(["pr", "view", url, "--json", "number,title,state,isDraft,reviewDecision,statusCheckRollup,headRefName"]);
@@ -151,6 +157,10 @@ export class TaskPRs {
     if (before === "OPEN" && j.state === "MERGED") {
       const pr = this.list(taskId).find((p) => p.url === url);
       if (pr) for (const fn of this.mergedHooks) fn(taskId, pr);
+    }
+    if (before === "OPEN" && (j.state === "MERGED" || j.state === "CLOSED")) {
+      const pr = this.list(taskId).find((p) => p.url === url);
+      if (pr) for (const fn of this.endedHooks) fn(taskId, pr);
     }
   }
 

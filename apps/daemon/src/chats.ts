@@ -219,6 +219,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           const t = await machines!.call<{ id: string; taskId: string }>(on, "POST", "/api/terminals", { taskId: a.taskId, kind: "claude", prompt: a.prompt });
           return { terminalId: t.id, taskId: t.taskId, machine: on, open: link(on, t.taskId) };
         }
+        await jobs.prepare?.(a.taskId as string).catch(() => {});
         const t = openTerminal({ terminals, tasks, workspaces, claude }, { taskId: a.taskId as string, kind: "claude", prompt: a.prompt as string });
         return { terminalId: t.id, taskId: t.taskId, open: `/t/${t.taskId}` };
       },
