@@ -4,6 +4,7 @@ import type { FeedItem } from "@/lib/daemon";
 import { groupFeed, rowWhat, type FeedGroup, type FeedRow } from "@/lib/feed-groups";
 import { isPullRequest } from "@/lib/pr";
 import { BobbyBadge } from "./BobbyBadge";
+import { ReviewButton } from "./ReviewButton";
 
 const SOURCE: Record<string, { label: string; Icon: typeof Mail }> = {
   github: { label: "GitHub", Icon: GitPullRequest },
@@ -30,6 +31,7 @@ function Actions({ g }: { g: FeedGroup }) {
       {g.ids.map((id) => (
         <input key={id} type="hidden" name="itemId" value={id} />
       ))}
+      {g.url && isPullRequest(g.url) && <ReviewButton pr={g.url} />}
       {g.url && (
         <a className="button quiet icon-only small" href={g.url} target="_blank" rel="noreferrer" title="Open" aria-label="Open">
           <ExternalLink size={13} />

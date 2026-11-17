@@ -20,6 +20,7 @@ import {
   Trash2,
   Monitor,
   Server,
+  ScanEye,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -191,7 +192,11 @@ export function Sidebar({
             <span className="nav-sub">{title}</span>
           )}
         </span>
-        {open.length > 0 && (
+        {t.kind === "review" ? (
+          <span className="nav-pr" title={`Reviewing ${(t.prs ?? []).map((p) => `${p.repo}#${p.number}${p.title ? ` ${p.title}` : ""}`).join(", ")}`}>
+            <ScanEye size={12} />
+          </span>
+        ) : open.length > 0 && (
           <span className={`nav-pr ${needsYou.length ? "is-attention" : ""}`} title={open.map((p) => `#${p.number} ${p.title ?? ""} — ${p.checks === "failing" ? "checks failing" : p.review === "CHANGES_REQUESTED" ? "changes requested" : p.draft ? "draft" : (p.review ?? "open").toLowerCase().replace("_", " ")}`).join("\n")}>
             <GitPullRequest size={12} />
           </span>
