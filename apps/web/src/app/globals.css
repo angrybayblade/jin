@@ -2058,10 +2058,10 @@ html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input,
   scrollbar-width: none;
 }
 .task-tabs .term-tab {
-  height: 26px;
+  height: 24px;
   max-width: 200px;
   gap: 5px;
-  padding: 0 2px 0 8px;
+  padding: 0 2px 0 7px;
   border: 0;
   border-radius: var(--radius-control);
   font-size: 12px;
@@ -2288,16 +2288,16 @@ html[data-sidebar="collapsed"] .nav-pr {
   align-items: center;
 }
 .chat-tabs .chat-tab {
-  height: 26px;
+  height: 24px;
   max-width: 200px;
   gap: 5px;
-  padding: 0 2px 0 8px;
+  padding: 0 2px 0 7px;
   border: 0;
   border-radius: var(--radius-control);
   font-size: 12px;
 }
 .chat-tabs .chat-tab.is-new {
-  padding-right: 8px;
+  padding-right: 7px;
 }
 .chat-tabs .status-mark,
 .chat-tabs .status-mark canvas {
