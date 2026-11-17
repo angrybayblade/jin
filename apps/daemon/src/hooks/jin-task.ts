@@ -5,6 +5,7 @@
 //   jin-task spawn <ID> --repos a,b --slug "..." [--prompt "..."] [--type bug] [--no-setup]
 //                              split part of the work into a sub-task (own branch and PR)
 //   jin-task subtasks          the sub-tasks spawned from this task, and how they are doing
+//   jin-task mcp               jin's MCP server for Claude Code (stdio): the `journal` tool
 // The terminal names the task (JIN_TERMINAL_ID, set by jin); the daemon's token is in JIN_HOME.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -47,7 +48,9 @@ const call = async (method: string, path: string, payload?: unknown) => {
 type PR = { url: string; title: string | null; state: string | null; draft: boolean };
 const line = (p: PR) => `${p.url}  ${p.draft ? "draft" : (p.state ?? "").toLowerCase()}  ${p.title ?? ""}`.trim();
 
-if (cmd === "attach-pr") {
+if (cmd === "mcp") {
+  await serveMcp();
+} else if (cmd === "attach-pr") {
   if (!arg) fail("usage: jin-task attach-pr <pull request url>");
   const pr = (await call("POST", `/api/terminals/${terminal}/prs`, { url: arg })) as PR;
   console.log(`attached to the task: ${line(pr)}`);
@@ -74,4 +77,68 @@ if (cmd === "attach-pr") {
     'usage:\n  jin-task attach-pr <url>   attach a pull request to this task\n  jin-task prs               list the task\'s pull requests\n  jin-task spawn <ID> --repos a,b --slug "..." [--prompt "..."] [--type bug] [--no-setup]\n                             split part of the work into a sub-task\n  jin-task subtasks          the sub-tasks spawned from this task',
   );
   process.exit(cmd ? 1 : 0);
+}
+
+/**
+ * jin's MCP server over stdio (newline-delimited JSON-RPC), started by Claude Code in a task:
+ * one tool, `journal`, that records a decision, finished work or a finding under a concern.
+ * Replies are a word or two, so the journal costs Claude Code almost no context.
+ */
+async function serveMcp() {
+  const TOOL = {
+    name: "journal",
+    description:
+      "Record one line in the task's work journal, which the user watches: a decision (with why), work done, or a finding, under a short concern label (reuse existing labels). Files, commits and tests are recorded automatically. Call it alongside your next tool call; it replies \"ok\".",
+    inputSchema: {
+      type: "object",
+      properties: {
+        concern: { type: "string", description: 'short label for one area of the work, e.g. "rate limiter"' },
+        kind: { type: "string", enum: ["decision", "done", "found"] },
+        text: { type: "string", description: "one line" },
+        why: { type: "string", description: "for decisions: the reason, one line" },
+      },
+      required: ["concern", "kind", "text"],
+    },
+  };
+  const send = (msg: unknown) => process.stdout.write(`${JSON.stringify(msg)}\n`);
+  const answer = async (m: { id?: number | string; method?: string; params?: any }) => {
+    if (m.id === undefined) return; // a notification
+    if (m.method === "initialize") return send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "jin", version: "1" } } });
+    if (m.method === "ping") return send({ jsonrpc: "2.0", id: m.id, result: {} });
+    if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: [TOOL] } });
+    if (m.method === "tools/call") {
+      const text = await (async () => {
+        if (m.params?.name !== "journal") return { error: `unknown tool ${m.params?.name}` };
+        try {
+          const res = await fetch(`http://${daemon.host}:${daemon.port}/api/terminals/${terminal}/journal`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" },
+            body: JSON.stringify(m.params?.arguments ?? {}),
+          });
+          const j = (await res.json().catch(() => ({}))) as { reply?: string; error?: string };
+          return res.ok ? { ok: j.reply ?? "ok" } : { error: j.error ?? `jin answered ${res.status}` };
+        } catch (e) {
+          return { error: `could not reach jin: ${(e as Error).message}` };
+        }
+      })();
+      return send({ jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text: "ok" in text ? text.ok : text.error }], ...("error" in text ? { isError: true } : {}) } });
+    }
+    send({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: `method not found: ${m.method}` } });
+  };
+  let buffer = "";
+  const decoder = new TextDecoder();
+  for await (const chunk of Bun.stdin.stream()) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      try {
+        await answer(JSON.parse(line));
+      } catch {
+        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
+      }
+    }
+  }
 }
