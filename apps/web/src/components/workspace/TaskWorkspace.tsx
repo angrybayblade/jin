@@ -1,6 +1,6 @@
 "use client";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FolderTree, GitCompare, NotebookPen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
+import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FolderTree, GitCompare, NotebookPen, PanelRightClose, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
@@ -167,6 +167,15 @@ export function TaskWorkspace({
         .catch((e) => setError(e instanceof Error ? e.message : String(e))),
     [taskId, terms, router],
   );
+  /** A new tab that carries on from this one's conversation (Claude Code --fork-session). */
+  const fork = (t: TerminalInfo) =>
+    openTerminal({ taskId, kind: "claude", forkFrom: t.id })
+      .then((n) => {
+        remember(n);
+        setActive(termKey(n.id));
+        router.refresh();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   const start = (id: string) =>
     once(`start:${id}`, () => startTerminal(id))
       .then(remember)
@@ -354,10 +363,9 @@ export function TaskWorkspace({
 
   // ---------------------------------------------------------------- menus
   const termMenu = (t: TerminalInfo): MenuItem[] => [
-    { header: t.kind === "claude" ? `${t.title} · Claude Code` : t.title },
     { label: "Rename", icon: Pencil, run: () => setRenaming(t.id) },
     {
-      label: t.kind === "claude" ? (t.claudeSessionId ? "Restart (resume conversation)" : "Restart") : "Restart shell",
+      label: "Restart",
       icon: RotateCcw,
       run: async () => {
         setActive(termKey(t.id));
@@ -367,25 +375,13 @@ export function TaskWorkspace({
     },
     ...(t.kind === "claude"
       ? ([
-          { label: "Archive", icon: Archive, hint: "stop, keep the session", run: () => archive(t) },
+          ...(t.claudeSessionId ? [{ label: "Fork into new tab", icon: GitFork, run: () => void fork(t) }] : []),
+          { label: "Archive", icon: Archive, run: () => archive(t) },
           ...(t.claudeSessionId ? [{ label: "Copy session id", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(t.claudeSessionId!) }] : []),
         ] satisfies MenuItem[])
       : []),
     { divider: true },
     { label: "Close", icon: X, ...(t.kind === "claude" && running(t) ? { danger: true, confirm: "Close and end the session?" } : {}), run: () => closeTerm(t, true) },
-    {
-      label: "Close other tabs",
-      icon: XCircle,
-      disabled: tabs.length < 2,
-      danger: true,
-      confirm: "Close the other tabs (sessions end)?",
-      run: async () => {
-        setActive(termKey(t.id));
-        for (const o of terms) if (o.id !== t.id) await closeTerm(o, true);
-        for (const p of files) closeFile(p, true);
-        setChangesOpen(false);
-      },
-    },
   ];
   const fileMenu = (p: string): MenuItem[] => [
     { header: p },
