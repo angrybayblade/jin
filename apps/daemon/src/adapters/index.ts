@@ -1,9 +1,10 @@
 import type { WorkspaceConfig } from "../config";
 import { cwsProvider } from "./cws";
+import { gitProvider } from "./git";
 import { AdapterError, type WorkspaceAdapter, type WorkspaceProvider } from "./types";
 
 /** The workspace providers jin knows. Adding a kind of workspace is adding one here. */
-export const PROVIDERS: WorkspaceProvider[] = [cwsProvider];
+export const PROVIDERS: WorkspaceProvider[] = [cwsProvider, gitProvider];
 
 /** Older configs name cws by its old name. */
 const ALIASES: Record<string, string> = { composio: "cws" };
