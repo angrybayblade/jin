@@ -1,7 +1,8 @@
 // A23: live events through Composio. A fake `composio` stands in for the CLI (its state in a
 // folder; `dev listen` emits whatever the test appends to a file), so the whole path runs:
-// choose a project, switch an event on (its trigger is made), the listener runs, a DM lands in
-// the feed and notifies, channel chatter without a mention does not, and switching off works.
+// choose a project, switch an event on (its trigger is made), jin reads the trigger logs, a DM
+// lands in the feed and notifies, channel chatter without a mention does not, an event from hours
+// ago is caught up quietly, and switching off works.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -49,6 +50,12 @@ else if (c1 === "dev" && c2 === "triggers" && c3 === "create") {
   else if (c3 === "LINEAR_GET_CURRENT_USER") out({ successful: true, data: { user: { id: "lin-me", email: "me@example.com" } } });
   else if (c3 === "LINEAR_LIST_LINEAR_TEAMS") out({ successful: true, data: { teams: [{ id: "team-1", name: "Platform" }] } });
   else process.exit(1);
+} else if (c1 === "dev" && c2 === "logs" && c3 === "triggers") {
+  // Like the real one: each event that fired, newest first, its payload as a JSON string.
+  if (!existsSync(process.cwd() + "/.composio/project.json")) { console.error("No developer project configured for this directory."); process.exit(1); }
+  const f = S + "/events.jsonl";
+  const lines = existsSync(f) ? readFileSync(f, "utf8").split("\\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+  out({ data: lines.map((e) => ({ id: "log_" + e.id, appName: e.triggerSlug.split("_")[0].toLowerCase(), createdAt: e.at ?? new Date().toISOString(), meta: { id: e.id, triggerName: e.triggerSlug, triggerClientPayload: JSON.stringify(e.data) } })).reverse(), nextCursor: null });
 } else if (c1 === "dev" && c2 === "listen") {
   // Like the real one: only in a folder bound to a developer project.
   if (!existsSync(process.cwd() + "/.composio/project.json")) { console.error("No developer project configured for this directory. Run \`composio dev init\`."); process.exit(1); }
@@ -70,7 +77,7 @@ beforeAll(async () => {
   writeFileSync(join(env.bin, "composio"), FAKE_COMPOSIO);
   chmodSync(join(env.bin, "composio"), 0o755);
   // The fake's own config folder: switching a trigger off allows it there, never in your ~/.composio.
-  d = await startDaemon(env, { FAKE_COMPOSIO_STATE: state, JIN_COMPOSIO_BIN: join(env.bin, "composio"), JIN_COMPOSIO_CONFIG_DIR: join(state, "config") });
+  d = await startDaemon(env, { FAKE_COMPOSIO_STATE: state, JIN_COMPOSIO_BIN: join(env.bin, "composio"), JIN_COMPOSIO_CONFIG_DIR: join(state, "config"), JIN_COMPOSIO_POLL_MS: "200" });
 });
 afterAll(async () => {
   await d.stop();
@@ -103,17 +110,20 @@ test("A23 live events: a project, an event switched on, a DM in the feed and a n
   event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev1", data: { text: "can you review today?", user: "U_ALEX", channel: "D1" } });
   event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "ev2", data: { text: "deploy is green", user: "U_BOB", channel_type: "channel" } });
   event({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", id: "ev3", data: { text: "<@U_ME> thoughts?", user: "U_BOB", channel_type: "channel" } });
+  // From two hours ago (before jin looked): into the feed, without a notification.
+  event({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", id: "ev0", at: new Date(Date.now() - 2 * 3_600_000).toISOString(), data: { text: "earlier", user: "U_OLD", channel: "D2" } });
   const recent = await until(async () => {
     const r = (await d.json("/api/composio")).recent as { id: string; title: string; forYou: boolean }[];
-    return r.length >= 2 ? r : null;
+    return r.length >= 3 ? r : null;
   }, 10_000, "events received");
-  expect(recent.map((e) => e.id).sort()).toEqual(["ev1", "ev3"]);
+  expect(recent.map((e) => e.id).sort()).toEqual(["ev0", "ev1", "ev3"]);
   // Each lands in the feed under its thread: the DM, and the channel thread it was mentioned in.
   const feed = (await d.json("/api/feed")) as { source: string; actor: string; thread: { key: string; title: string } }[];
-  expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"]]);
+  expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"], ["U_OLD", "DM with U_OLD"]]);
   await until(() => notices().some((n) => n.title === "U_ALEX"), 5_000, "notification");
   expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "DM with U_ALEX", body: "can you review today?", path: "/c/slack" });
   expect(notices().find((n) => n.title === "U_BOB mentioned you")).toBeDefined();
+  expect(notices().some((n) => n.title === "U_OLD")).toBe(false);
 
   // Linear needs teams; switching DMs off disables their trigger.
   expect((await d.json("/api/composio/linear-teams")) as unknown[]).toEqual([{ id: "team-1", name: "Platform", key: null }]);

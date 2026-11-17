@@ -56,6 +56,15 @@ test("A22 a machine becomes jin's home: this jin attaches to it, is reached back
   }, 30_000, "this jin attached to the hub and reachable back");
   expect(attached.attached).toBe(true);
 
+  // The same machine attaching again under a new name (its hostname changed) replaces its old record.
+  const full = (await hub("/api/machines")).find((m: { id: string }) => m.id === attached.id) as { remotePort: number };
+  const again = await hub("/api/machines/attach", { method: "POST", body: JSON.stringify({ id: "renamed-mac", label: "renamed-mac", port: full.remotePort, token: "t-renamed" }) });
+  expect(again.id).toBe("renamed-mac");
+  const afterRename = (await hub("/api/machines")) as { id: string; attached?: boolean }[];
+  expect(afterRename.filter((m) => m.attached).map((m) => m.id)).toEqual(["renamed-mac"]);
+  // Back as it was, for the rest of the test.
+  await hub("/api/machines/attach", { method: "POST", body: JSON.stringify({ id: attached.id, label: attached.id, port: full.remotePort, token: d.token }) });
+
   // The hub works on this machine through the reverse line (its chat tools use the same path).
   const tasksHere = (await d.json("/api/tasks")) as { id: string }[];
   const hubChat = await hub("/api/chats", { method: "POST", body: JSON.stringify({ kind: "jin", prompt: JSON.stringify({ script: [{ jinTool: "jin_list_tasks", input: { machine: attached.id } }, { text: "ok" }] }) }) });
