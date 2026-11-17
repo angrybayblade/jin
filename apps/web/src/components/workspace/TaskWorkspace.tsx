@@ -59,12 +59,15 @@ const fileKey = (p: string) => `f:${p}`;
  * one starts again when shown, and Claude Code resumes its conversation.
  */
 export function TaskWorkspace({
+  machine,
   taskId,
   subtitle,
   terminals,
   prs,
   wsBase,
 }: {
+  /** The machine the task is on: what is remembered for it (open files, the active tab) is per machine. */
+  machine: string;
   taskId: string;
   subtitle: string;
   terminals: TerminalInfo[];
@@ -100,7 +103,8 @@ export function TaskWorkspace({
   }, [terminals, local, closed]);
 
   // ---------------------------------------------------------------- files
-  const filesKey = `jin-files:${taskId}`;
+  const scope = machine === "local" ? taskId : `${machine}:${taskId}`;
+  const filesKey = `jin-files:${scope}`;
   const [files, setFiles] = useState<string[]>([]);
   const [docs, setDocs] = useState<Record<string, Doc>>({});
   const [changesOpen, setChangesOpen] = useState(false);
@@ -124,7 +128,7 @@ export function TaskWorkspace({
   docsRef.current = docs;
 
   // ---------------------------------------------------------------- the active tab
-  const activeKey = `jin-task-tab:${taskId}`;
+  const activeKey = `jin-task-tab:${scope}`;
   const [active, setActiveState] = useState<Key | null>(null);
   const activeRef = useRef<Key | null>(null);
   activeRef.current = active;
@@ -158,7 +162,7 @@ export function TaskWorkspace({
   // ---------------------------------------------------------------- terminal actions
   const create = useCallback(
     (kind: "claude" | "shell") =>
-      once(`${taskId}:${kind}:new:${terms.filter((t) => t.kind === kind).length}`, () => openTerminal({ taskId, kind }))
+      once(`${scope}:${kind}:new:${terms.filter((t) => t.kind === kind).length}`, () => openTerminal({ taskId, kind }))
         .then((t) => {
           remember(t);
           setActive(termKey(t.id));
@@ -177,7 +181,7 @@ export function TaskWorkspace({
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   const start = (id: string) =>
-    once(`start:${id}`, () => startTerminal(id))
+    once(`start:${machine}:${id}`, () => startTerminal(id))
       .then(remember)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
 
@@ -346,7 +350,7 @@ export function TaskWorkspace({
   }, [taskId, openFile, showChanges, create, files, terms]);
 
   // The tab switcher (⌘E) lists every tab and can bring one to front.
-  const owner = `task:${taskId}`;
+  const owner = `task:${scope}`;
   useEffect(() => {
     registerTabs(owner, [
       ...terms.map((t) => ({

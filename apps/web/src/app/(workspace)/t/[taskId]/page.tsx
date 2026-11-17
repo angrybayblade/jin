@@ -49,7 +49,8 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
     daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`),
     daemon<TaskPR[]>(`/api/tasks/${encodeURIComponent(taskId)}/prs`).catch(() => [] as TaskPR[]),
   ]);
-  return <TaskView key={task.id} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} prs={prs} wsBase={await daemonWsBase()} />;
+  // Keyed by machine too: the same task id on two machines is two tasks (nothing carries over between them).
+  return <TaskView key={`${machine}:${task.id}`} machine={machine} taskId={task.id} subtitle={`${task.title ?? task.slug} · ${task.repos.join(", ")}`} terminals={terminals} prs={prs} wsBase={await daemonWsBase()} />;
 }
 
 /** The other machine that has this task (ready), if any. */
