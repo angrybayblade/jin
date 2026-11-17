@@ -65,7 +65,16 @@ export class TaskJobs {
     return this.list().find((j) => j.taskId === taskId);
   }
 
+  /** Before Claude Code starts in a task: its skills (jin's, by the task's tags). */
+  prepare: ((taskId: string) => Promise<void>) | null = null;
+
   async start(workspace: string, spec: TaskSpec, opts: { setup?: boolean; prompt?: string; feedItemId?: string } = {}): Promise<TaskJob> {
+    // A review task is numbered by the workspace (REV-<month><day><n>), unless an id is given.
+    if (spec.kind === "review" && !spec.id) {
+      const adapter = this.tasks.adapter(workspace);
+      if (!adapter.nextTaskId) throw new HttpError(400, "this workspace has no review tasks");
+      spec = { ...spec, id: await adapter.nextTaskId("review") };
+    }
     if (this.list().some((j) => j.taskId === spec.id && j.state === "running")) throw new HttpError(409, `task ${spec.id} is already being set up`);
     await this.tasks.validate(workspace, spec);
     const job: TaskJob = {
@@ -92,6 +101,7 @@ export class TaskJobs {
         await this.tasks.start(workspace, spec, opts.feedItemId, { setup: job.setup, onOutput: say });
         if (opts.feedItemId) this.deps.feed.setState(opts.feedItemId, "promoted", { taskId: spec.id });
         if (opts.prompt?.trim()) {
+          await this.prepare?.(spec.id).catch((err) => say(`skills: ${err instanceof Error ? err.message : err}`));
           job.terminalId = openTerminal(this.deps, { taskId: spec.id, kind: "claude", prompt: opts.prompt }).id;
           say("Claude Code started with your prompt.");
         }
@@ -120,9 +130,13 @@ export function jobRoutes(router: Router, jobs: TaskJobs) {
     .on("GET", "/api/task-jobs", () => json(jobs.list()))
     .on("GET", "/api/task-jobs/:id", (_req, p) => json(jobs.get(p.id!)))
     .on("POST", "/api/task-jobs", async (req) => {
-      const b = await body<{ workspace?: string; id: string; type?: string; repos: string[]; slug: string; setup?: boolean; prompt?: string; feedItemId?: string }>(req);
+      const b = await body<{ workspace?: string; id?: string; kind?: "linear" | "review"; type?: string; repos?: string[]; prs?: string[]; slug?: string; setup?: boolean; prompt?: string; feedItemId?: string }>(req);
       const workspace = b.workspace ?? jobs.defaultWorkspace;
       if (!workspace) throw new HttpError(400, "no workspace configured");
-      return json(await jobs.start(workspace, { id: b.id, type: b.type, repos: b.repos, slug: b.slug }, { setup: b.setup, prompt: b.prompt, feedItemId: b.feedItemId }), 202);
+      const review = b.kind === "review";
+      const spec: TaskSpec = review
+        ? { id: b.id ?? "", kind: "review", prs: b.prs ?? [], repos: (b.prs ?? []).map((p) => p.split("#")[0]!), slug: b.slug ?? "" }
+        : { id: b.id ?? "", kind: "linear", type: b.type, repos: b.repos ?? [], slug: b.slug ?? "" };
+      return json(await jobs.start(workspace, spec, { setup: b.setup, prompt: b.prompt, feedItemId: b.feedItemId }), 202);
     });
 }

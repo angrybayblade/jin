@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkspaceConfig } from "../config";
-import { AdapterError, type PolicyRules, type ProviderTask, type Repo, type TaskDirs, type TaskSpec, type WorkspaceAdapter } from "./types";
+import { AdapterError, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./types";
 
 /** Parse .gitmodules into submodule name -> keys (path, url, branch). */
 export function parseGitmodules(text: string): Map<string, Record<string, string>> {
@@ -74,6 +74,7 @@ export class ComposioAdapter implements WorkspaceAdapter {
         path: join(this.root, mod?.path ?? `repos/${name}`),
         branch: mod?.branch ?? "main",
         description: entry?.description ?? "",
+        github: mod?.url?.match(/github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/)?.[1],
       };
     });
   }
@@ -87,14 +88,16 @@ export class ComposioAdapter implements WorkspaceAdapter {
       const file = join(dir, id, "task.json");
       if (!existsSync(file)) continue;
       try {
-        const t = JSON.parse(readFileSync(file, "utf8")) as { id?: string; type?: string; branch?: string; repos?: string[]; created?: string };
+        const t = JSON.parse(readFileSync(file, "utf8")) as { id?: string; kind?: string; type?: string; branch?: string; repos?: string[]; prs?: ReviewedPR[]; title?: string; created?: string };
         const root = join(dir, id);
         const repos = Array.isArray(t.repos) ? t.repos.map(String) : [];
         out.push({
           id: t.id ?? id,
           type: t.type ?? null,
-          slug: slugFromBranch(t.branch, t.id ?? id),
-          branch: t.branch ?? null,
+          slug: t.title?.trim() || slugFromBranch(t.branch, t.id ?? id),
+          kind: t.kind === "review" ? "review" : "linear",
+          ...(Array.isArray(t.prs) ? { prs: t.prs } : {}),
+          branch: t.branch || null,
           repos,
           root,
           dirs: Object.fromEntries(repos.map((r) => [r, join(root, r)])),
@@ -107,10 +110,35 @@ export class ComposioAdapter implements WorkspaceAdapter {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  /** cws 0.2 put the task's kind first (`task new linear|review`); older ones take `task new <ID> --type`. */
+  private kinds: boolean | null = null;
+  private async hasKinds(): Promise<boolean> {
+    if (this.kinds === null) {
+      const v = await this.run(["--version"]).catch(() => "");
+      const m = /cws (\d+)\.(\d+)/.exec(v);
+      this.kinds = Boolean(m && (Number(m[1]) > 0 || Number(m[2]) >= 2));
+    }
+    return this.kinds;
+  }
+
+  async nextTaskId(kind: TaskKind): Promise<string> {
+    if (kind !== "review") throw new AdapterError("only review tasks are numbered by the workspace");
+    if (!(await this.hasKinds())) throw new AdapterError("this workspace's cws has no review tasks; update it (cws update)");
+    return (await this.run(["task", "next-id", "review"])).trim().split("\n").pop()!.trim();
+  }
+
   async startTask(spec: TaskSpec, opts: { setup?: boolean; onOutput?: (line: string) => void } = {}): Promise<TaskDirs> {
-    const args = ["task", "new", spec.id];
-    if (spec.type) args.push("--type", spec.type);
-    args.push("--repos", spec.repos.join(","), "--slug", spec.slug);
+    const kinds = await this.hasKinds();
+    const args = ["task", "new"];
+    if (spec.kind === "review") {
+      if (!kinds) throw new AdapterError("this workspace's cws has no review tasks; update it (cws update)");
+      args.push("review", "--id", spec.id, ...(spec.prs ?? []).flatMap((p) => ["--pr", p]));
+      if (spec.slug) args.push("--slug", spec.slug);
+    } else {
+      if (kinds) args.push("linear", "--id", spec.id, "--change", spec.type || "feature");
+      else args.push(spec.id, ...(spec.type ? ["--type", spec.type] : []));
+      args.push("--repos", spec.repos.join(","), "--slug", spec.slug);
+    }
     if (opts.setup !== false) args.push("--setup");
     await this.run(args, opts.onOutput);
     const root = join(this.root, "tasks", spec.id);

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { AdapterError, type ProviderTask, type TaskSpec, type WorkspaceAdapter } from "./adapters";
+import { AdapterError, type ProviderTask, type ReviewedPR, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./adapters";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -21,6 +21,10 @@ export interface Task {
   archived: boolean;
   /** The task this one was spawned from (jin-task spawn), if any. */
   parent: string | null;
+  /** A change from a Linear issue, or a review of pull requests. */
+  kind: TaskKind;
+  /** A review task's pull requests. */
+  prs: ReviewedPR[];
 }
 
 interface Meta {
@@ -48,6 +52,8 @@ const toTask = (r: any): Task => {
     title: null,
     archived: false,
     parent: null,
+    kind: r.type === "review" ? "review" : "linear",
+    prs: [],
   };
 };
 
@@ -66,6 +72,8 @@ const fromProvider = (workspace: string, t: ProviderTask, sourceItem: string | n
   title: null,
   archived: false,
   parent: null,
+  kind: t.kind ?? (t.type === "review" ? "review" : "linear"),
+  prs: t.prs ?? [],
 });
 
 export class Tasks {
@@ -158,7 +166,11 @@ export class Tasks {
   async validate(workspace: string, spec: TaskSpec): Promise<void> {
     const adapter = this.adapter(workspace);
     if (!ID.test(spec.id ?? "")) throw new HttpError(400, "task id must be letters, digits, '.', '_' or '-'");
-    if (!spec.slug?.trim()) throw new HttpError(400, "slug is required");
+    if (spec.kind === "review") {
+      if (!spec.prs?.length) throw new HttpError(400, "a review task needs pull requests, e.g. platform#123");
+      const bad = spec.prs.find((p) => !/^[\w.-]+#\d+$/.test(p));
+      if (bad) throw new HttpError(400, `"${bad}" is not <repo>#<number>`);
+    } else if (!spec.slug?.trim()) throw new HttpError(400, "slug is required");
     if (!Array.isArray(spec.repos) || !spec.repos.length) throw new HttpError(400, "repos is required");
     const known = new Set((await adapter.repos()).map((r) => r.name));
     const unknown = spec.repos.filter((r) => !known.has(r));
@@ -175,7 +187,7 @@ export class Tasks {
          on conflict (id) do update set workspace = excluded.workspace, type = excluded.type, slug = excluded.slug,
            repos = excluded.repos, dirs = excluded.dirs, state = 'ready', source_item = excluded.source_item, created_at = excluded.created_at`,
       )
-      .run(spec.id, workspace, spec.type ?? null, spec.slug, JSON.stringify(spec.repos), JSON.stringify({ root: dirs.root, repos: dirs.dirs }), sourceItem ?? null, now());
+      .run(spec.id, workspace, spec.kind === "review" ? "review" : (spec.type ?? null), spec.slug ?? "", JSON.stringify(spec.repos), JSON.stringify({ root: dirs.root, repos: dirs.dirs }), sourceItem ?? null, now());
     return this.get(spec.id);
   }
 
@@ -199,7 +211,9 @@ export class Tasks {
       }
       const changed = status.out ? status.out.split("\n").length : 0;
       if (changed) out.push({ repo, dir, problem: `${changed} uncommitted change${changed === 1 ? "" : "s"}` });
-      const local = git(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes"]);
+      // A review's worktree sits on the PR's head, which is on GitHub but not a remote branch here.
+      const prHead = task.prs.find((p) => p.repo === repo)?.head;
+      const local = git(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes", ...(prHead && /^[0-9a-f]{7,40}$/.test(prHead) ? [prHead] : [])]);
       const n = local.ok ? Number(local.out) : NaN;
       if (!local.ok) out.push({ repo, dir, problem: `could not compare with the remote: ${local.err || "unknown"}` });
       else if (n > 0) out.push({ repo, dir, problem: `${n} commit${n === 1 ? "" : "s"} on no remote` });

@@ -5,13 +5,31 @@ export interface Repo {
   path: string;
   branch: string;
   description: string;
+  /** owner/name on GitHub, when known (to find the repo of a pull request). */
+  github?: string;
 }
+
+/** A change from a Linear issue (the default), or a review of pull requests. */
+export type TaskKind = "linear" | "review";
 
 export interface TaskSpec {
   id: string;
+  kind?: TaskKind;
+  /** The change kind (feature, bug, ...); a review task has none. */
   type?: string;
   repos: string[];
   slug: string;
+  /** A review task's pull requests, as <repo>#<number>. */
+  prs?: string[];
+}
+
+/** A pull request a review task checks out. */
+export interface ReviewedPR {
+  repo: string;
+  number: number;
+  head?: string;
+  title?: string;
+  url?: string;
 }
 
 export interface TaskDirs {
@@ -32,6 +50,8 @@ export interface ProviderTask {
   root: string;
   dirs: Record<string, string>;
   createdAt: string;
+  kind?: TaskKind;
+  prs?: ReviewedPR[];
 }
 
 /** Deny and approval rules a workspace contributes on top of jin's own. */
@@ -58,6 +78,8 @@ export interface WorkspaceAdapter {
   /** Create a task; `onOutput` receives the workspace tooling's output line by line (for live progress). */
   startTask(spec: TaskSpec, opts?: { setup?: boolean; onOutput?: (line: string) => void }): Promise<TaskDirs>;
   removeTask(id: string): Promise<void>;
+  /** The id the workspace gives the next task of this kind (review tasks are numbered by it). */
+  nextTaskId?(kind: TaskKind): Promise<string>;
   policy(): PolicyRules;
 }
 
