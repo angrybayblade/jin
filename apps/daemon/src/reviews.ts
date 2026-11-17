@@ -8,7 +8,7 @@ import type { Tasks } from "./tasks";
  * has a review task opens that one instead.
  */
 
-/** "https://github.com/ComposioHQ/platform/pull/12" -> { github: "ComposioHQ/platform", number: 12 }. */
+/** "https://github.com/acme/api/pull/12" -> { github: "acme/api", number: 12 }; "api#12" -> { repo: "api", number: 12 }. */
 export function parsePrRef(ref: string): { github?: string; repo?: string; number: number } | null {
   const url = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(ref);
   if (url) return { github: url[1]!, number: Number(url[2]) };

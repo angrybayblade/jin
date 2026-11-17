@@ -26,8 +26,8 @@ export interface TaskJob {
 const LOG_LINES = 400;
 
 /**
- * Creates tasks in the background so neither the UI nor jin's chat waits on `cws task new
- * --setup`. Progress is the tooling's own output. Jobs live in memory: a daemon restart ends
+ * Creates tasks in the background so neither the UI nor jin's chat waits on the workspace's
+ * tooling (creating checkouts, installing). Progress is the tooling's own output. Jobs live in memory: a daemon restart ends
  * a running one (the workspace may be left with a partly set-up task, as after a ctrl-c).
  */
 export class TaskJobs {

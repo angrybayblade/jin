@@ -51,7 +51,7 @@ export function TaskSetup({ initial }: { initial: TaskJob }) {
       <div className="task-setup-body">
         <p className="meta">
           {job.state === "failed"
-            ? "The workspace's tooling stopped. Its output is below; fix the cause and create the task again (a partly set-up task may need `cws task rm` first)."
+            ? "The workspace's tooling stopped. Its output is below; fix the cause and create the task again (a partly set-up task may need removing with the workspace's tooling first)."
             : job.setup
               ? "Creating the branch and worktrees, then running each repo's setup. Claude Code opens here when it is ready."
               : "Creating the branch and worktrees."}

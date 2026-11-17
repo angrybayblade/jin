@@ -31,7 +31,7 @@ ApplicationMenu.setApplicationMenu([
 
 // ---------------------------------------------------------------- services
 
-/** An app opened from Finder gets a bare PATH; jin's daemon needs yours (gh, claude, git, cws, node). */
+/** An app opened from Finder gets a bare PATH; jin's daemon needs yours (gh, claude, git, node, the workspace's tools). */
 function loginPath(): string {
   const shell = process.env.SHELL || "/bin/zsh";
   const r = Bun.spawnSync([shell, "-lc", 'printf "%s" "$PATH"'], { stderr: "ignore" });
@@ -88,7 +88,7 @@ const win = new BrowserWindow({
 
 // ---------------------------------------------------------------- jin:// links
 
-/** The page a jin:// link names (jin://open?path=/t/PLEN-1), as a URL in this window; null for anything else. */
+/** The page a jin:// link names (jin://open?path=/t/ENG-1), as a URL in this window; null for anything else. */
 export function linkTarget(link: string, base = URL): string | null {
   try {
     const u = new globalThis.URL(link);

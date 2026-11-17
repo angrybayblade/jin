@@ -202,7 +202,7 @@ export interface TaskKindSpec {
   label: string;
   /** The workspace picks the id (nextTaskId); otherwise the user gives one. */
   autoId: boolean;
-  /** A hint for the id field, e.g. "PLEN-123". */
+  /** A hint for the id field, e.g. "ENG-123". */
   idHint?: string;
   /** Change types to choose from (feature, bug, …), when the kind has them. */
   types?: string[];

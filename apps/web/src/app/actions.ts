@@ -167,7 +167,7 @@ export async function updateTask(id: string, patch: { title?: string | null; arc
   revalidatePath("/", "layout");
 }
 
-/** Remove a task with the workspace's own tooling (cws task rm). */
+/** Remove a task with the workspace's own tooling. */
 export async function removeTask(id: string): Promise<{ ok: true } | { error: string }> {
   try {
     await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });

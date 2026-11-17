@@ -9,7 +9,7 @@ import type { Tasks } from "./tasks";
 export interface FeedThread {
   key: string;
   title: string;
-  /** A short reference, like platform#14988 or PLEN-4548. */
+  /** A short reference, like api#14988 or ENG-4548. */
   ref: string | null;
   url: string | null;
 }

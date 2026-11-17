@@ -11,7 +11,7 @@ import { body, HttpError, json, type Router } from "./http";
  * themselves; Slack threads, Slack channels and Notion pages are linked by hand (a URL).
  *
  *   github:owner/repo#12          a PR attached to the task          (how: pr)
- *   linear:PLEN-244               the issue the task is for          (how: issue, from its workspace)
+ *   linear:ENG-244                the issue the task is for           (how: issue, from its workspace)
  *   slack:C123:1700000000.123456  a Slack thread                     (how: manual)
  *   slack-channel:C123            threads started in it after `since` (how: manual)
  *   notion:<32 hex>               comments on a Notion page          (how: manual)

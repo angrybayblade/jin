@@ -87,7 +87,7 @@ function HookCard({ hook, s, onSaved, startOpen = false, onCancel }: { hook?: Ho
           {event && <p className="meta">{event.description}</p>}
           <label className="field">
             <span>Only when (optional, one field=value per line; /pattern/ to match)</span>
-            <textarea rows={2} value={d.filterText} onChange={(e) => setD({ ...d, filterText: e.target.value })} placeholder={event?.id === "live.event" ? "toolkit=slack\nforYou=true" : "pr.repo=ComposioHQ/platform"} />
+            <textarea rows={2} value={d.filterText} onChange={(e) => setD({ ...d, filterText: e.target.value })} placeholder={event?.id === "live.event" ? "toolkit=slack\nforYou=true" : "pr.repo=acme/api"} />
             {event && <span className="meta">fields: {event.fields.join(", ")}</span>}
           </label>
           <label className="field">

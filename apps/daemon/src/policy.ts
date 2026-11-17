@@ -10,8 +10,7 @@ export interface Verdict {
  * Jin's base policy, enforced on every agent tool call whatever the workspace.
  * deny: never runs (deploys, releases, publishing, production and secret changes).
  * ask: runs only after the user approves it in the command center (outward actions).
- * The deploy patterns follow composio-workspace's cws (cli/src/adapters.ts), which
- * refuses them only for commands run through cws; jin enforces them for the agent too.
+ * A workspace adds its own rules on top (its provider's policy()).
  */
 const UNSAFE_SCRIPT = /(^|[:_\-.])(deploy|release|publish|prod|production|staging|ecr|changeset|promote)([:_\-.]|$)/i;
 

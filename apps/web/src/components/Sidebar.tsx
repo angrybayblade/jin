@@ -128,7 +128,7 @@ export function Sidebar({
       label: "Remove task",
       icon: Trash2,
       danger: true,
-      confirm: "Remove worktrees (cws task rm)?",
+      confirm: "Remove its checkouts (with the workspace's own tooling)?",
       run: async () => {
         const res = await removeTask(t.id);
         if ("error" in res) setError(res.error);
