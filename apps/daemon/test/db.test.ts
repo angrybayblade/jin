@@ -11,6 +11,7 @@ test("migration 2 keeps existing task sessions and adds chat columns", () => {
   const v1 = new Database(join(home, "jin.db"), { create: true });
   v1.exec(`create table tasks (id text primary key, workspace text not null, type text, slug text not null, repos text not null, dirs text not null, state text not null, source_item text, created_at text not null);
     create table sessions (id text primary key, task_id text not null, harness text not null, harness_session_id text, state text not null, created_at text not null);
+    create table feed_items (id text primary key);
     insert into tasks values ('T-1', 'composio', null, 'fix it', '["platform"]', '{"root":"/ws/tasks/T-1","repos":{}}', 'ready', null, 'now');
     insert into sessions values ('s1', 'T-1', 'claude', 'h1', 'idle', 'now');
     pragma user_version = 1;`);

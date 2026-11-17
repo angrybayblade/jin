@@ -5,6 +5,15 @@ import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
 import type { Tasks } from "./tasks";
 
+/** What an item belongs to: a PR or issue, a Linear issue, a Slack thread or DM, a Notion page, a mail thread. */
+export interface FeedThread {
+  key: string;
+  title: string;
+  /** A short reference, like platform#14988 or PLEN-4548. */
+  ref: string | null;
+  url: string | null;
+}
+
 export type FeedState = "new" | "snoozed" | "done" | "dismissed" | "promoted";
 
 export interface FeedItem {
@@ -21,9 +30,11 @@ export interface FeedItem {
   priority: { score: number; why: string } | null;
   state: FeedState;
   taskId: string | null;
+  thread: FeedThread | null;
+  actor: string | null;
 }
 
-export type NewItem = Pick<FeedItem, "workspace" | "source" | "kind" | "externalRef" | "title" | "summary" | "receivedAt">;
+export type NewItem = Pick<FeedItem, "workspace" | "source" | "kind" | "externalRef" | "title" | "summary" | "receivedAt"> & { thread?: FeedThread | null; actor?: string | null };
 
 const toItem = (r: any): FeedItem => ({
   id: r.id,
@@ -39,6 +50,8 @@ const toItem = (r: any): FeedItem => ({
   priority: r.priority_score == null ? null : { score: r.priority_score, why: r.priority_why ?? "" },
   state: r.state,
   taskId: r.task_id,
+  thread: r.thread_key ? { key: r.thread_key, title: r.thread_title ?? "", ref: r.thread_ref ?? null, url: r.thread_url ?? null } : null,
+  actor: r.actor ?? null,
 });
 
 export class Feed {
@@ -57,12 +70,15 @@ export class Feed {
   /** Adds items not seen before (same workspace, source, kind and external ref); returns how many were new. */
   add(items: NewItem[]): number {
     const insert = this.db.query(
-      `insert into feed_items (id, workspace, source, kind, external_ref, title, summary, received_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (workspace, source, kind, external_ref) do nothing`,
+      `insert into feed_items (id, workspace, source, kind, external_ref, title, summary, received_at, thread_key, thread_title, thread_ref, thread_url, actor)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (workspace, source, kind, external_ref) do nothing`,
     );
     let added = 0;
     this.db.transaction(() => {
-      for (const i of items) added += insert.run(randomUUID(), i.workspace, i.source, i.kind, i.externalRef, i.title, i.summary, i.receivedAt).changes;
+      for (const i of items) {
+        const t = i.thread ?? null;
+        added += insert.run(randomUUID(), i.workspace, i.source, i.kind, i.externalRef, i.title, i.summary, i.receivedAt, t?.key ?? null, t?.title ?? null, t?.ref ?? null, t?.url ?? null, i.actor ?? null).changes;
+      }
     })();
     return added;
   }
@@ -98,6 +114,11 @@ interface GhNode {
   commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
 }
 
+/** A PR or issue as a feed thread (the same key whether it came from the collector or the watch). */
+export function githubThread(repo: string, number: number, title: string, url: string): FeedThread {
+  return { key: `github:${repo.toLowerCase()}#${number}`, title, ref: `${repo.split("/")[1] ?? repo}#${number}`, url: url.replace(/#.*$/, "") };
+}
+
 const FAILING = new Set(["FAILURE", "ERROR"]);
 
 /** Normalise one GraphQL response into feed items for the workspaces whose GitHub owners match. */
@@ -110,7 +131,8 @@ export function githubItems(data: Record<string, { nodes: GhNode[] } | undefined
     for (const w of workspaces) {
       const owners = w.github.owners.map((o) => o.toLowerCase());
       if (owners.length && !owners.includes(owner)) continue;
-      out.push({ workspace: w.id, source: "github", kind, externalRef: node.url, title: node.title, summary: `${repo}#${node.number} · ${label}`, receivedAt: node.updatedAt });
+      const thread = githubThread(repo, node.number, node.title, node.url);
+      out.push({ workspace: w.id, source: "github", kind, externalRef: node.url, title: node.title, summary: `${repo}#${node.number} · ${label}`, receivedAt: node.updatedAt, thread });
     }
   };
   for (const n of data.reviewRequested?.nodes ?? []) add(n, "review_requested", "review requested");

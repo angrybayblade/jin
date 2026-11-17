@@ -137,6 +137,15 @@ const MIGRATIONS: string[] = [
   `
   alter table task_meta add column parent_id text;
   `,
+  // 7: feed items group by thread (a PR, a Linear issue, a Slack thread or DM, a Notion page,
+  // a mail thread), and remember who acted.
+  `
+  alter table feed_items add column thread_key text;
+  alter table feed_items add column thread_title text;
+  alter table feed_items add column thread_ref text;
+  alter table feed_items add column thread_url text;
+  alter table feed_items add column actor text;
+  `,
 ];
 
 export function openDb(home: string): Database {
