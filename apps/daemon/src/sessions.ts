@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { ServerWebSocket } from "bun";
 import type { Titler } from "./titles";
 import { type Mention, mentionContext, mentionLabels } from "./mentions";
+import { EFFORTS, type Effort, MODELS, readChoice } from "./models";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -27,8 +28,18 @@ export interface Session {
   harness: string;
   harnessSessionId: string | null;
   state: SessionState;
+  /** Model and effort the chat runs with; null: jin's default model, the model's default effort. */
+  model: string | null;
+  effort: Effort | null;
   createdAt: string;
   lastEventAt: string | null;
+}
+
+/** A model and effort asked for with a message (kept for the chat's next messages). */
+export interface RunChoice {
+  model?: string;
+  /** null: back to the model's default effort. */
+  effort?: Effort | null;
 }
 
 export interface SessionEvent {
@@ -63,6 +74,8 @@ const toSession = (r: any): Session => ({
   harness: r.harness,
   harnessSessionId: r.harness_session_id,
   state: r.state,
+  model: r.model ?? null,
+  effort: r.effort ?? null,
   createdAt: r.created_at,
   lastEventAt: r.last_event_at ?? null,
 });
@@ -115,6 +128,11 @@ export class Sessions {
   /** Jin's orchestration tools need this manager, so they are provided after construction. */
   provideJinTools(tools: () => JinTool[]) {
     this.deps.jinTools = tools;
+  }
+
+  /** The model a chat runs with unless it picked one. */
+  get defaultModel(): string {
+    return this.deps.config.model;
   }
 
   get(id: string): Session {
@@ -260,33 +278,33 @@ export class Sessions {
     return toApproval(this.db.query("select * from approvals where id = ?").get(approvalId));
   }
 
-  private create(s: { kind: SessionKind; taskId?: string; workspace?: string; title: string; cwd: string }, prompt: string): Session {
+  private create(s: { kind: SessionKind; taskId?: string; workspace?: string; title: string; cwd: string }, prompt: string, choice: RunChoice = {}): Session {
     if (!prompt?.trim()) throw new HttpError(400, "prompt is required");
     const harness = this.deps.harness();
     const id = randomUUID();
     this.db
-      .query("insert into sessions (id, kind, task_id, workspace, title, cwd, harness, state, created_at) values (?, ?, ?, ?, ?, ?, ?, 'running', ?)")
-      .run(id, s.kind, s.taskId ?? null, s.workspace ?? null, s.title, s.cwd, harness.id, now());
+      .query("insert into sessions (id, kind, task_id, workspace, title, cwd, harness, state, model, effort, created_at) values (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)")
+      .run(id, s.kind, s.taskId ?? null, s.workspace ?? null, s.title, s.cwd, harness.id, choice.model ?? null, choice.effort ?? null, now());
     this.emit(id, "session.started", { kind: s.kind, taskId: s.taskId ?? null, harness: harness.id });
     void this.run(id, prompt, harness);
     return this.get(id);
   }
 
   /** A coding agent in a task's worktree. */
-  startTask(taskId: string, prompt: string): Session {
+  startTask(taskId: string, prompt: string, choice?: RunChoice): Session {
     const task = this.deps.tasks.get(taskId);
     if (task.state !== "ready") throw new HttpError(409, `task ${taskId} is ${task.state}`);
-    return this.create({ kind: "task", taskId, workspace: task.workspace, title: task.slug, cwd: task.root }, prompt);
+    return this.create({ kind: "task", taskId, workspace: task.workspace, title: task.slug, cwd: task.root }, prompt, choice);
   }
 
   /** Jin's own chat or a knowledge chat, in a scratch directory of its own. */
-  startChat(kind: ChatKind, prompt: string, workspace?: string, name?: string): Session {
+  startChat(kind: ChatKind, prompt: string, workspace?: string, name?: string, choice?: RunChoice): Session {
     const ws = workspace ?? this.deps.workspaces[0]?.id;
     if (ws && !this.deps.workspaces.some((w) => w.id === ws)) throw new HttpError(404, `unknown workspace ${ws}`);
     const cwd = join(this.deps.config.home, "chats", kind);
     mkdirSync(cwd, { recursive: true });
     const title = (name?.trim() || prompt.trim()).replace(/\s+/g, " ").slice(0, 80);
-    const session = this.create({ kind, workspace: ws, title, cwd }, prompt);
+    const session = this.create({ kind, workspace: ws, title, cwd }, prompt, choice);
     // A short title in the background: it replaces the first words unless the chat was renamed meanwhile.
     if (!name?.trim()) void this.nameFrom(session.id, prompt, title);
     return session;
@@ -315,10 +333,12 @@ export class Sessions {
     return this.get(id);
   }
 
-  send(sessionId: string, prompt: string): Session {
+  send(sessionId: string, prompt: string, choice: RunChoice = {}): Session {
     const session = this.get(sessionId);
     if (session.state === "running" || session.state === "waiting_approval") throw new HttpError(409, `session is ${session.state}`);
     if (!prompt?.trim()) throw new HttpError(400, "prompt is required");
+    if (choice.model) this.db.query("update sessions set model = ? where id = ?").run(choice.model, sessionId);
+    if (choice.effort !== undefined) this.db.query("update sessions set effort = ? where id = ?").run(choice.effort, sessionId);
     this.setState(sessionId, "running");
     void this.run(sessionId, prompt, this.deps.harness(), session.harnessSessionId ?? undefined);
     return this.get(sessionId);
@@ -332,7 +352,9 @@ export class Sessions {
     const controller = new AbortController();
     this.running.set(sessionId, controller);
     // Only the profile variable is recorded, never the rest of the environment.
-    this.emit(sessionId, "harness.started", { harness: harness.id, adapter: harness.adapter, cwd, env, resume: resume ?? null, model: this.deps.config.model });
+    const model = session.model ?? this.deps.config.model;
+    const effort = session.effort ?? undefined;
+    this.emit(sessionId, "harness.started", { harness: harness.id, adapter: harness.adapter, cwd, env, resume: resume ?? null, model, effort: effort ?? null });
     this.emit(sessionId, "prompt", { text: prompt });
     // @mentions: resolved (a few seconds at most), shown as chips, and told to the agent with the message.
     const mentioned = mentionLabels(prompt).length && this.deps.mentions ? await Promise.race([this.deps.mentions(prompt).catch(() => [] as Mention[]), Bun.sleep(8000).then(() => [] as Mention[])]) : [];
@@ -343,7 +365,8 @@ export class Sessions {
         cwd,
         env,
         resume,
-        model: this.deps.config.model,
+        model,
+        effort,
         instructions: chatInstructions(session.kind, workspace),
         // These desks work through the user's claude.ai connectors, which connect in the background.
         needsConnectors: ["gmail", "slack", "linear", "notion"].includes(session.kind),
@@ -372,7 +395,10 @@ export class Sessions {
 
 export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<string, WorkspaceAdapter>) {
   router
-    .on("POST", "/api/tasks/:id/sessions", async (req, p) => json(sessions.startTask(p.id!, (await body<{ prompt: string }>(req)).prompt), 201))
+    .on("POST", "/api/tasks/:id/sessions", async (req, p) => {
+      const b = await body<{ prompt: string; model?: string; effort?: string }>(req);
+      return json(sessions.startTask(p.id!, b.prompt, readChoice(b)), 201);
+    })
     .on("GET", "/api/tasks/:id/sessions", (_req, p) => json(sessions.list({ taskId: p.id! })))
     .on("GET", "/api/sessions", (_req, _p, url) => json(sessions.list({ kind: url.searchParams.get("kind") ?? undefined, archived: url.searchParams.get("archived") === "1" })))
     .on("PATCH", "/api/sessions/:id", async (req, p) => {
@@ -385,16 +411,21 @@ export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<
       return json({ deleted: true });
     })
     .on("POST", "/api/chats", async (req) => {
-      const { kind, prompt, workspace, title } = await body<{ kind: string; prompt: string; workspace?: string; title?: string }>(req);
-      if (!isChatKind(kind)) throw new HttpError(400, `kind must be one of jin, slack, linear, notion, gmail, github`);
-      return json(sessions.startChat(kind, prompt, workspace, title), 201);
+      const b = await body<{ kind: string; prompt: string; workspace?: string; title?: string; model?: string; effort?: string }>(req);
+      if (!isChatKind(b.kind)) throw new HttpError(400, `kind must be one of jin, slack, linear, notion, gmail, github`);
+      return json(sessions.startChat(b.kind, b.prompt, b.workspace, b.title, readChoice(b)), 201);
     })
     .on("GET", "/api/sessions/:id", (_req, p) => json(sessions.get(p.id!)))
     .on("GET", "/api/sessions/:id/events", (_req, p, url) => {
       sessions.get(p.id!);
       return json(sessions.events(p.id!, Number(url.searchParams.get("after") ?? 0)));
     })
-    .on("POST", "/api/sessions/:id/messages", async (req, p) => json(sessions.send(p.id!, (await body<{ prompt: string }>(req)).prompt)))
+    .on("POST", "/api/sessions/:id/messages", async (req, p) => {
+      const b = await body<{ prompt: string; model?: string; effort?: string }>(req);
+      return json(sessions.send(p.id!, b.prompt, readChoice(b)));
+    })
+    // What the composer offers: the models and effort levels, and what a new chat runs with.
+    .on("GET", "/api/models", () => json({ models: MODELS, efforts: EFFORTS, default: { model: sessions.defaultModel } }))
     .on("POST", "/api/sessions/:id/stop", (_req, p) => json(sessions.stop(p.id!)))
     .on("GET", "/api/approvals", (_req, _p, url) => json(sessions.approvals(url.searchParams.get("state") ?? undefined)))
     .on("POST", "/api/approvals/:id", async (req, p) => {

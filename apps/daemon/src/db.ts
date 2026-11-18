@@ -178,6 +178,11 @@ const MIGRATIONS: string[] = [
   );
   update feed_items set thread_key = 'notion:' || lower(replace(substr(thread_key, 8), '-', '')) where thread_key like 'notion:%';
   `,
+  // 10: a chat's model and effort, picked in the composer (null: jin's default).
+  `
+  alter table sessions add column model text;
+  alter table sessions add column effort text;
+  `,
 ];
 
 export function openDb(home: string): Database {

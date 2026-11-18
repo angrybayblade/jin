@@ -94,6 +94,25 @@ test("A14 a session starts in the task with the workspace's Claude profile, and 
   expect(new Set(seqs).size).toBe(seqs.length);
 });
 
+test("A14 a chat runs with the model and effort picked in the composer, and keeps them", async () => {
+  const s = await d.json<any>("/api/tasks/PLEN-5/sessions", { method: "POST", json: { prompt: scripted([{ text: "one" }]), model: "claude-sonnet-5-5", effort: "high" } });
+  expect(s).toMatchObject({ model: "claude-sonnet-5-5", effort: "high" });
+  await idle(s.id);
+  // The next message keeps them unless it asks for others; "default" goes back to the model's effort.
+  await d.json(`/api/sessions/${s.id}/messages`, { method: "POST", json: { prompt: scripted([{ text: "two" }]) } });
+  await idle(s.id);
+  await d.json(`/api/sessions/${s.id}/messages`, { method: "POST", json: { prompt: scripted([{ text: "three" }]), model: "claude-haiku-5-5", effort: "default" } });
+  await idle(s.id);
+  const runs = (await events(s.id)).filter((e) => e.kind === "harness.started").map((e) => [e.payload.model, e.payload.effort]);
+  expect(runs).toEqual([["claude-sonnet-5-5", "high"], ["claude-sonnet-5-5", "high"], ["claude-haiku-5-5", null]]);
+  expect(await d.json<any>(`/api/sessions/${s.id}`)).toMatchObject({ model: "claude-haiku-5-5", effort: null });
+  const bad = await d.api(`/api/sessions/${s.id}/messages`, { method: "POST", json: { prompt: "x", effort: "turbo" } });
+  expect(bad.status).toBe(400);
+  const list = await d.json<any>("/api/models");
+  expect(list.models.map((m: { id: string }) => m.id)).toContain("claude-opus-5-5");
+  expect(list.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+});
+
 test("A15 events stream over a websocket and replay from a cursor without duplicates", async () => {
   const s = await startSession(scripted([{ text: "one" }, { text: "two" }, { text: "three" }]));
   await idle(s.id);

@@ -84,6 +84,7 @@ export class ClaudeHarness implements Harness {
         env: { ...process.env, ...run.env } as Record<string, string>,
         resume: run.resume,
         model: run.model,
+        effort: run.effort,
         abortController: controller,
         permissionMode: "default",
         systemPrompt: run.instructions ? { type: "preset", preset: "claude_code", append: run.instructions } : { type: "preset", preset: "claude_code" },

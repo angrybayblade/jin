@@ -20,6 +20,8 @@ export interface HarnessRun {
   resume?: string;
   /** Model id; the harness default when unset. */
   model?: string;
+  /** Reasoning effort; the model's default when unset. */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   /** Appended to the agent's system prompt: what this chat is for. */
   instructions?: string;
   /** Hold the first message until the user's claude.ai connectors (Gmail, Slack...) have connected. */
