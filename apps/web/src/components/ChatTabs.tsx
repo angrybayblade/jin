@@ -1,5 +1,5 @@
 "use client";
-import { Archive, ArchiveRestore, MessageSquarePlus, Pencil, Plus, Trash2, X, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, MessageSquarePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -76,20 +76,10 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
   });
 
   const menu = (s: Session): MenuItem[] => [
-    { header: label(s) },
     { label: "Rename", icon: Pencil, run: () => setRenaming(s.id) },
     { label: "New chat", icon: MessageSquarePlus, run: () => go("new") },
     { divider: true },
-    { label: "Archive", icon: Archive, hint: "keeps its history", run: () => drop(s, "archive") },
-    {
-      label: "Archive others",
-      icon: XCircle,
-      disabled: tabs.length < 2,
-      run: async () => {
-        go(s.id);
-        for (const o of tabs) if (o.id !== s.id) await drop(o, "archive");
-      },
-    },
+    { label: "Archive", icon: Archive, run: () => drop(s, "archive") },
     { label: "Delete", icon: Trash2, danger: true, confirm: "Delete this chat and its history?", run: () => drop(s, "delete") },
   ];
 
