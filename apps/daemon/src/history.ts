@@ -50,7 +50,8 @@ export interface History {
 
 /** Chats and desks (not task sessions: those belong to their machine's tasks) and the feed. */
 export function exportHistory(db: Database, opts: { claudeDir?: string } = {}): History {
-  const sessions = db.query("select * from sessions where kind != 'task' order by created_at").all() as Record<string, unknown>[];
+  // Unset fields are left out, so a jin without a newer column can still take the chat.
+  const sessions = (db.query("select * from sessions where kind != 'task' order by created_at").all() as Record<string, unknown>[]).map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null)));
   const ids = sessions.map((s) => s.id as string);
   const inIds = (table: string) =>
     ids.length ? (db.query(`select * from ${table} where session_id in (${ids.map(() => "?").join(",")}) order by ${table === "events" ? "seq" : "created_at"}`).all(...ids) as Record<string, unknown>[]) : [];
@@ -84,8 +85,15 @@ export const defaultClaudeDir = () => process.env.CLAUDE_CONFIG_DIR ?? join(home
  * idle, and an approval that was waiting has expired.
  */
 export function importHistory(db: Database, h: History, opts: { home?: string; claudeDir?: string } = {}): { sessions: number; events: number; approvals: number; feed: number; transcripts: number } {
+  // A row from a newer jin may carry columns this one does not have yet: those are left out.
+  const known = new Map<string, Set<string>>();
+  const columns = (table: string) => {
+    if (!known.has(table)) known.set(table, new Set((db.query(`pragma table_info(${table})`).all() as { name: string }[]).map((c) => c.name)));
+    return known.get(table)!;
+  };
   const insert = (table: string, row: Record<string, unknown>) => {
-    const cols = Object.keys(row);
+    const have = columns(table);
+    const cols = Object.keys(row).filter((c) => have.has(c));
     return db.query(`insert or ignore into ${table} (${cols.join(",")}) values (${cols.map(() => "?").join(",")})`).run(...(cols.map((c) => row[c]) as never[])).changes;
   };
   const counts = { sessions: 0, events: 0, approvals: 0, feed: 0, transcripts: 0 };

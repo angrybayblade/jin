@@ -38,3 +38,10 @@ test("chats, their events and approvals, and the feed move; task sessions stay",
   // Moving again changes nothing.
   expect(importHistory(b, h, { home, claudeDir: toClaude })).toEqual({ sessions: 0, events: 0, approvals: 0, feed: 0, transcripts: 0 });
 });
+
+test("a chat from a newer jin moves to an older one: columns it does not have are left out", () => {
+  const b = db();
+  const h = { sessions: [{ id: "c9", kind: "jin", title: "new", harness: "claude", state: "idle", created_at: "2026-11-17T00:00:00Z", model: "claude-sonnet-5-5", from_the_future: 1 }], events: [], approvals: [], feed: [] };
+  expect(importHistory(b, h).sessions).toBe(1);
+  expect(b.query("select model from sessions where id = 'c9'").get()).toEqual({ model: "claude-sonnet-5-5" });
+});
