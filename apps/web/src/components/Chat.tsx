@@ -1,7 +1,7 @@
 "use client";
 import { ArrowUp, ChevronRight, FilePen, Search, ShieldAlert, Square, SquareTerminal, Wrench } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
 import type { Approval, ChatKind, Mention, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
 import { useMentionPicker, WithMentions } from "./Mentions";
@@ -380,6 +380,14 @@ export function Chat(props: ChatProps) {
   // Typing @… offers what to mention (PRs, Linear issues, jin tasks).
   const input = useRef<HTMLTextAreaElement>(null);
   const mention = useMentionPicker(draft, setDraft, input);
+
+  // The box grows with what is written, up to its max height, then scrolls.
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.onKey(e)) return;
