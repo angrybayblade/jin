@@ -140,3 +140,31 @@ test(
   },
   120_000,
 );
+
+test(
+  "A17 @mentions in a chat: the picker offers a task while typing, and a sent mention shows as a chip that opens it",
+  async () => {
+    expect(built).toBe(true);
+    const puppeteer = await import("puppeteer-core");
+    const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox"] });
+    try {
+      const page = await browser.newPage();
+      await page.goto(`${WEB_ORIGIN}/?chat=new`, { waitUntil: "networkidle0" });
+      await page.click("textarea[aria-label=Message]");
+      await page.keyboard.type("look at @PLEN", { delay: 30 });
+      const option = await page.waitForSelector(".mention-option", { timeout: 15_000 });
+      expect(await option!.evaluate((el) => el.textContent)).toContain("PLEN-7");
+      await page.keyboard.press("Enter"); // takes the option, does not send
+      expect(await page.$eval("textarea[aria-label=Message]", (el) => (el as HTMLTextAreaElement).value)).toBe("look at @PLEN-7 ");
+
+      // Sent (here through the API): the mention resolves to the task and shows as a chip.
+      const chat = await d.json<any>("/api/chats", { method: "POST", json: { kind: "jin", prompt: "what is left in @PLEN-7?" } });
+      await page.goto(`${WEB_ORIGIN}/?chat=${chat.id}`, { waitUntil: "networkidle0" });
+      const chip = await page.waitForSelector(".message.user .mention-chip a", { timeout: 15_000 });
+      expect(await chip!.evaluate((el) => [el.textContent, el.getAttribute("href")])).toEqual(["PLEN-7", "/t/PLEN-7"]);
+    } finally {
+      await browser.close();
+    }
+  },
+  120_000,
+);

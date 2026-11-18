@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -125,6 +125,11 @@ export async function openInBobby(pr: string): Promise<{ url: string } | { error
 }
 
 // ---------------------------------------------------------------- new tasks
+
+/** What an @ in a chat could mean (on the home: every machine's tasks, PRs, Linear issues). */
+export async function searchMentions(q: string): Promise<Mention[]> {
+  return daemon<Mention[]>(`/api/mentions?q=${encodeURIComponent(q)}`, { timeoutMs: 12_000 });
+}
 
 /** The kinds of task the (first) workspace runs, for the new-task form. */
 export async function listTaskKinds(machine?: string): Promise<TaskKindSpec[]> {

@@ -218,7 +218,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|mentions)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
@@ -346,6 +346,19 @@ export interface Machine {
   workspaceCandidates: DetectedWorkspace[] | null;
   providers: WorkspaceProviderView[];
   auth: MachineAuth[];
+}
+
+/** Something mentioned in a chat (@platform#133, @PLEN-1334), as jin resolved it. */
+export interface Mention {
+  label: string;
+  kind: "pr" | "issue" | "task";
+  key: string;
+  title: string | null;
+  url: string | null;
+  state: string | null;
+  detail: string | null;
+  machine?: string;
+  machineLabel?: string;
 }
 
 /** A kind of task a workspace runs (from its provider). */

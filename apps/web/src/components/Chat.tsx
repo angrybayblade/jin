@@ -3,14 +3,15 @@ import { ArrowUp, ChevronRight, FilePen, Search, ShieldAlert, Square, SquareTerm
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
-import type { Approval, ChatKind, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
+import type { Approval, ChatKind, Mention, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
+import { useMentionPicker, WithMentions } from "./Mentions";
 import { Approvals } from "./Approvals";
 import { ChatTabs } from "./ChatTabs";
 import { Markdown } from "./Markdown";
 import { StatusMark, ThermalMark } from "./ThermalMark";
 
 type Item =
-  | { type: "user"; seq: number; text: string; at: string }
+  | { type: "user"; seq: number; text: string; at: string; mentions?: Mention[] }
   | { type: "agent"; seq: number; text: string }
   | { type: "tool"; seq: number; tool: string; input: Record<string, any>; status: "running" | "done" | "denied" | "waiting"; reason?: string }
   | { type: "note"; seq: number; tone: "error" | "meta"; text: string }
@@ -27,6 +28,12 @@ function toItems(events: SessionEvent[]): Item[] {
       case "prompt":
         items.push({ type: "user", seq: e.seq, text: p.text, at: e.at });
         break;
+      case "prompt.mentions": {
+        // jin resolved the message's @mentions: they show as chips on it.
+        const u = items.findLast((x) => x.type === "user");
+        if (u && u.type === "user") u.mentions = p.mentions;
+        break;
+      }
       case "message":
         items.push({ type: "agent", seq: e.seq, text: p.text });
         break;
@@ -215,7 +222,11 @@ function TurnView({ turn, live, streaming, waiting }: { turn: Turn; live: boolea
   const needsYou = turn.steps.some((s) => s.type === "tools" && s.tools.some((t) => t.status === "waiting" || t.status === "denied"));
   return (
     <div className="turn">
-      {turn.user && <div className="message user">{turn.user.text}</div>}
+      {turn.user && (
+        <div className="message user">
+          <WithMentions text={turn.user.text} mentions={turn.user.mentions} />
+        </div>
+      )}
       {hasWork && (
         <button type="button" className="work-toggle" onClick={() => setOpen(!expanded)} aria-expanded={expanded}>
           {live && <ThermalMark size={14} state={waiting ? "waiting" : "working"} />}
@@ -366,7 +377,12 @@ export function Chat(props: ChatProps) {
     [busySending, sessionId, props.taskId, props.kind, props.chats, path, router],
   );
 
+  // Typing @… offers what to mention (PRs, Linear issues, jin tasks).
+  const input = useRef<HTMLTextAreaElement>(null);
+  const mention = useMentionPicker(draft, setDraft, input);
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mention.onKey(e)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send(draft);
@@ -432,10 +448,16 @@ export function Chat(props: ChatProps) {
             void send(draft);
           }}
         >
+          {mention.picker}
           <textarea
+            ref={input}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mention.update(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            }}
             onKeyDown={onKey}
+            onBlur={() => setTimeout(mention.close, 120)}
             placeholder={props.placeholder}
             rows={1}
             aria-label="Message"

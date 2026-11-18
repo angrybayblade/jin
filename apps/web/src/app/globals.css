@@ -3556,3 +3556,91 @@ button.jr-ref:hover {
 .nav-sub.is-error {
   color: var(--state-failed);
 }
+
+/* @mentions: the picker over the composer, and chips in sent messages. */
+.composer {
+  position: relative;
+}
+.mention-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+.mention-option {
+  display: grid;
+  grid-template-columns: 32px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.mention-option.is-active {
+  background: var(--surface-subtle);
+}
+.mention-label {
+  font-size: 12px;
+}
+.mention-title {
+  overflow: hidden;
+  color: var(--secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-meta,
+.mention-empty {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.mention-empty {
+  padding: 6px 8px;
+}
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--accent-tint);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.mention-main,
+.mention-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+.mention-main:hover,
+.mention-extra:hover {
+  text-decoration: underline;
+}
+.mention-extra {
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1px solid var(--line);
+}
+.mention-icons {
+  display: inline-flex;
+  gap: 3px;
+  color: var(--secondary);
+}
