@@ -90,8 +90,27 @@ export interface Session {
   harness: string;
   harnessSessionId: string | null;
   state: SessionState;
+  /** The chat's model and effort; null: jin's default model, the model's default effort. */
+  model: string | null;
+  effort: Effort | null;
   createdAt: string;
   lastEventAt: string | null;
+}
+
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/** What the composer offers: Claude models, effort levels, and the model a new chat runs with. */
+export interface ModelChoices {
+  models: { id: string; label: string }[];
+  efforts: Effort[];
+  default: { model: string };
+}
+
+/** A model and effort sent with a message (kept by the chat for its next messages). */
+export interface RunChoice {
+  model?: string;
+  /** "default": the model's default effort. */
+  effort?: Effort | "default";
 }
 
 export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited" | "interrupted";
@@ -218,7 +237,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|mentions)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|mentions|models)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.

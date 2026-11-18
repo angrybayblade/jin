@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
 import type { Approval, ChatKind, Mention, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
 import { useMentionPicker, WithMentions } from "./Mentions";
+import { useModelChoice } from "./ModelPicker";
 import { Approvals } from "./Approvals";
 import { ChatTabs } from "./ChatTabs";
 import { Markdown } from "./Markdown";
@@ -350,6 +351,10 @@ export function Chat(props: ChatProps) {
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
   }, [items.length, streaming]);
 
+  // The model and effort the next message runs with.
+  const picker = useModelChoice(props.session);
+  const { choice } = picker;
+
   const send = useCallback(
     async (text: string) => {
       const prompt = text.trim();
@@ -358,14 +363,14 @@ export function Chat(props: ChatProps) {
       setError(null);
       try {
         if (!sessionId) {
-          const s = props.taskId ? await startTaskSession(props.taskId, prompt) : await createChat(props.kind as ChatKind, prompt);
+          const s = props.taskId ? await startTaskSession(props.taskId, prompt, choice) : await createChat(props.kind as ChatKind, prompt, choice);
           lastSeq.current = 0;
           setEvents([]);
           setSessionId(s.id);
           // The new chat becomes a tab of its own.
           if (props.chats) router.replace(`${path}?chat=${encodeURIComponent(s.id)}`);
         } else {
-          await sendMessage(sessionId, prompt);
+          await sendMessage(sessionId, prompt, choice);
         }
         setDraft("");
       } catch (err) {
@@ -374,7 +379,7 @@ export function Chat(props: ChatProps) {
         setBusySending(false);
       }
     },
-    [busySending, sessionId, props.taskId, props.kind, props.chats, path, router],
+    [busySending, sessionId, props.taskId, props.kind, props.chats, path, router, choice],
   );
 
   // Typing @… offers what to mention (PRs, Linear issues, jin tasks).
@@ -471,7 +476,7 @@ export function Chat(props: ChatProps) {
             aria-label="Message"
           />
           <div className="composer-bottom">
-            <span className="composer-engine">{error ? <span className="composer-error">{error}</span> : props.kind === "task" ? "Coding agent · commands checked by jin" : "Claude · outward actions need your approval"}</span>
+            {error ? <span className="composer-engine composer-error">{error}</span> : picker.buttons}
             {working && sessionId ? (
               <button type="button" className="send-button stop" aria-label="Stop" onClick={() => void stopSession(sessionId)}>
                 <Square size={12} />

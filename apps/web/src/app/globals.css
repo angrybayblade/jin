@@ -3646,3 +3646,31 @@ button.jr-ref:hover {
   gap: 3px;
   color: var(--secondary);
 }
+
+/* The model and effort a chat runs with, at the composer's bottom left. */
+.model-picker {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-left: calc(-1 * var(--space-2));
+}
+.model-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: var(--type-meta);
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.model-button:hover,
+.model-button:focus-visible {
+  background: var(--hover);
+  color: var(--ink);
+}

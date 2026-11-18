@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -38,20 +38,25 @@ export async function feedAction(form: FormData) {
 
 // ---------------------------------------------------------------- chats
 
-export async function createChat(kind: ChatKind, prompt: string): Promise<Session> {
-  const s = await daemon<Session>("/api/chats", { method: "POST", json: { kind, prompt } });
+export async function createChat(kind: ChatKind, prompt: string, choice: RunChoice = {}): Promise<Session> {
+  const s = await daemon<Session>("/api/chats", { method: "POST", json: { kind, prompt, ...choice } });
   revalidatePath("/", "layout");
   return s;
 }
 
-export async function startTaskSession(taskId: string, prompt: string): Promise<Session> {
-  const s = await daemon<Session>(`/api/tasks/${encodeURIComponent(taskId)}/sessions`, { method: "POST", json: { prompt } });
+export async function startTaskSession(taskId: string, prompt: string, choice: RunChoice = {}): Promise<Session> {
+  const s = await daemon<Session>(`/api/tasks/${encodeURIComponent(taskId)}/sessions`, { method: "POST", json: { prompt, ...choice } });
   revalidatePath("/", "layout");
   return s;
 }
 
-export async function sendMessage(sessionId: string, prompt: string): Promise<Session> {
-  return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", json: { prompt } });
+export async function sendMessage(sessionId: string, prompt: string, choice: RunChoice = {}): Promise<Session> {
+  return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", json: { prompt, ...choice } });
+}
+
+/** The models and effort levels the composer offers. */
+export async function modelChoices(): Promise<ModelChoices> {
+  return daemon<ModelChoices>("/api/models");
 }
 
 export async function stopSession(sessionId: string): Promise<Session> {
