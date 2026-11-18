@@ -384,8 +384,15 @@ export function Chat(props: ChatProps) {
         <header className="pane-header">
           <div className="pane-title">
             {sessionId ? <StatusMark state={state} /> : null}
-            <span className="pane-name">{props.title}</span>
-            {props.subtitle && <span className="meta">{props.subtitle}</span>}
+            {props.kind === "jin" && props.chats ? (
+              // jin's chats are listed in the sidebar: the header names the open one.
+              <span className="pane-name">{props.chats.find((c) => c.id === sessionId)?.title?.trim() || "New chat"}</span>
+            ) : (
+              <>
+                <span className="pane-name">{props.title}</span>
+                {props.subtitle && <span className="meta">{props.subtitle}</span>}
+              </>
+            )}
           </div>
         </header>
       )}
