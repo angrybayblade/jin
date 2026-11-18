@@ -71,5 +71,6 @@ test("A27 a plain git workspace: set up by path, a task as worktrees, Claude Cod
   expect((await d.json<any[]>("/api/tasks/ENG-9/links")).map((l: { key: string }) => l.key)).toEqual([]);
 
   await d.json("/api/tasks/ENG-9", { method: "DELETE" });
+  await until(async () => (await d.json<any>("/api/tasks/ENG-9")).state === "removed", 15_000, "task removed");
   expect(existsSync(task.root)).toBe(false);
 });

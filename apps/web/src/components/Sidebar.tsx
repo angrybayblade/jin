@@ -92,6 +92,8 @@ export function Sidebar({
   const router = useRouter();
   const [renaming, setRenaming] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState<Set<string>>(new Set());
+  // Tasks whose removal was just asked for (until the daemon reports them removing, or failed).
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const latest = (pred: (s: Session) => boolean) => sessions.find(pred);
   // The task open now: its machine and id, from the URL.
@@ -128,9 +130,17 @@ export function Sidebar({
       danger: true,
       confirm: "Remove its checkouts (with the workspace's own tooling)?",
       run: async () => {
+        const key = `${machine}:${t.id}`;
+        setRemoving((s) => new Set(s).add(key));
+        if (isOpen(machine, t.id)) router.push("/");
         const res = await removeTask(t.id, machine);
         if ("error" in res) setError(res.error);
-        else if (isOpen(machine, t.id)) router.push("/");
+        // The daemon now reports it as removing (or, later, why it could not).
+        setRemoving((s) => {
+          const n = new Set(s);
+          n.delete(key);
+          return n;
+        });
         router.refresh();
       },
     },
@@ -157,6 +167,17 @@ export function Sidebar({
 
   const taskRow = (g: MachineTasks, t: Task, depth = 0) => {
     const { terminals, prs } = g;
+    // Being removed: shown, but not openable, until it is gone.
+    if (t.removing || removing.has(`${g.id}:${t.id}`)) {
+      return (
+        <div key={`${g.id}:${t.id}`} className="nav-item task is-removing" style={depth ? { paddingLeft: 8 + depth * 14 } : undefined} aria-disabled="true" title={`Removing ${t.id}…`}>
+          <StatusMark state="running" />
+          <span className="nav-label">
+            <span className="mono">{t.id}</span> <span className="nav-sub">removing…</span>
+          </span>
+        </div>
+      );
+    }
     // Claude Code's status (from its hooks), else the latest SDK session's.
     const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
     const s = latest((x) => x.taskId === t.id);
@@ -188,6 +209,10 @@ export function Sidebar({
                 void updateTask(t.id, { title: v }, g.id).then(() => router.refresh());
               }}
             />
+          ) : t.removeError ? (
+            <span className="nav-sub is-error" title={`Could not remove: ${t.removeError}`}>
+              removal failed
+            </span>
           ) : (
             <span className="nav-sub">{title}</span>
           )}

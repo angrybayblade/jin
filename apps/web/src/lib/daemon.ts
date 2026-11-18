@@ -40,6 +40,9 @@ export interface Task {
   kind?: "change" | "review";
   /** The issue it is for, when its workspace ties tasks to issues. */
   issue?: { tracker: string; id: string; url?: string | null } | null;
+  /** Being removed now (in the background), and why the last removal failed. */
+  removing?: boolean;
+  removeError?: string | null;
   prs?: { repo: string; number: number; head?: string; title?: string; url?: string }[];
 }
 

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readLog, setupEnv, startDaemon, type Daemon, type Env } from "./helpers";
+import { readLog, setupEnv, startDaemon, until, type Daemon, type Env } from "./helpers";
 
 let env: Env;
 let d: Daemon;
@@ -47,10 +47,11 @@ test("A07 starting a task runs `cws task new ... --setup` and records it", async
   expect(tasks.map((t: any) => t.id)).toContain("PLEN-1");
 });
 
-test("A08 removing a task runs `cws task rm` and updates the record", async () => {
+test("A08 removing a task runs `cws task rm` (in the background) and updates the record", async () => {
   await d.json("/api/workspaces/composio/tasks", { method: "POST", json: { id: "PLEN-2", repos: ["platform"], slug: "x" } });
   const res = await d.api("/api/tasks/PLEN-2", { method: "DELETE" });
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(202);
+  await until(async () => (await d.json<any[]>("/api/tasks")).find((t) => t.id === "PLEN-2")?.state === "removed", 10_000, "task removed");
   expect(readLog(join(env.workspace, "cws.log"))).toContain("task rm PLEN-2");
   expect(existsSync(join(env.workspace, "tasks/PLEN-2"))).toBe(false);
   const task = (await d.json("/api/tasks")).find((t: any) => t.id === "PLEN-2");

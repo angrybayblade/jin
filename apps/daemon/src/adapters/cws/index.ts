@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkspaceConfig } from "../../config";
 import { AdapterError, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type ToolSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
@@ -148,8 +148,18 @@ export class CwsAdapter implements WorkspaceAdapter {
     return { root, dirs: Object.fromEntries(spec.repos.map((r) => [r, join(root, r)])) };
   }
 
+  /**
+   * `cws task rm` removes the worktrees, skipping (with a warning, and success) any with
+   * uncommitted changes, and leaves tasks/<id>/ behind (task.json, TASK.md), so the task would
+   * still be listed. A worktree left in place is an error here; the rest of the folder goes.
+   */
   async removeTask(id: string): Promise<void> {
+    const before = this.listTasks().find((t) => t.id === id);
     await this.run(["task", "rm", id]);
+    if (!before) return;
+    const left = before.repos.filter((r) => existsSync(join(before.root, r)));
+    if (left.length) throw new AdapterError(`kept ${left.join(", ")}: uncommitted changes there (commit or discard them, then remove the task again)`);
+    rmSync(before.root, { recursive: true, force: true });
   }
 
   agentBrief(task: BriefTask): AgentBrief {

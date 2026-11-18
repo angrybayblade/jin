@@ -235,7 +235,7 @@ setTimeout(() => void desks.status().catch(() => {}), 8_000); // warm, so a desk
 // the web app re-renders when it changes instead of on a timer.
 app.router.on("GET", "/api/stamp", () => {
   const summary = JSON.stringify([
-    tasks.list().map((t) => [t.id, t.state, t.title, t.archived]),
+    tasks.list().map((t) => [t.id, t.state, t.title, t.archived, t.removing, t.removeError]),
     [...terminals.list(), ...terminals.list({ archived: true })].map((t) => [t.id, t.status, t.title, t.archived, t.claudeSessionId]),
     sessions.list({}).map((x) => [x.id, x.state, x.title, x.lastEventAt]),
     sessions.approvals("pending").map((a) => a.id),

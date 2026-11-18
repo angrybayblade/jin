@@ -27,6 +27,10 @@ export interface Task {
   prs: ReviewedPR[];
   /** The issue it is for, when its workspace ties tasks to issues. */
   issue: TaskIssue | null;
+  /** Being removed now (in the background: removing worktrees can take minutes). */
+  removing?: boolean;
+  /** Why the last removal failed, until the next try. */
+  removeError?: string | null;
 }
 
 interface Meta {
@@ -98,7 +102,22 @@ export class Tasks {
 
   private withMeta(t: Task, meta: Map<string, Meta>): Task {
     const m = meta.get(t.id);
-    return m ? { ...t, title: m.title, archived: Boolean(m.archived_at), parent: m.parent_id } : { ...t, parent: null };
+    const r = this.removals.get(t.id);
+    const removal = r && t.state !== "removed" ? { removing: r.running, removeError: r.error } : {};
+    return m ? { ...t, title: m.title, archived: Boolean(m.archived_at), parent: m.parent_id, ...removal } : { ...t, parent: null, ...removal };
+  }
+
+  private removals = new Map<string, { running: boolean; error: string | null }>();
+
+  /** Remove a task in the background (the app shows it as removing); a failure is kept on the task. */
+  startRemoval(id: string): Task {
+    const task = this.get(id);
+    if (task.state === "removed" || this.removals.get(id)?.running) return task;
+    this.removals.set(id, { running: true, error: null });
+    void this.remove(id)
+      .then(() => this.removals.delete(id))
+      .catch((err) => this.removals.set(id, { running: false, error: err instanceof Error ? err.message : String(err) }));
+    return this.get(id);
   }
 
   /** Rename (a display title in jin) or archive (hidden from the sidebar's list) a task. */
@@ -273,7 +292,8 @@ export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, W
       Bun.spawn(process.platform === "darwin" ? ["open", root] : ["xdg-open", root], { stdout: "ignore", stderr: "ignore" });
       return json({ revealed: root });
     })
-    .on("DELETE", "/api/tasks/:id", async (_req, p) => json(await tasks.remove(p.id!)))
+    // Removing worktrees can take minutes: it runs in the background, and the task shows as removing.
+    .on("DELETE", "/api/tasks/:id", (_req, p) => json(tasks.startRemoval(p.id!), 202))
     .on("GET", "/api/tasks/:id/unsaved", (_req, p) => json(tasks.unsaved(p.id!)))
     .on("POST", "/api/tasks/:id/remove-if-clean", async (_req, p) => json(await tasks.removeIfClean(p.id!)));
 }

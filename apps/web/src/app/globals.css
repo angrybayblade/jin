@@ -3546,3 +3546,13 @@ button.jr-ref:hover {
 .nav-section-link:hover {
   color: var(--secondary);
 }
+
+/* A task being removed: shown, not openable. */
+.nav-item.is-removing {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+.nav-sub.is-error {
+  color: var(--state-failed);
+}
