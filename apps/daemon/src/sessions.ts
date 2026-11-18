@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { ServerWebSocket } from "bun";
+import type { Titler } from "./titles";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -84,6 +85,8 @@ export interface SessionDeps {
   harness: () => Harness;
   /** Jin's orchestration tools, for jin's own chat. Set after construction (they need this manager). */
   jinTools?: () => JinTool[];
+  /** Names a new chat from its first message (Claude Haiku); without it a chat keeps its first words. */
+  titler?: Titler;
 }
 
 export class Sessions {
@@ -280,7 +283,33 @@ export class Sessions {
     const cwd = join(this.deps.config.home, "chats", kind);
     mkdirSync(cwd, { recursive: true });
     const title = (name?.trim() || prompt.trim()).replace(/\s+/g, " ").slice(0, 80);
-    return this.create({ kind, workspace: ws, title, cwd }, prompt);
+    const session = this.create({ kind, workspace: ws, title, cwd }, prompt);
+    // A short title in the background: it replaces the first words unless the chat was renamed meanwhile.
+    if (!name?.trim()) void this.nameFrom(session.id, prompt, title);
+    return session;
+  }
+
+  private async nameFrom(id: string, prompt: string, unless?: string): Promise<string | null> {
+    const workspace = this.deps.workspaces.find((w) => w.id === this.get(id).workspace);
+    const t = await this.deps.titler?.(prompt, workspace?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: workspace.profile.claudeConfigDir } : {}).catch(() => null);
+    if (!t) return null;
+    try {
+      const now = this.get(id);
+      if (unless !== undefined && now.title !== unless) return null;
+      return this.update(id, { title: t }).title;
+    } catch {
+      return null; // deleted meanwhile
+    }
+  }
+
+  /** Name a chat again from its first message (for chats started before titles were generated). */
+  async retitle(id: string): Promise<Session> {
+    const first = this.events(id).find((e) => e.kind === "prompt");
+    const text = (first?.payload as { text?: string } | undefined)?.text;
+    if (!text) throw new HttpError(409, "this chat has no first message to name it from");
+    if (!this.deps.titler) throw new HttpError(501, "no titler on this jin");
+    if (!(await this.nameFrom(id, text))) throw new HttpError(502, "could not name the chat; try again");
+    return this.get(id);
   }
 
   send(sessionId: string, prompt: string): Session {
@@ -344,6 +373,7 @@ export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<
       const b = await body<{ title?: string; archived?: boolean }>(req);
       return json(sessions.update(p.id!, b));
     })
+    .on("POST", "/api/sessions/:id/retitle", async (_req, p) => json(await sessions.retitle(p.id!)))
     .on("DELETE", "/api/sessions/:id", (_req, p) => {
       sessions.remove(p.id!);
       return json({ deleted: true });

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createAdapter } from "./adapters";
+import { haikuTitle, scriptedTitle } from "./titles";
 import { bobbyRoutes } from "./bobby";
 import { jinTools } from "./chats";
 import { loadConfig, loadWorkspaces } from "./config";
@@ -74,7 +75,8 @@ feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
 finderRoutes(app.router, new Finder(tasks));
 bobbyRoutes(app.router);
-const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness });
+// New chats are named by Claude Haiku (a stand-in under the scripted harness, in tests).
+const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle });
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
 const claude = claudeLaunch(config, writeClaudeSettings(config), writeJinTaskCommand(config));
