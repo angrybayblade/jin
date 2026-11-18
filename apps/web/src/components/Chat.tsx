@@ -375,7 +375,8 @@ export function Chat(props: ChatProps) {
 
   return (
     <section className="chat-panel" aria-label={props.title}>
-      {props.chats && props.kind !== "task" ? (
+      {/* jin's own chats are listed in the sidebar; a desk keeps its chats as tabs here. */}
+      {props.chats && props.kind !== "task" && props.kind !== "jin" ? (
         <header className="pane-header has-tabs">
           <ChatTabs kind={props.kind as ChatKind} chats={props.chats} activeId={sessionId} activeState={state} />
         </header>

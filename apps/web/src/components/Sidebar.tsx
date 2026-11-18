@@ -10,7 +10,6 @@ import {
   FolderOpen,
   GitBranch,
   GitPullRequest,
-  Layers,
   Mail,
   MessageSquare,
   MessageSquarePlus,
@@ -24,10 +23,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Fragment, useState, type ComponentType } from "react";
+import { Fragment, Suspense, useState, type ComponentType } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
 import type { AgentStatus, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
 import { splitPath, taskHref } from "@/lib/paths";
+import { SidebarChats } from "./ChatTabs";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
@@ -94,7 +94,6 @@ export function Sidebar({
   const [showArchived, setShowArchived] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const latest = (pred: (s: Session) => boolean) => sessions.find(pred);
-  const jin = latest((s) => s.kind === "jin");
   // The task open now: its machine and id, from the URL.
   const at = splitPath(path);
   const openId = at.path.startsWith("/t/") ? decodeURIComponent(at.path.slice(3).split("/")[0]!) : null;
@@ -217,25 +216,11 @@ export function Sidebar({
         <span className="hide-collapsed">
           <HistoryButtons />
         </span>
-        <Link
-          href="/"
-          className={`jin-button hide-collapsed ${path === "/" ? "is-active" : ""}`}
-          title={pendingApprovals > 0 ? `Jin · ${pendingApprovals} approval${pendingApprovals === 1 ? "" : "s"} waiting` : "Jin, your orchestrator"}
-          aria-label="Jin"
-          {...contextMenu(() => chatMenu("Jin", "/"))}
-        >
-          {jin && (jin.state === "running" || jin.state === "waiting_approval") ? <StatusMark state={jin.state} /> : <Layers size={14} />}
-          {pendingApprovals > 0 && <span className="jin-count">{pendingApprovals}</span>}
-        </Link>
       </div>
       <nav aria-label="Chats">
-        {/* Collapsed sidebar: the top bar has only room for the window buttons, so Jin stays in the list. */}
-        <Link href="/" className={`nav-item only-collapsed-row ${path === "/" ? "active" : ""}`} {...contextMenu(() => chatMenu("Jin", "/"))}>
-          <Layers size={15} />
-          <span className="nav-label">Jin</span>
-          {jin && (jin.state === "running" || jin.state === "waiting_approval") && <StatusMark state={jin.state} />}
-          {pendingApprovals > 0 && <span className="nav-count" title="Approvals waiting">{pendingApprovals}</span>}
-        </Link>
+        <Suspense fallback={null}>
+          <SidebarChats kind="jin" chats={sessions.filter((x) => x.kind === "jin")} base="/" pending={pendingApprovals} />
+        </Suspense>
 
         <div className="nav-section">
           <span>Tasks</span>
