@@ -89,7 +89,7 @@ function SkillCard({ skill, s, startOpen = false, onDone }: { skill?: Skill; s: 
           <p className="meta">Goes to {goesTo(current, s)}.</p>
           <label className="field">
             <span>SKILL.md</span>
-            <textarea className="mono" rows={16} value={body ?? ""} onChange={(e) => setBody(e.target.value)} />
+            <textarea className="mono skill-editor" rows={16} spellCheck={false} value={body ?? ""} onChange={(e) => setBody(e.target.value)} />
           </label>
           {error && <p className="machine-error">{error}</p>}
           <div className="hook-actions">
@@ -131,7 +131,7 @@ export function SkillsPage({ initial, home }: { initial: SkillsStatus; home: str
       </header>
       <div className="machines-body is-single" data-scroll="y">
         <main className="machines-main">
-          <article className="machine-detail">
+          <article className="machine-detail is-wide">
             {adding && <SkillCard s={s} startOpen onDone={done} />}
             {s.skills.map((k) => (
               <SkillCard key={k.name} skill={k} s={s} onDone={done} />

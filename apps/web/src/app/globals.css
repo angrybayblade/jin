@@ -3674,3 +3674,16 @@ button.jr-ref:hover {
   background: var(--hover);
   color: var(--ink);
 }
+
+/* Skills use the whole pane: the SKILL.md editor fills the window's height. */
+.machine-detail.is-wide {
+  max-width: none;
+}
+.hook-card .field textarea.skill-editor {
+  font-size: 13px;
+  min-height: max(360px, calc(100vh - 340px));
+  padding: var(--space-3) var(--space-4);
+  line-height: 1.65;
+  tab-size: 2;
+  resize: vertical;
+}
