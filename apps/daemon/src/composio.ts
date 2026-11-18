@@ -663,6 +663,10 @@ export class Composio {
     }
     return v;
   }
+  /** Run one Composio tool as the user (null when it reports no success). */
+  tool(slug: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    return this.cli<{ successful?: boolean; data?: Record<string, unknown> }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]).then((r) => (r.successful === false ? null : (r.data ?? null)));
+  }
   private notionTool(slug: string, input: Record<string, string>) {
     return this.cli<{ successful?: boolean; data?: Record<string, unknown> }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]).then((r) => (r.successful === false ? null : (r.data ?? null)));
   }

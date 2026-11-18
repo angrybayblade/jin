@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { ServerWebSocket } from "bun";
 import type { Titler } from "./titles";
+import { type Mention, mentionContext, mentionLabels } from "./mentions";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -87,6 +88,8 @@ export interface SessionDeps {
   jinTools?: () => JinTool[];
   /** Names a new chat from its first message (Claude Haiku); without it a chat keeps its first words. */
   titler?: Titler;
+  /** Resolves the @mentions in a message (PRs, Linear issues, jin tasks). */
+  mentions?: (text: string) => Promise<Mention[]>;
 }
 
 export class Sessions {
@@ -331,9 +334,12 @@ export class Sessions {
     // Only the profile variable is recorded, never the rest of the environment.
     this.emit(sessionId, "harness.started", { harness: harness.id, adapter: harness.adapter, cwd, env, resume: resume ?? null, model: this.deps.config.model });
     this.emit(sessionId, "prompt", { text: prompt });
+    // @mentions: resolved (a few seconds at most), shown as chips, and told to the agent with the message.
+    const mentioned = mentionLabels(prompt).length && this.deps.mentions ? await Promise.race([this.deps.mentions(prompt).catch(() => [] as Mention[]), Bun.sleep(8000).then(() => [] as Mention[])]) : [];
+    if (mentioned.length) this.emit(sessionId, "prompt.mentions", { mentions: mentioned });
     try {
       const { sessionId: harnessSessionId } = await harness.run({
-        prompt,
+        prompt: prompt + mentionContext(mentioned),
         cwd,
         env,
         resume,

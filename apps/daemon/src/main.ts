@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createAdapter } from "./adapters";
 import { haikuTitle, scriptedTitle } from "./titles";
+import { type MachineSnapshot, Mentions, mentionRoutes } from "./mentions";
 import { bobbyRoutes } from "./bobby";
 import { jinTools } from "./chats";
 import { loadConfig, loadWorkspaces } from "./config";
@@ -30,7 +31,7 @@ import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
 import { claudeHookRoutes, claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude-cli";
 import { Journal, journalRoutes } from "./journal";
-import { prRoutes, TaskPRs } from "./prs";
+import { prRoutes, rollup, TaskPRs } from "./prs";
 import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
 import { Tickets } from "./tickets";
@@ -75,8 +76,10 @@ feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
 finderRoutes(app.router, new Finder(tasks));
 bobbyRoutes(app.router);
+// @mentions in chats: every machine's tasks, PRs (gh) and Linear issues (Composio); set up below.
+let mentions: Mentions | null = null;
 // New chats are named by Claude Haiku (a stand-in under the scripted harness, in tests).
-const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle });
+const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle, mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]) });
 sessionRoutes(app.router, sessions, adapters);
 const terminals = new Terminals(db);
 const claude = claudeLaunch(config, writeClaudeSettings(config), writeJinTaskCommand(config));
@@ -378,6 +381,44 @@ const composio = new Composio(config, {
 });
 liveDeliver = (e) => composio.deliver(e);
 composioRoutes(app.router, composio);
+
+// What @mentions resolve against: this machine's tasks and every connected machine's (each within a
+// moment, or left out), the feed, a PR's live state through gh, a Linear issue's through Composio.
+const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p, Bun.sleep(ms).then(() => { throw new Error("slow"); })]);
+mentions = new Mentions({
+  machines: async () => {
+    const here: MachineSnapshot = { machine: "local", label: machines.identity?.label ?? "this machine", tasks: tasks.list(), prs: prs.list(), terminals: terminals.list() };
+    const there = await Promise.all(
+      machines
+        .list()
+        .filter((m) => m.connected)
+        .map(async (m): Promise<MachineSnapshot | null> => {
+          try {
+            const [t, p, x] = await within(Promise.all([machines.call<any[]>(m.id, "GET", "/api/tasks"), machines.call<any[]>(m.id, "GET", "/api/prs").catch(() => []), machines.call<any[]>(m.id, "GET", "/api/terminals").catch(() => [])]), 2500);
+            return { machine: m.id, label: m.label, tasks: t, prs: p, terminals: x };
+          } catch {
+            return null;
+          }
+        }),
+    );
+    return [here, ...there.filter((s): s is MachineSnapshot => s !== null)];
+  },
+  feed: () => feed.list(),
+  pr: async (repo, number) => {
+    const p = Bun.spawn(["gh", "pr", "view", String(number), "-R", repo, "--json", "title,url,state,isDraft,reviewDecision,statusCheckRollup,author"], { stdout: "pipe", stderr: "ignore" });
+    const out = await within(new Response(p.stdout).text(), 8000);
+    if ((await p.exited) !== 0) return null;
+    const d = JSON.parse(out) as { title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; statusCheckRollup?: { conclusion?: string; state?: string; status?: string }[]; author?: { login?: string } };
+    return { title: d.title, url: d.url, state: d.state, draft: d.isDraft, review: d.reviewDecision || null, checks: rollup(d.statusCheckRollup ?? []), author: d.author?.login ?? null };
+  },
+  // Only the fields shown (and the issue's own link), through Linear's GraphQL.
+  issue: async (id) => {
+    const d = await within(composio.tool("LINEAR_RUN_QUERY_OR_MUTATION", { query_or_mutation: "query($id:String!){ issue(id:$id){ title url state{name} assignee{displayName} team{name} } }", variables: { id } }), 10_000);
+    const i = ((d?.data as Record<string, unknown> | undefined)?.issue ?? null) as { title?: string; url?: string; state?: { name?: string }; assignee?: { displayName?: string } | null; team?: { name?: string } | null } | null;
+    return i?.title ? { title: i.title, url: i.url ?? null, state: i.state?.name ?? null, assignee: i.assignee?.displayName ?? null, team: i.team?.name ?? null } : null;
+  },
+});
+mentionRoutes(app.router, mentions);
 composio.startListener();
 composio.resumeNative();
 
