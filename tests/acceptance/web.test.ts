@@ -91,3 +91,52 @@ test(
   },
   120_000,
 );
+
+test(
+  "A17 the same task id on two machines: opening one after the other shows each machine's own tabs",
+  async () => {
+    expect(built).toBe(true);
+    // A second machine with a task of the same id (its own daemon, reached directly).
+    const env2 = setupEnv();
+    const d2 = await startDaemon(env2);
+    try {
+      await d2.json("/api/workspaces/composio/tasks", { method: "POST", json: { id: "PLEN-7", repos: ["platform"], slug: "w" } });
+      const here = await d.json<any>("/api/terminals", { method: "POST", json: { taskId: "PLEN-7", kind: "shell" } });
+      const there = await d2.json<any>("/api/terminals", { method: "POST", json: { taskId: "PLEN-7", kind: "shell" } });
+      await d.json(`/api/terminals/${here.id}`, { method: "PATCH", json: { title: "mac-tab" } });
+      await d2.json(`/api/terminals/${there.id}`, { method: "PATCH", json: { title: "remote-tab" } });
+      mkdirSync(join(env.home, "machines"), { recursive: true });
+      writeFileSync(join(env.home, "machines", "second.json"), JSON.stringify({ id: "second", host: "second.invalid", label: "second", remotePort: 7317, localPort: d2.port, token: d2.token, createdAt: new Date().toISOString() }));
+
+      const puppeteer = await import("puppeteer-core");
+      const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox"] });
+      try {
+        const page = await browser.newPage();
+        const failed: string[] = [];
+        page.on("pageerror", (e) => failed.push(String(e)));
+        await page.goto(`${WEB_ORIGIN}/t/PLEN-7`, { waitUntil: "networkidle0" });
+        await page.waitForFunction(() => document.body.innerText.includes("mac-tab"), { timeout: 15_000 });
+        // In the app, as a sidebar click would: a client-side navigation to the other machine's task.
+        await page.evaluate(() => (window as any).next.router.push("/m/second/t/PLEN-7"));
+        await page
+          .waitForFunction(() => location.pathname === "/m/second/t/PLEN-7" && document.body.innerText.includes("remote-tab"), { timeout: 15_000 })
+          .catch(async (e) => {
+            const at = await page.evaluate(() => ({ path: location.pathname, here: document.body.innerText.includes("mac-tab"), there: document.body.innerText.includes("remote-tab"), text: document.body.innerText.slice(0, 300) }));
+            throw new Error(`after navigating: ${JSON.stringify(at)}; errors ${JSON.stringify(failed)}; ${e}`);
+          });
+        await Bun.sleep(1500);
+        const text = await page.evaluate(() => document.body.innerText);
+        expect(text).toContain("remote-tab");
+        expect(text).not.toContain("mac-tab");
+        expect(text).not.toContain("React error");
+        expect(failed).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    } finally {
+      await d2.stop();
+      env2.cleanup();
+    }
+  },
+  120_000,
+);

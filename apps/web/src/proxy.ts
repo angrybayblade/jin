@@ -1,18 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 /**
- * /m/<machine>/<path> is <path> on that machine: rewritten to <path>, with the machine in an
- * `x-jin-machine` header the server reads (page renders and the server actions a page posts
- * alike). Next hands a rewrite's response headers to the page it renders (its request-header
- * override does not survive a rewrite here); acceptance A17 checks this still holds.
+ * Pages under /m/<machine>/ (another machine's tasks) talk to that machine: the proxy puts it
+ * in an `x-jin-machine` header the server reads, for the page and the server actions it posts
+ * alike. Next hands the proxy's response headers to the page it renders; acceptance A17 checks
+ * this still holds.
  */
 export function proxy(req: NextRequest) {
   const m = /^\/m\/([a-z0-9-]+)(\/.*)?$/.exec(req.nextUrl.pathname);
-  if (!m) return NextResponse.next();
-  const url = req.nextUrl.clone();
-  url.pathname = m[2] || "/";
-  const res = NextResponse.rewrite(url);
-  res.headers.set("x-jin-machine", m[1]!);
+  const res = NextResponse.next();
+  if (m) res.headers.set("x-jin-machine", m[1]!);
   return res;
 }
 
