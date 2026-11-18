@@ -13,15 +13,17 @@ JIN_HOME=${JIN_HOME:-$HOME/.jin}
 DEST=$JIN_HOME/release/app
 export HUTCH_HOME=${HUTCH_HOME:-$JIN_HOME/toolchain/hutch}
 HUTCH=$HUTCH_HOME/bin/hutch
-SHA=$(git -C "$REPO" rev-parse HEAD)
+# JIN_REF: build another commit than HEAD (a snapshot of uncommitted work, to try it).
+REF=${JIN_REF:-HEAD}
+SHA=$(git -C "$REPO" rev-parse "$REF")
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 
 [ -x "$HUTCH" ] || { echo "hutch not found at $HUTCH (set HUTCH_HOME)"; exit 1; }
-if [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no)" ]; then
+if [ -z "${JIN_REF:-}" ] && [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no)" ]; then
   echo "note: uncommitted changes are not included; building $(git -C "$REPO" rev-parse --short HEAD)"
 fi
 
-say "jin $(git -C "$REPO" rev-parse --short HEAD) → $DEST"
+say "jin $(git -C "$REPO" rev-parse --short "$REF") → $DEST"
 mkdir -p "$(dirname "$DEST")"
 [ -d "$DEST/.git" ] || git clone -q --no-local "$REPO" "$DEST"
 git -C "$DEST" fetch -q "$REPO" "$SHA"

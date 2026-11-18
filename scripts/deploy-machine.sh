@@ -6,14 +6,16 @@ set -euo pipefail
 
 HOST=${1:-d-jin.exe.xyz}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-SHA=$(git -C "$REPO" rev-parse --short HEAD)
-if [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no -- apps/daemon package.json bun.lock)" ]; then
+# JIN_REF: deploy another commit than HEAD (a snapshot of uncommitted work, to try it).
+REF=${JIN_REF:-HEAD}
+SHA=$(git -C "$REPO" rev-parse --short "$REF")
+if [ -z "${JIN_REF:-}" ] && [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no -- apps/daemon package.json bun.lock)" ]; then
   echo "note: uncommitted daemon changes are not deployed; deploying $SHA"
 fi
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOST")
 
 echo "==> jin $SHA → $HOST"
-git -C "$REPO" archive --format=tar HEAD -- package.json bun.lock tsconfig.base.json apps/daemon |
+git -C "$REPO" archive --format=tar "$REF" -- package.json bun.lock tsconfig.base.json apps/daemon |
   "${SSH[@]}" "set -e; export PATH=\"\$HOME/.bun/bin:\$HOME/.local/bin:/usr/local/bin:\$PATH\"
     rm -rf ~/.jin/app.new && mkdir -p ~/.jin/app.new && tar -x -C ~/.jin/app.new
     echo $SHA > ~/.jin/app.new/VERSION
