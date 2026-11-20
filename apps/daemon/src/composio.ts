@@ -125,7 +125,7 @@ export const whereOf = (e: Pick<LiveEvent, "thread" | "toolkit">) =>
  * One event from `composio dev listen --json`, as jin shows it. Payloads differ per trigger,
  * so fields are looked up where each service puts them; anything unknown still shows.
  */
-export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {}, watched?: (threadKey: string, channel: string) => boolean): LiveEvent | null {
+export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {}, watched?: (threadKey: string, channel: string) => boolean, onOwn?: (threadKey: string, at: string) => void): LiveEvent | null {
   const trigger = String(pick(raw, "triggerSlug", "trigger_slug", "type", "metadata.trigger_slug", "metadata.triggerSlug") ?? "").toUpperCase();
   if (!trigger) return null;
   const data = (pick(raw, "data", "payload", "originalPayload") ?? {}) as Record<string, unknown>;
@@ -145,7 +145,13 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     const channelType = str(pick(data, "channel_type", "event.channel_type"));
     const dm = trigger.includes("DIRECT_MESSAGE") || channelType === "im";
     const mentionsMe = Boolean(me.slack && text.includes(`<@${me.slack}>`));
-    if (me.slack && actor === me.slack) return null; // your own message
+    if (me.slack && actor === me.slack) {
+      // Your own message: you answered, so the thread (or DM) is handled.
+      const ch = str(pick(data, "channel", "channel_id", "event.channel")) ?? "";
+      const rt = str(pick(data, "thread_ts", "event.thread_ts")) ?? str(pick(data, "ts", "event.ts"));
+      if (ch) onOwn?.(dm ? `slack:dm:${ch}` : `slack:${ch}:${rt ?? id}`, at);
+      return null;
+    }
     // A shared message or a file says nothing in text; say what it is.
     if (!text) text = pstr(data, "attachments.0.text", "attachments.0.fallback") ?? (pick(data, "files.0") ? "sent a file" : "");
     const channel = str(pick(data, "channel", "channel_id", "event.channel")) ?? "";
@@ -193,7 +199,10 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     const mentions = Boolean(me.linear && JSON.stringify(data).includes(me.linear));
     forYou = Boolean(me.linear && (assignee === me.linear || mentions));
     tags = [...(me.linear && assignee === me.linear ? ["assigned"] : []), ...(mentions && assignee !== me.linear ? ["mentioned"] : []), ...(forYou ? [] : ["other"])];
-    if (actor && me.linear && JSON.stringify(pick(data, "actor", "user") ?? "").includes(me.linear)) return null; // your own change
+    if (actor && me.linear && JSON.stringify(pick(data, "actor", "user") ?? "").includes(me.linear)) {
+      onOwn?.(thread.key, at); // your own change: the issue is handled for now
+      return null;
+    }
   } else if (toolkit === "notion") {
     title = "commented";
     // The event names only ids (comment, page, author); Composio.withNotionDetails fills in the rest.
@@ -210,7 +219,10 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     title = trigger.includes("REVIEW_COMMENT") ? "commented on a review" : trigger.includes("ISSUE_COMMENT") ? "commented" : trigger.includes("REVIEW_SUBMITTED") ? "reviewed" : trigger.includes("COMMIT") ? "pushed" : "updated";
     const prUrl = str(pick(data, "pull_request.html_url", "issue.html_url"));
     if (repo && num != null) thread = githubThread(repo, Number(num), pr ?? `${repo}#${num}`, prUrl ?? url ?? `https://github.com/${repo}/pull/${num}`);
-    if (me.github && actor && actor.toLowerCase() === me.github.toLowerCase()) return null; // your own
+    if (me.github && actor && actor.toLowerCase() === me.github.toLowerCase()) {
+      if (thread) onOwn?.(thread.key, at); // your own: the PR is handled for now
+      return null;
+    }
     forYou = true; // jin only watches PRs you review or wrote
     tags = ["reviewer"];
   }
@@ -671,6 +683,17 @@ export class Composio {
     return this.cli<{ successful?: boolean; data?: Record<string, unknown> }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]).then((r) => (r.successful === false ? null : (r.data ?? null)));
   }
 
+  /** A Notion page's title and link, through your Notion connection (kept once found). */
+  async notionPage(pageId: string): Promise<{ title: string; url: string | null } | null> {
+    const v = await this.notionCached(`page:${pageId}`, async () => {
+      const p = await this.notionTool("NOTION_RETRIEVE_PAGE", { page_id: pageId });
+      const props = (p?.properties ?? {}) as Record<string, { type?: string; title?: { plain_text?: string }[] }>;
+      const t = Object.values(props).find((v) => v?.type === "title")?.title?.map((x) => x.plain_text ?? "").join("") ?? "";
+      return p ? JSON.stringify({ title: t.trim() || "Untitled", url: str(p.url) }) : null;
+    });
+    return v ? (JSON.parse(v) as { title: string; url: string | null }) : null;
+  }
+
   /** A Notion comment event names only ids: read the comment, who wrote it and the page's title. */
   async withNotionDetails(e: LiveEvent, raw: Record<string, unknown>): Promise<LiveEvent> {
     const data = (pick(raw, "data", "payload") ?? {}) as Record<string, unknown>;
@@ -679,19 +702,12 @@ export class Composio {
     const authorId = pstr(data, "authors.0.id");
     const [comment, page] = await Promise.all([
       commentId ? this.notionTool("NOTION_RETRIEVE_COMMENT", { comment_id: commentId }).catch(() => null) : null,
-      pageId
-        ? this.notionCached(`page:${pageId}`, async () => {
-            const p = await this.notionTool("NOTION_RETRIEVE_PAGE", { page_id: pageId });
-            const props = (p?.properties ?? {}) as Record<string, { type?: string; title?: { plain_text?: string }[] }>;
-            const t = Object.values(props).find((v) => v?.type === "title")?.title?.map((x) => x.plain_text ?? "").join("") ?? "";
-            return p ? JSON.stringify({ title: t.trim() || "Untitled", url: str(p.url) }) : null;
-          })
-        : null,
+      pageId ? this.notionPage(pageId) : null,
     ]);
     const who = authorId
       ? await this.notionCached(`user:${authorId}`, async () => pstr(comment, "display_name.resolved_name") ?? pstr(await this.notionTool("NOTION_GET_ABOUT_USER", { user_id: authorId }), "name"))
       : null;
-    const pg = page ? (JSON.parse(page) as { title: string; url: string | null }) : null;
+    const pg = page;
     const said = ((comment?.rich_text ?? []) as { plain_text?: string }[]).map((x) => x.plain_text ?? "").join("");
     const discussion = pstr(comment, "discussion_id")?.replace(/^discussion:\/\//, "").replace(/-/g, "");
     const pageUrl = pg?.url ?? e.thread?.url ?? null;
@@ -727,7 +743,7 @@ export class Composio {
       this.seen.add(slug);
       console.log(`live event shape ${slug}: ${JSON.stringify(shape(raw))}`);
     }
-    const e = readEvent(raw, this.settings.me, this.deps.watched);
+    const e = readEvent(raw, this.settings.me, this.deps.watched, (key, at) => this.deps.feed.clearThread(key, at));
     if (!e) return;
     const named = e.toolkit === "slack" ? await this.withSlackNames(e) : e.toolkit === "notion" ? await this.withNotionDetails(e, raw) : e;
     this.deliver(named, opts);
@@ -739,12 +755,12 @@ export class Composio {
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     const workspace = this.deps.workspaces[0]?.id ?? "live";
     // Distinct per event (two comments link to the same issue), grouped by thread.
-    const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor };
+    const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor, tags: e.tags };
     this.deps.feed.add([item]);
     if (opts.quiet) return; // caught up from earlier: no hooks, no notification
     this.deps.onEvent?.(e);
     if (this.deps.shouldNotify ? this.deps.shouldNotify(e) : e.forYou) {
-      this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: whereOf(e), body: e.summary, path: `/c/${e.toolkit}`, url: e.url ?? e.thread?.url ?? undefined });
+      this.deps.notify({ key: `live:${e.id}`, title: headline(e), subtitle: whereOf(e), body: e.summary, path: "/desk", url: e.url ?? e.thread?.url ?? undefined });
     }
   }
 
@@ -808,6 +824,12 @@ export function composioRoutes(router: Router, c: Composio) {
       if (!data && file && existsSync(file)) data = (JSON.parse(readFileSync(file, "utf8")) as { data: Record<string, unknown> }).data;
       const teams = (data?.teams ?? data?.items ?? []) as { id: string; name: string; key?: string }[];
       return json((Array.isArray(teams) ? teams : []).map((t) => ({ id: t.id, name: t.name, key: t.key ?? null })));
+    })
+    // A task's Notion link asks for its page's title here, where the Notion connection is.
+    .on("GET", "/api/composio/notion-page", async (_req, _p, url) => {
+      const id = (url.searchParams.get("id") ?? "").replace(/-/g, "");
+      if (!/^[0-9a-f]{32}$/i.test(id)) throw new HttpError(400, "id must be a Notion page id");
+      return json(await c.notionPage(id));
     })
     .on("POST", "/api/composio/listener", async (req) => {
       const { on } = await body<{ on?: boolean }>(req);

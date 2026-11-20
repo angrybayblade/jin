@@ -104,7 +104,7 @@ test("A20 Claude Code journals its work through jin's MCP tool; the hooks add wh
   };
   expect((await rpc(1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } })).result.serverInfo.name).toBe("jin");
   mcp.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-  expect((await rpc(2, "tools/list")).result.tools.map((t: { name: string }) => t.name)).toEqual(["journal", "task_context"]);
+  expect((await rpc(2, "tools/list")).result.tools.map((t: { name: string }) => t.name)).toEqual(["journal", "task_context", "read_doc"]);
   // The task's context over the same server: its PRs (attached above) and how to read them.
   const ctx = await rpc(5, "tools/call", { name: "task_context", arguments: {} });
   expect(ctx.result.content[0].text).toContain("Task PR-1");

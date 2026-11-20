@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readEvent } from "../src/composio";
 import { openDb } from "../src/db";
-import { activity, belongs, ownLinks, parseLink, TaskLinks, Watches } from "../src/links";
+import { Router } from "../src/http";
+import { activity, belongs, linkRoutes, ownLinks, parseLink, TaskLinks, Watches } from "../src/links";
 
 test("links are read from the URLs you paste", () => {
   const at = new Date("2026-11-17T10:00:00Z");
@@ -14,6 +15,10 @@ test("links are read from the URLs you paste", () => {
   expect(parseLink("https://acme.slack.com/archives/C0123ABCD", at)).toMatchObject({ key: "slack-channel:C0123ABCD", kind: "slack-channel", since: "2026-11-17T10:00:00.000Z" });
   expect(parseLink("https://www.notion.so/acme/Launch-plan-1a2b3c4d5e6f40718293a4b5c6d7e8f9", at)).toMatchObject({ key: "notion:1a2b3c4d5e6f40718293a4b5c6d7e8f9", kind: "notion", label: "Launch plan" });
   expect(parseLink("https://www.notion.so/acme/x?p=1a2b3c4d5e6f40718293a4b5c6d7e8f9&pm=s", at)?.key).toBe("notion:1a2b3c4d5e6f40718293a4b5c6d7e8f9");
+  // Notion's newer links: app.notion.com/p/<id>, private pages included.
+  expect(parseLink("https://app.notion.com/p/41df261a6dfe811aa43fd320af6e1b2c", at)).toMatchObject({ key: "notion:41df261a6dfe811aa43fd320af6e1b2c", kind: "notion", label: "Notion page" });
+  expect(parseLink("https://www.notion.com/acme/Launch-plan-1a2b3c4d5e6f40718293a4b5c6d7e8f9", at)?.label).toBe("Launch plan");
+  expect(parseLink("https://notnotion.com/p/41df261a6dfe811aa43fd320af6e1b2c", at)).toBeNull();
   expect(parseLink("https://linear.app/acme/issue/PLEN-244/fix-it", at)).toMatchObject({ key: "linear:PLEN-244", kind: "linear" });
   expect(parseLink("https://example.com/x", at)).toBeNull();
   expect(parseLink("not a url", at)).toBeNull();
@@ -80,4 +85,19 @@ test("the context Claude Code asks for: PRs, what the task follows with how to r
   expect(text).toContain("30m  Bob wrote: we agreed on 100 rps");
   expect(text).toContain("2h  Bea commented: scope is personal routes only");
   expect(text).not.toContain("unrelated");
+});
+
+test("a Notion link whose address has no title is named from Notion when added", async () => {
+  const db = openDb(mkdtempSync(join(tmpdir(), "jin-links-")));
+  const links = new TaskLinks(db);
+  const router = new Router();
+  const asked: string[] = [];
+  linkRoutes(router, { links, linksOf: () => [], feedItems: async () => [], changed: () => {}, title: async (l) => (asked.push(l.key), l.kind === "notion" ? "[RFC] OpenAPI toolkits" : null) });
+  const post = (u: string) => {
+    const m = router.match("POST", "/api/tasks/PLEN-1/links")!;
+    return m.handler(new Request("http://x/api/tasks/PLEN-1/links", { method: "POST", body: JSON.stringify({ url: u }) }), m.params, new URL("http://x/api/tasks/PLEN-1/links"));
+  };
+  expect(await (await post("https://app.notion.com/p/41df261a6dfe811aa43fd320af6e1b2c")).json()).toMatchObject({ label: "[RFC] OpenAPI toolkits" });
+  expect(links.list("PLEN-1")[0]!.label).toBe("[RFC] OpenAPI toolkits");
+  expect(asked).toEqual(["notion:41df261a6dfe811aa43fd320af6e1b2c"]);
 });

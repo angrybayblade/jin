@@ -17,7 +17,7 @@ import { body, HttpError, json, type Router } from "./http";
  *   notion:<32 hex>               comments on a Notion page          (how: manual)
  */
 
-export type LinkKind = "github" | "linear" | "slack-thread" | "slack-channel" | "notion";
+export type LinkKind = "github" | "linear" | "slack-thread" | "slack-channel" | "notion" | "doc";
 
 export interface TaskLink {
   taskId: string;
@@ -38,9 +38,12 @@ export function normKey(key: string): string {
   return key;
 }
 
-/** A link from what you paste: a Slack thread or channel, a Notion page, a Linear issue. */
+/** A link from what you paste: a Slack thread or channel, a Notion page, a Linear issue, a jin doc. */
 export function parseLink(raw: string, at = new Date()): Pick<TaskLink, "key" | "kind" | "label" | "since" | "url"> | null {
   const url = raw.trim();
+  // A jin doc: doc:<id>, or its page in jin (…/docs/<id>, on any of jin's addresses).
+  const doc = /^doc:(d[0-9a-f]{10})$/.exec(url)?.[1] ?? /^(?:https?:\/\/[^/]+)?\/docs\/(d[0-9a-f]{10})(?:[/?#]|$)/.exec(url)?.[1];
+  if (doc) return { key: `doc:${doc}`, kind: "doc", label: "jin doc", since: null, url: `/docs/${doc}` };
   let u: URL;
   try {
     u = new URL(url);
@@ -56,7 +59,7 @@ export function parseLink(raw: string, at = new Date()): Pick<TaskLink, "key" | 
     if (ts) return { key: `slack:${channel}:${ts}`, kind: "slack-thread", label: `Slack thread in ${channel}`, since: null, url };
     return { key: `slack-channel:${channel}`, kind: "slack-channel", label: `Slack channel ${channel}`, since: at.toISOString(), url };
   }
-  if (u.hostname.endsWith("notion.so") || u.hostname.endsWith("notion.site")) {
+  if (/(^|\.)notion\.(so|site|com)$/.test(u.hostname)) {
     const id = /([0-9a-f]{32})(?:[^0-9a-f]|$)/i.exec(u.searchParams.get("p") ?? u.pathname)?.[1] ?? /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(u.pathname)?.[1];
     if (!id) return null;
     const words = decodeURIComponent(u.pathname.split("/").pop() ?? "").replace(new RegExp(`-?${id}$`, "i"), "").replace(/-/g, " ").trim();
@@ -94,11 +97,16 @@ export class TaskLinks {
 
   add(taskId: string, raw: string): TaskLink {
     const l = parseLink(raw);
-    if (!l) throw new HttpError(400, `not a Slack thread or channel, Notion page or Linear issue link: ${raw}`);
+    if (!l) throw new HttpError(400, `not a Slack thread or channel, Notion page, Linear issue or jin doc link: ${raw}`);
     this.db
       .query("insert into task_links (task_id, key, kind, url, label, since, added_at) values (?, ?, ?, ?, ?, ?, ?) on conflict (task_id, key) do update set url = excluded.url, label = excluded.label")
       .run(taskId, l.key, l.kind, l.url, l.label, l.since, now());
     return this.list(taskId).find((x) => x.key === l.key)!;
+  }
+
+  /** A better name for a link, once found (a Notion page's title). */
+  setLabel(taskId: string, key: string, label: string) {
+    this.db.query("update task_links set label = ? where task_id = ? and key = ?").run(label, taskId, key);
   }
 
   remove(taskId: string, key: string) {
@@ -171,6 +179,8 @@ export function linkRoutes(
     linksOf: (taskId: string) => TaskLink[];
     feedItems: () => Promise<FeedItem[]>;
     changed: () => void;
+    /** A link's real name where its address has none (a Notion page's title), or null. */
+    title?: (l: TaskLink) => Promise<string | null>;
     /** For a terminal's Claude Code: its task, and the task's PRs with their state. */
     context?: { taskOf: (terminalId: string) => string | null; task: (id: string) => { id: string; kind: string; title: string | null; slug: string }; prs: (taskId: string) => { url: string; title: string | null; state: string | null; draft: boolean; checks: string | null; review: string | null }[] };
   },
@@ -189,6 +199,11 @@ export function linkRoutes(
       const { url } = await body<{ url: string }>(req);
       deps.linksOf(p.id!); // the task exists
       const l = deps.links.add(p.id!, String(url ?? ""));
+      const title = deps.title ? await deps.title(l).catch(() => null) : null;
+      if (title) {
+        deps.links.setLabel(p.id!, l.key, title);
+        l.label = title;
+      }
       deps.changed();
       return json(l, 201);
     })
@@ -218,6 +233,8 @@ export function howToRead(l: Pick<TaskLink, "kind" | "key" | "url" | "since">): 
       return `the Slack tools: read channel ${l.key.slice("slack-channel:".length)} (threads since ${l.since?.slice(0, 10) ?? "it was linked"})`;
     case "notion":
       return "the Notion tools: fetch the page, and its comments";
+    case "doc":
+      return `the read_doc tool (docId ${l.key.slice(4)}), or \`jin-task doc ${l.key.slice(4)}\``;
   }
 }
 
