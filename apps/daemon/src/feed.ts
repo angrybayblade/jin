@@ -32,9 +32,14 @@ export interface FeedItem {
   taskId: string | null;
   thread: FeedThread | null;
   actor: string | null;
+  /** Why it might concern you: authored, reviewer, team-review, requested, mentioned, dm, mention, person, assigned, comment… */
+  tags: string[];
 }
 
-export type NewItem = Pick<FeedItem, "workspace" | "source" | "kind" | "externalRef" | "title" | "summary" | "receivedAt"> & { thread?: FeedThread | null; actor?: string | null };
+export type NewItem = Pick<FeedItem, "workspace" | "source" | "kind" | "externalRef" | "title" | "summary" | "receivedAt"> & { thread?: FeedThread | null; actor?: string | null; tags?: string[] };
+
+/** What a PR's thread holds that is over once the PR is (merged, closed, or no longer watched). */
+const PR_KINDS = new Set(["github_pr_comment", "github_pr_review", "github_pr_commit", "review_requested", "ci_failed"]);
 
 const toItem = (r: any): FeedItem => ({
   id: r.id,
@@ -52,12 +57,15 @@ const toItem = (r: any): FeedItem => ({
   taskId: r.task_id,
   thread: r.thread_key ? { key: r.thread_key, title: r.thread_title ?? "", ref: r.thread_ref ?? null, url: r.thread_url ?? null } : null,
   actor: r.actor ?? null,
+  tags: r.tags ? (JSON.parse(r.tags) as string[]) : [],
 });
 
 export class Feed {
   constructor(private db: Database) {}
 
   list(): FeedItem[] {
+    // A snooze that has run out: the item is back.
+    this.db.query("update feed_items set state = 'new' where state = 'snoozed' and snoozed_until <= ?").run(now());
     return this.db.query("select * from feed_items order by received_at desc, id").all().map(toItem);
   }
 
@@ -70,14 +78,14 @@ export class Feed {
   /** Adds items not seen before (same workspace, source, kind and external ref); returns how many were new. */
   add(items: NewItem[]): number {
     const insert = this.db.query(
-      `insert into feed_items (id, workspace, source, kind, external_ref, title, summary, received_at, thread_key, thread_title, thread_ref, thread_url, actor)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (workspace, source, kind, external_ref) do nothing`,
+      `insert into feed_items (id, workspace, source, kind, external_ref, title, summary, received_at, thread_key, thread_title, thread_ref, thread_url, actor, tags)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (workspace, source, kind, external_ref) do nothing`,
     );
     let added = 0;
     this.db.transaction(() => {
       for (const i of items) {
         const t = i.thread ?? null;
-        added += insert.run(randomUUID(), i.workspace, i.source, i.kind, i.externalRef, i.title, i.summary, i.receivedAt, t?.key ?? null, t?.title ?? null, t?.ref ?? null, t?.url ?? null, i.actor ?? null).changes;
+        added += insert.run(randomUUID(), i.workspace, i.source, i.kind, i.externalRef, i.title, i.summary, i.receivedAt, t?.key ?? null, t?.title ?? null, t?.ref ?? null, t?.url ?? null, i.actor ?? null, i.tags?.length ? JSON.stringify(i.tags) : null).changes;
       }
     })();
     return added;
@@ -97,6 +105,36 @@ export class Feed {
     this.db
       .query("update feed_items set thread_key = ?, thread_title = ?, thread_ref = ?, thread_url = ?, actor = ?, summary = ?, external_ref = coalesce(?, external_ref) where id = ?")
       .run(e.thread?.key ?? null, e.thread?.title ?? null, e.thread?.ref ?? null, e.thread?.url ?? null, e.actor, e.summary, e.externalRef ?? null, id);
+  }
+
+  /** You acted on a thread (replied, reviewed): what came in on it before then is done. */
+  clearThread(key: string, before: string = now()): number {
+    return this.db.query("update feed_items set state = 'done', seen_at = coalesce(seen_at, ?) where thread_key = ? and state in ('new', 'snoozed') and received_at <= ?").run(now(), key, before).changes;
+  }
+
+  /** PRs still open and watched: open PR items on any other PR are over (merged, closed, gone quiet). */
+  settlePrs(open: Set<string>): number {
+    const stale = this.db
+      .query("select id, kind, thread_key from feed_items where state in ('new', 'snoozed') and source = 'github' and thread_key like 'github:%'")
+      .all()
+      .filter((r: any) => PR_KINDS.has(r.kind) && !open.has(String(r.thread_key).toLowerCase())) as { id: string }[];
+    const done = this.db.query("update feed_items set state = 'done', seen_at = coalesce(seen_at, ?) where id = ?");
+    this.db.transaction(() => stale.forEach((r) => done.run(now(), r.id)))();
+    return stale.length;
+  }
+
+  /** What the collector says no longer holds (a review given, checks green again): done. */
+  settleCollected(kinds: string[], still: Set<string>): number {
+    const open = this.db.query(`select id, thread_key from feed_items where state in ('new', 'snoozed') and kind in (${kinds.map(() => "?").join(",")})`).all(...kinds) as { id: string; thread_key: string | null }[];
+    const gone = open.filter((r) => r.thread_key && !still.has(r.thread_key.toLowerCase()));
+    const done = this.db.query("update feed_items set state = 'done', seen_at = coalesce(seen_at, ?) where id = ?");
+    this.db.transaction(() => gone.forEach((r) => done.run(now(), r.id)))();
+    return gone.length;
+  }
+
+  /** A fresh start: everything still open that came in before `before` is done (kept, not deleted). */
+  sweep(before: string): number {
+    return this.db.query("update feed_items set state = 'done', seen_at = coalesce(seen_at, ?) where state in ('new', 'snoozed') and received_at < ?").run(now(), before).changes;
   }
 
   setState(id: string, state: FeedState, extra: { snoozedUntil?: string; taskId?: string } = {}): FeedItem {
@@ -136,6 +174,7 @@ export function githubThread(repo: string, number: number, title: string, url: s
 }
 
 const FAILING = new Set(["FAILURE", "ERROR"]);
+const COLLECTED_TAGS: Record<string, string[]> = { review_requested: ["reviewer", "requested"], ci_failed: ["authored"], mention: ["mentioned"] };
 
 /** Normalise one GraphQL response into feed items for the workspaces whose GitHub owners match. */
 export function githubItems(data: Record<string, { nodes: GhNode[] } | undefined>, workspaces: WorkspaceConfig[]): NewItem[] {
@@ -148,7 +187,7 @@ export function githubItems(data: Record<string, { nodes: GhNode[] } | undefined
       const owners = w.github.owners.map((o) => o.toLowerCase());
       if (owners.length && !owners.includes(owner)) continue;
       const thread = githubThread(repo, node.number, node.title, node.url);
-      out.push({ workspace: w.id, source: "github", kind, externalRef: node.url, title: node.title, summary: `${repo}#${node.number} · ${label}`, receivedAt: node.updatedAt, thread });
+      out.push({ workspace: w.id, source: "github", kind, externalRef: node.url, title: node.title, summary: `${repo}#${node.number} · ${label}`, receivedAt: node.updatedAt, thread, tags: COLLECTED_TAGS[kind] });
     }
   };
   for (const n of data.reviewRequested?.nodes ?? []) add(n, "review_requested", "review requested");
@@ -175,8 +214,17 @@ export function feedRoutes(router: Router, feed: Feed, tasks: Tasks, workspaces:
   router
     .on("GET", "/api/feed", () => json(feed.list()))
     .on("POST", "/api/collect/github", async () => {
-      const added = feed.add(await collectGithub(workspaces));
+      const items = await collectGithub(workspaces);
+      const added = feed.add(items);
+      // A review you gave, checks green again: the collector no longer lists it, so it is done.
+      const still = new Set(items.filter((i) => i.thread).map((i) => i.thread!.key.toLowerCase()));
+      feed.settleCollected(["review_requested", "ci_failed"], still);
       return json({ added, total: feed.list().length });
+    })
+    .on("POST", "/api/feed/sweep", async (req) => {
+      const { before } = await body<{ before?: string }>(req);
+      if (!before || Number.isNaN(Date.parse(before))) throw new HttpError(400, "before must be an ISO date");
+      return json({ cleared: feed.sweep(new Date(before).toISOString()) });
     })
     .on("POST", "/api/feed/:id/snooze", async (req, p) => {
       const { until } = await body<{ until?: string }>(req);

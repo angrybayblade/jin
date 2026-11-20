@@ -1,4 +1,5 @@
-import { ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Mail, MessageSquare, RefreshCw, Sparkles, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Check, ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Mail, MessageSquare, RefreshCw, Sparkles } from "lucide-react";
 import { collectGithub, feedAction } from "@/app/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { groupFeed, rowWhat, type FeedGroup, type FeedRow } from "@/lib/feed-groups";
@@ -6,7 +7,7 @@ import { isPullRequest } from "@/lib/pr";
 import { BobbyBadge } from "./BobbyBadge";
 import { ReviewButton } from "./ReviewButton";
 
-const SOURCE: Record<string, { label: string; Icon: typeof Mail }> = {
+export const SOURCE: Record<string, { label: string; Icon: typeof Mail }> = {
   github: { label: "GitHub", Icon: GitPullRequest },
   linear: { label: "Linear", Icon: CircleDot },
   slack: { label: "Slack", Icon: MessageSquare },
@@ -37,11 +38,11 @@ function Actions({ g }: { g: FeedGroup }) {
           <ExternalLink size={13} />
         </a>
       )}
-      <button type="submit" name="action" value="snooze" className="button quiet icon-only small" title={`Snooze ${label} for a day`} aria-label={`Snooze ${label}`}>
+      <button type="submit" name="action" value="snooze" className="button quiet icon-only small" title={`Later: back in a day`} aria-label={`Later: snooze ${label} for a day`}>
         <Clock size={13} />
       </button>
-      <button type="submit" name="action" value="dismiss" className="button quiet icon-only small" title={`Dismiss ${label}`} aria-label={`Dismiss ${label}`}>
-        <X size={13} />
+      <button type="submit" name="action" value="done" className="button quiet icon-only small" title={`Done with ${label}`} aria-label={`Done with ${label}`}>
+        <Check size={13} />
       </button>
     </form>
   );
@@ -69,19 +70,29 @@ function Row({ r }: { r: FeedRow }) {
   );
 }
 
-/** A thread, collapsed to one line: source, title, count, age. Open it for who did what. */
-function Group({ g }: { g: FeedGroup }) {
+/**
+ * A thread, collapsed to one line: source, title, count, age; with `why` (the desk's triage),
+ * a second line says why it is here. Open it for who did what.
+ */
+export function Group({ g, why, isNew }: { g: FeedGroup; why?: ReactNode; isNew?: boolean }) {
   const pr = g.url && isPullRequest(g.url) ? g.url : null;
   const src = SOURCE[g.source] ?? { label: g.source, Icon: Sparkles };
   const urgent = g.rows.find((r) => r.kind && URGENT[r.kind]);
   const count = g.rows.reduce((n, r) => n + r.count, 0);
   return (
-    <li className={`feed-group${pr ? " has-bobby" : ""}`} data-thread={g.key}>
+    <li className={`feed-group${pr ? " has-bobby" : ""}${why ? " has-why" : ""}${isNew ? " is-new" : ""}`} data-thread={g.key}>
       <details>
         <summary className="fg-head" title={[g.ref, g.title].filter(Boolean).join(" ")}>
           <ChevronRight size={13} className="fg-chevron" aria-hidden />
           <src.Icon size={13} className={`fg-src is-${g.source}`} aria-label={src.label} />
-          <span className="fg-title">{g.title}</span>
+          {why ? (
+            <span className="fg-text">
+              <span className="fg-title">{g.ref && !g.title.includes(g.ref) ? <span className="fg-ref">{g.ref}</span> : null}{g.title}</span>
+              <span className="fg-why">{why}</span>
+            </span>
+          ) : (
+            <span className="fg-title">{g.title}</span>
+          )}
           {urgent && <span className={`fg-dot is-${urgent.kind}`} title={URGENT[urgent.kind!]} />}
           {count > 1 && <span className="fg-count">{count}</span>}
           <span className="fg-age">{ago(g.latest)}</span>
@@ -109,14 +120,18 @@ export function FeedThreads({ items }: { items: FeedItem[] }) {
   );
 }
 
-/** Jin's right pane: what is waiting, grouped by thread, newest first. Ask jin in the chat to act on it. */
-export function TodayPanel({ items, title = "Today", note }: { items: FeedItem[]; title?: string; note?: string }) {
+/**
+ * What is waiting, grouped by thread, newest first: jin's right pane, and the desk's main view
+ * (`main`, with jin's mark as `lead` to switch back).
+ */
+export function TodayPanel({ items, title = "Today", note, lead, main }: { items: FeedItem[]; title?: string; note?: string; lead?: ReactNode; main?: boolean }) {
   const open = items.filter((i) => i.state === "new");
   const groups = groupFeed(open);
   return (
-    <section className="side-panel" aria-labelledby="today-heading">
+    <section className={`side-panel${main ? " is-main" : ""}`} aria-labelledby="today-heading">
       <header className="pane-header">
         <div className="pane-title">
+          {lead}
           <span className="pane-name" id="today-heading">
             {title}
           </span>
