@@ -1,9 +1,10 @@
 "use client";
+import { SettingsPage } from "./SettingsPage";
 import { Empty } from "@/components/States";
 import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteSkill, getSkill, saveSkill } from "@/app/actions";
+import { deleteSkill, getSkill, saveSkill } from "@/lib/actions";
 import type { Skill, SkillsStatus } from "@/lib/daemon";
 
 const TEMPLATE = `---
@@ -120,34 +121,23 @@ export function SkillsPage({ initial, home }: { initial: SkillsStatus; home: str
   const s = initial;
   const done = () => (setAdding(false), router.refresh());
   return (
-    <div className="machines">
-      <header className="pane-header">
-        <div className="pane-title">
-          <span className="pane-name">Skills</span>
-          <span className="meta">your skills, by tag, handed to tasks · on {home}</span>
-        </div>
-        <button type="button" className="button small" onClick={() => setAdding(true)} disabled={adding}>
-          <Plus size={13} /> New skill
-        </button>
-      </header>
-      <div className="machines-body is-single" data-scroll="y">
-        <main className="machines-main">
-          <article className="machine-detail is-wide">
-            {adding && <SkillCard s={s} startOpen onDone={done} />}
-            {s.skills.map((k) => (
-              <SkillCard key={k.name} skill={k} s={s} onDone={done} />
-            ))}
-            {s.skills.length === 0 && !adding && <Empty title="No skills yet" />}
-            <p className="meta">
-              A task&apos;s Claude Code gets the skills tagged for its kind:{" "}
-              {Object.entries(s.taskTags)
-                .map(([k, t]) => `${k} tasks ← ${t.join(", ")}`)
-                .join("; ")}
-              ; and <span className="mono">{s.everyTask}</span> goes to all. They show as /jin:&lt;name&gt; and start with the next Claude Code tab of a task.
-            </p>
-          </article>
-        </main>
-      </div>
-    </div>
+    <SettingsPage title="Skills" meta={<>your skills, by tag, handed to tasks · on {home}</>} wide actions={<>
+      <button type="button" className="button small" onClick={() => setAdding(true)} disabled={adding}>
+        <Plus size={13} /> New skill
+      </button>
+      </>}>
+        {adding && <SkillCard s={s} startOpen onDone={done} />}
+        {s.skills.map((k) => (
+          <SkillCard key={k.name} skill={k} s={s} onDone={done} />
+        ))}
+        {s.skills.length === 0 && !adding && <Empty title="No skills yet" />}
+        <p className="meta">
+          A task&apos;s Claude Code gets the skills tagged for its kind:{" "}
+          {Object.entries(s.taskTags)
+            .map(([k, t]) => `${k} tasks ← ${t.join(", ")}`)
+            .join("; ")}
+          ; and <span className="mono">{s.everyTask}</span> goes to all. They show as /jin:&lt;name&gt; and start with the next Claude Code tab of a task.
+        </p>
+    </SettingsPage>
   );
 }

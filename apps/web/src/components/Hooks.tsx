@@ -1,9 +1,10 @@
 "use client";
+import { SettingsPage } from "./SettingsPage";
 import { Empty } from "@/components/States";
 import { Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { deleteHook, getHooks, saveHook } from "@/app/actions";
+import { deleteHook, getHooks, saveHook } from "@/lib/actions";
 import type { Hook, HooksStatus } from "@/lib/daemon";
 
 const ago = (iso: string) => {
@@ -139,30 +140,19 @@ export function HooksPage({ initial, home }: { initial: HooksStatus; home: strin
     return () => clearInterval(t);
   }, []);
   return (
-    <div className="machines">
-      <header className="pane-header">
-        <div className="pane-title">
-          <span className="pane-name">Hooks</span>
-          <span className="meta">when something happens, an agent follows your instructions · on {home}</span>
-        </div>
-        <button type="button" className="button small" onClick={() => setAdding(true)} disabled={adding}>
-          <Plus size={13} /> New hook
-        </button>
-      </header>
-      <div className="machines-body is-single" data-scroll="y">
-        <main className="machines-main">
-          <article className="machine-detail">
-            {adding && <HookCard s={s} startOpen onSaved={() => (setAdding(false), refresh())} onCancel={() => setAdding(false)} />}
-            {s.hooks.map((h) => (
-              <HookCard key={h.id} hook={h} s={s} onSaved={refresh} />
-            ))}
-            {s.hooks.length === 0 && !adding && <Empty title="No hooks yet">Add one, or ask jin in the chat to set one up.</Empty>}
-            <p className="meta">
-              A hook starts a jin chat with its instructions and the event&apos;s details, once per event. The agent has jin&apos;s tools and your connectors; Linear and Slack changes, and removing worktrees, wait for your approval.
-            </p>
-          </article>
-        </main>
-      </div>
-    </div>
+    <SettingsPage title="Hooks" meta={<>when something happens, an agent follows your instructions · on {home}</>} actions={<>
+      <button type="button" className="button small" onClick={() => setAdding(true)} disabled={adding}>
+        <Plus size={13} /> New hook
+      </button>
+      </>}>
+        {adding && <HookCard s={s} startOpen onSaved={() => (setAdding(false), refresh())} onCancel={() => setAdding(false)} />}
+        {s.hooks.map((h) => (
+          <HookCard key={h.id} hook={h} s={s} onSaved={refresh} />
+        ))}
+        {s.hooks.length === 0 && !adding && <Empty title="No hooks yet">Add one, or ask jin in the chat to set one up.</Empty>}
+        <p className="meta">
+          A hook starts a jin chat with its instructions and the event&apos;s details, once per event. The agent has jin&apos;s tools and your connectors; Linear and Slack changes, and removing worktrees, wait for your approval.
+        </p>
+    </SettingsPage>
   );
 }
