@@ -1,4 +1,5 @@
 "use client";
+import { fromSession, isNotable } from "@/lib/agent-state";
 import { act } from "@/lib/notices";
 import { Archive, ArchiveRestore, MessageSquarePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
@@ -145,7 +146,7 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
               }}
               {...contextMenu(() => menu(s))}
             >
-              {state === "running" || state === "waiting_approval" || state === "failed" ? <StatusMark state={state} /> : <span className="status-dot" aria-hidden="true" />}
+              {isNotable(fromSession(state)) ? <StatusMark state={fromSession(state)} /> : <span className="status-dot" aria-hidden="true" />}
               {renaming === s.id ? (
                 <RenameInput
                   value={label(s)}
@@ -185,7 +186,7 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
             onAuxClick={(e) => e.button === 1 && void drop(s, "archive")}
             {...contextMenu(() => menu(s))}
           >
-            {(state === "running" || state === "waiting_approval" || state === "failed") && <StatusMark state={state} />}
+            {isNotable(fromSession(state)) && <StatusMark state={fromSession(state)} />}
             {renaming === s.id ? (
               <RenameInput
                 value={label(s)}

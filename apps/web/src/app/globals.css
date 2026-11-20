@@ -5563,10 +5563,10 @@ button.room-handle:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.room-agent-state.is-running {
+.room-agent-state.is-working {
   color: var(--state-running);
 }
-.room-agent-state.is-waiting_approval,
+.room-agent-state.is-needs-you,
 .room-agent-state.is-queued {
   color: var(--state-waiting);
 }
@@ -5888,4 +5888,25 @@ button.room-ref {
 .problems-message {
   color: var(--secondary);
   overflow-wrap: anywhere;
+}
+
+/* A generated prompt (a room agent's turn), folded to one line in its transcript. */
+.turn-prompt summary {
+  color: var(--muted);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+.turn-prompt pre {
+  max-height: 260px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font-size: 11px;
+}
+.room-activity-log .transcript {
+  display: grid;
+  gap: var(--space-3);
 }

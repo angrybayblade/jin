@@ -1,4 +1,5 @@
 "use client";
+import { AGENT_LABEL, type AgentState } from "@/lib/agent-state";
 // Zero's WebGL thermal-metal mark, used by jin for its logo, loading and status
 // indicators. Ported from ComposioHQ/zero (src/components/ZeroMark.tsx): same shader,
 // silhouettes, frame budget, reduced-motion, context-loss and SVG fallback handling.
@@ -299,20 +300,22 @@ export function ThermalMark({
   );
 }
 
-/** Session and run status as a small thermal mark with an accessible label. */
-export function StatusMark({ state }: { state: "running" | "waiting_approval" | "idle" | "failed" | "interrupted" | "queued" }) {
+/** An agent's state (lib/agent-state) as a small thermal mark with an accessible label: the same everywhere. */
+export function StatusMark({ state }: { state: AgentState }) {
   const map = {
-    running: { mark: "working", variant: "blob", label: "Working" },
-    waiting_approval: { mark: "waiting", variant: "connection", label: "Waiting for your approval" },
-    queued: { mark: "queued", variant: "workflow", label: "Queued" },
-    idle: { mark: "idle", variant: "blob", label: "Idle" },
-    failed: { mark: "idle", variant: "command", label: "Failed" },
-    interrupted: { mark: "idle", variant: "workflow", label: "Interrupted" },
+    working: { mark: "working", variant: "blob" },
+    "needs-you": { mark: "waiting", variant: "connection" },
+    queued: { mark: "queued", variant: "workflow" },
+    idle: { mark: "idle", variant: "blob" },
+    new: { mark: "idle", variant: "blob" },
+    failed: { mark: "idle", variant: "command" },
+    stopped: { mark: "idle", variant: "workflow" },
   } as const;
   const m = map[state];
+  const label = AGENT_LABEL[state].replace(/^\w/, (c) => c.toUpperCase());
   return (
-    <span className={`status-mark is-${state}`} role="status" aria-label={m.label} title={m.label}>
-      <ThermalMark size={20} state={m.mark} variant={m.variant} animated={state === "running" || state === "waiting_approval"} />
+    <span className={`status-mark is-${state}`} role="status" aria-label={label} title={label}>
+      <ThermalMark size={20} state={m.mark} variant={m.variant} animated={state === "working" || state === "needs-you"} />
     </span>
   );
 }

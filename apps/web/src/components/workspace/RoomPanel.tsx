@@ -6,6 +6,8 @@ import type { ModelChoices, RoomAgent, RoomApproval, RoomMessage, RoomProfile, S
 import { openContextMenu, type MenuItem } from "../ContextMenu";
 import { Markdown } from "../Markdown";
 import { ActionMark, StatusMark } from "../ThermalMark";
+import { Transcript } from "../Transcript";
+import { AGENT_LABEL, fromRoom } from "@/lib/agent-state";
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const busy = (a: RoomAgent) => a.state === "running" || a.state === "waiting_approval" || a.state === "queued";
@@ -20,15 +22,7 @@ function named(text: string, agents: RoomAgent[]): RoomAgent[] {
   return out;
 }
 
-const STATE: Record<RoomAgent["state"], string> = {
-  new: "not started",
-  queued: "queued",
-  running: "working",
-  waiting_approval: "needs your approval",
-  idle: "idle",
-  failed: "failed",
-  interrupted: "stopped",
-};
+const STATE = (s: RoomAgent["state"]) => AGENT_LABEL[fromRoom(s)];
 
 type Side = { view: "roster" } | { view: "edit"; id: string | null } | { view: "activity"; id: string };
 
@@ -195,7 +189,7 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
                   <Markdown content={a.draft} streaming />
                 </div>
               )}
-              <StatusMark state={a.state === "new" ? "idle" : a.state} />
+              <StatusMark state={fromRoom(a.state)} />
               <span className="room-msg-name">{a.name}</span>
               <span className="meta room-working-what">{a.state === "queued" ? "waiting its turn" : a.state === "waiting_approval" ? "needs your approval" : (a.activity ?? "working")}</span>
               <button type="button" className="button quiet small" onClick={() => setSide({ view: "activity", id: a.id })}>
@@ -257,8 +251,8 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
                       <span className="room-agent-name">
                         {a.name} <span className="meta">@{a.handle}</span>
                       </span>
-                      <span className={`meta room-agent-state is-${a.state}`}>
-                        {a.access === "writer" ? "writes code" : "read-only"} · {STATE[a.state]}
+                      <span className={`meta room-agent-state is-${fromRoom(a.state)}`}>
+                        {a.access === "writer" ? "writes code" : "read-only"} · {STATE(a.state)}
                         {a.queued > 0 && a.state !== "queued" ? ` · ${a.queued} queued` : ""}
                       </span>
                     </span>
@@ -598,12 +592,6 @@ function ProfileForm({ taskId, agent, onDone }: { taskId: string; agent: RoomAge
   );
 }
 
-const toolLine = (p: Record<string, any>): string => {
-  const input = (p.input ?? {}) as Record<string, unknown>;
-  const arg = typeof input.file_path === "string" ? input.file_path : typeof input.command === "string" ? input.command : typeof input.pattern === "string" ? input.pattern : typeof input.docId === "string" ? input.docId : "";
-  return `${String(p.tool ?? "").replace(/^mcp__jin__/, "")} ${String(arg)}`.trim();
-};
-
 /** What an agent did, step by step: its own session, which the other agents never see. */
 function AgentActivity({ taskId, agent, onClose }: { taskId: string; agent: RoomAgent; onClose: () => void }) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
@@ -627,48 +615,20 @@ function AgentActivity({ taskId, agent, onClose }: { taskId: string; agent: Room
       clearInterval(t);
     };
   }, [taskId, agent.id, agent.sessionId]);
-  const shown = events.filter((e) => ["prompt", "message", "tool.started", "tool.denied", "session.failed", "result"].includes(e.kind));
+  // The same transcript as any chat: its turns, the work folded under "Worked for …", its answers.
+  // What it was handed (the room since its last turn) is folded: it is long, and generated.
   return (
     <div className="room-activity">
       <div className="room-side-head">
         <span>
-          {agent.name} <span className="meta">its own steps · {STATE[agent.state]}</span>
+          {agent.name} <span className="meta">its own steps · {STATE(agent.state)}</span>
         </span>
         <button type="button" className="nav-section-action" onClick={onClose} aria-label="Close" title="Close">
           <X size={14} />
         </button>
       </div>
       <div className="room-activity-log" data-scroll="y">
-        {!shown.length && <p className="meta">Nothing yet: it has not taken a turn.</p>}
-        {shown.map((e) =>
-          e.kind === "prompt" ? (
-            <details key={e.seq} className="room-step is-turn">
-              <summary>Turn at {clock(e.at)}: what it was given</summary>
-              <pre>{String(e.payload.text ?? "")}</pre>
-            </details>
-          ) : e.kind === "message" ? (
-            <div key={e.seq} className="room-step is-said">
-              <Markdown content={String(e.payload.text ?? "")} />
-            </div>
-          ) : e.kind === "tool.started" ? (
-            <p key={e.seq} className="room-step is-tool" title={toolLine(e.payload)}>
-              {toolLine(e.payload)}
-            </p>
-          ) : e.kind === "tool.denied" ? (
-            <p key={e.seq} className="room-step is-denied">
-              refused: {toolLine(e.payload)} ({String(e.payload.reason ?? "")})
-            </p>
-          ) : e.kind === "session.failed" ? (
-            <p key={e.seq} className="room-step is-denied">
-              {String(e.payload.error ?? "stopped")}
-            </p>
-          ) : (
-            <p key={e.seq} className="room-step is-result meta">
-              turn done{typeof e.payload.turns === "number" ? ` · ${e.payload.turns} steps` : ""}
-              {typeof e.payload.costUsd === "number" ? ` · $${e.payload.costUsd.toFixed(2)}` : ""}
-            </p>
-          ),
-        )}
+        <Transcript events={events} state={agent.state === "new" || agent.state === "queued" ? "idle" : agent.state} foldPrompts empty="Nothing yet: it has not taken a turn." />
         <div ref={end} />
       </div>
     </div>

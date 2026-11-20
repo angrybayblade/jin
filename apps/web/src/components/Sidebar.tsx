@@ -1,5 +1,6 @@
 "use client";
 import { SidebarDocs } from "./docs/SidebarDocs";
+import { fromSession, fromTerminal } from "@/lib/agent-state";
 import {
   Archive,
   ArchiveRestore,
@@ -23,7 +24,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, Suspense, useEffect, useState } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, DocSummary, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
+import type { DocSummary, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
 import { splitPath, taskHref } from "@/lib/paths";
 import { setDrawer } from "@/lib/phone";
 import { SidebarChats } from "./ChatTabs";
@@ -37,15 +38,6 @@ import { DensityToggle, HistoryButtons, SidebarToggle } from "./ShellControls";
 import { StatusMark } from "./ThermalMark";
 import { ThemeToggle } from "./ThemeToggle";
 import { ViewSwitch } from "./ViewSwitch";
-
-const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | "interrupted"> = {
-  starting: "running",
-  working: "running",
-  waiting: "waiting_approval",
-  idle: "idle",
-  exited: "interrupted",
-  interrupted: "interrupted",
-};
 
 const copy = (text: string) => void navigator.clipboard?.writeText(text);
 
@@ -164,7 +156,7 @@ export function Sidebar({
     if (t.removing || removing.has(`${g.id}:${t.id}`)) {
       return (
         <div key={`${g.id}:${t.id}`} className="nav-item task is-removing" style={depth ? { paddingLeft: 8 + depth * 14 } : undefined} aria-disabled="true" title={`Removing ${t.id}…`}>
-          <StatusMark state="running" />
+          <StatusMark state="working" />
           <span className="nav-label">
             <span className="mono">{t.id}</span> <span className="nav-sub">removing…</span>
           </span>
@@ -174,7 +166,7 @@ export function Sidebar({
     // Claude Code's status (from its hooks), else the latest SDK session's.
     const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
     const s = latest((x) => x.taskId === t.id);
-    const mark = cli ? AGENT_MARK[cli.status] : s?.state;
+    const mark = cli ? fromTerminal(cli.status) : s ? fromSession(s.state) : null;
     const title = t.title ?? t.slug;
     // Open PRs: a quiet mark, red when one needs you (failing checks, changes requested).
     const open = prs.filter((p) => p.taskId === t.id && p.state === "OPEN");
@@ -189,7 +181,7 @@ export function Sidebar({
         title={`${t.parent ? `${title} · sub-task of ${t.parent}` : title}${several ? ` · on ${g.label}` : ""}`}
         {...contextMenu(() => taskMenu(g.id, t))}
       >
-        {mark ? <StatusMark state={mark} /> : <span className="status-dot" aria-hidden="true" />}
+        {mark && mark !== "idle" ? <StatusMark state={mark} /> : <span className="status-dot" aria-hidden="true" />}
         <span className="nav-label">
           <span className="mono">{t.id}</span>{" "}
           {renaming === `task:${g.id}:${t.id}` ? (
@@ -276,7 +268,7 @@ export function Sidebar({
               {several && <MachineLabel label={g.label} local={g.id === "local"} note={g.down ? "not answering" : empty ? "no tasks" : undefined} />}
               {pending.map((j) => (
                 <Link key={`${g.id}:job:${j.id}`} href={taskHref(g.id, j.taskId)} className={`nav-item task ${isOpen(g.id, j.taskId) ? "active" : ""}`} title={j.slug}>
-                  <StatusMark state={j.state === "running" ? "running" : "failed"} />
+                  <StatusMark state={j.state === "running" ? "working" : "failed"} />
                   <span className="nav-label">
                     <span className="mono">{j.taskId}</span> <span className="nav-sub">{j.state === "running" ? "setting up…" : "setup failed"}</span>
                   </span>

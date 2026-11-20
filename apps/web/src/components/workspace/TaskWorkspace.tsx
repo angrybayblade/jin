@@ -8,8 +8,9 @@ import { DocPage } from "../docs/DocPage";
 import { docMenu } from "../docs/docMenu";
 import type { DocFull, Session, SessionEvent } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
+import { AGENT_LABEL, fromTerminal } from "@/lib/agent-state";
 import { act } from "@/lib/notices";
-import type { AgentStatus, TaskPR, TerminalInfo } from "@/lib/daemon";
+import type { TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
 import { useTabShortcuts } from "@/lib/shortcuts";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
@@ -28,14 +29,6 @@ import { TerminalView } from "./TerminalView";
 import { RoomPanel } from "./RoomPanel";
 import { Boundary } from "../Boundary";
 
-const MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | "interrupted"> = {
-  starting: "running",
-  working: "running",
-  waiting: "waiting_approval",
-  idle: "idle",
-  exited: "interrupted",
-  interrupted: "interrupted",
-};
 const running = (t: TerminalInfo) => t.status !== "exited" && t.status !== "interrupted";
 
 // Opening is not idempotent and React runs effects twice in development: one request per key.
@@ -516,7 +509,7 @@ export function TaskWorkspace({
         id: termKey(t.id),
         group: t.kind,
         label: t.title,
-        detail: `${taskId} · ${t.kind === "claude" ? `Claude Code · ${t.status}` : "shell"}`,
+        detail: `${taskId} · ${t.kind === "claude" ? `Claude Code · ${AGENT_LABEL[fromTerminal(t.status)]}` : "shell"}`,
         activate: () => setActive(termKey(t.id)),
       })),
       { id: "room", group: "file" as const, label: "Room", detail: `${taskId} · agent room`, activate: () => setActive("room") },
@@ -616,8 +609,8 @@ export function TaskWorkspace({
           {terms.map((t) => {
             const k = termKey(t.id);
             return (
-              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={t.kind === "claude" ? `${t.title} · Claude Code · ${t.status}` : `${t.title} · terminal`} onClick={() => (setActive(k), toBody())} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => termMenu(t))}>
-                {t.kind === "claude" ? <StatusMark state={MARK[t.status]} /> : <SquareTerminal size={13} className="tab-icon" />}
+              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={t.kind === "claude" ? `${t.title} · Claude Code · ${AGENT_LABEL[fromTerminal(t.status)]}` : `${t.title} · terminal`} onClick={() => (setActive(k), toBody())} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => termMenu(t))}>
+                {t.kind === "claude" ? <StatusMark state={fromTerminal(t.status)} /> : <SquareTerminal size={13} className="tab-icon" />}
                 {renaming === t.id ? <RenameInput value={t.title} label={`Rename ${t.title}`} onCancel={() => setRenaming(null)} onSave={(v) => void rename(t, v)} /> : <span className="term-tab-name">{t.title}</span>}
                 {closeButton(k, t.title, () => void closeTerm(t), "Click again to close; the Claude Code session ends")}
               </div>
@@ -625,7 +618,7 @@ export function TaskWorkspace({
           })}
           {roomOpen && (
             <div role="tab" tabIndex={0} aria-selected={current === "room"} className={`term-tab ${current === "room" ? "is-active" : ""}`} title="Agent room: several agents, each with a role, that you direct" onClick={() => (setActive("room"), toBody())} {...contextMenu(roomMenu)}>
-              {room.waiting > 0 ? <StatusMark state="waiting_approval" /> : room.working > 0 ? <StatusMark state="running" /> : <Users size={13} className="tab-icon" />}
+              {room.waiting > 0 ? <StatusMark state="needs-you" /> : room.working > 0 ? <StatusMark state="working" /> : <Users size={13} className="tab-icon" />}
               <span className="term-tab-name">Room</span>
               {current !== "room" && room.lastSeq > roomSeen && <span className="dirty-dot" aria-label="new messages" title="New messages" />}
             </div>
