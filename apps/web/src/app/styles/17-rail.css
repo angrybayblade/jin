@@ -8,7 +8,56 @@
 .sidebar-top > .traffic-gap + span {
   margin-left: auto;
 }
-/* Collapsed: one centred column of equal squares; sections and machines become short rules. */
+/* ------------------------------------------------------------------ the collapsed sidebar: a rail
+   Everything about html[data-sidebar="collapsed"] is here (and nowhere else). */
+
+/* What shows only one way or the other. */
+.only-collapsed,
+.only-collapsed-row,
+.sidebar-top > .only-collapsed {
+  display: none !important;
+}
+html[data-sidebar="collapsed"] .only-collapsed {
+  display: inline-flex !important;
+}
+html[data-sidebar="collapsed"] .only-collapsed-row {
+  display: flex !important;
+}
+html[data-sidebar="collapsed"] :is(.hide-collapsed, .jin-button) {
+  display: none !important;
+}
+
+/* Its width: room for the window buttons in the desktop window, until the window puts them away
+   (data-window-buttons-hidden, set by the window) or full screen hides them. */
+html[data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+html[data-shell="desktop"][data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+html[data-shell="desktop"][data-sidebar="collapsed"]:is([data-fullscreen], [data-window-buttons-hidden]) .app-shell {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+html[data-shell="desktop"][data-sidebar="collapsed"][data-window-buttons-hidden] .traffic-gap {
+  display: none !important;
+}
+html[data-sidebar="collapsed"] .sidebar-resizer {
+  display: none;
+}
+
+/* The top bar: the expand button heads the rail (in the desktop window, once the buttons are away). */
+html[data-sidebar="collapsed"] .sidebar-top {
+  justify-content: center;
+}
+html[data-sidebar="collapsed"] .sidebar-top > .only-collapsed {
+  display: inline-flex !important;
+  margin-left: 0;
+}
+html[data-shell="desktop"][data-sidebar="collapsed"]:not([data-window-buttons-hidden]) .sidebar-top > .only-collapsed {
+  display: none !important;
+}
+
+/* The list: one centred column of equal squares; names go, sections and machines become short rules. */
 html[data-sidebar="collapsed"] .sidebar {
   padding: 0 0 8px;
 }
@@ -16,14 +65,29 @@ html[data-sidebar="collapsed"] .sidebar nav {
   align-items: center;
   gap: 2px;
 }
+html[data-sidebar="collapsed"] :is(.nav-label, .nav-section, .nav-pr, .sidebar-empty, .sidebar-where, .machine-switcher-name, .machine-switcher-where, .machine-switcher .machine-dot) {
+  display: none;
+}
 html[data-sidebar="collapsed"] .sidebar :is(.nav-item, .nav-item.task) {
+  position: relative;
+  flex: none;
+  justify-content: center;
+  gap: 0;
   width: 32px;
   height: 32px;
   min-height: 32px;
   padding: 0 !important;
-  gap: 0;
-  justify-content: center;
-  flex: none;
+}
+html[data-sidebar="collapsed"] .nav-count {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  min-width: 14px;
+  padding: 0 3px;
+  font-size: 10px;
+}
+html[data-sidebar="collapsed"] .sidebar :is(.nav-archived-toggle, .nav-more, .nav-item.is-archived) {
+  display: none;
 }
 html[data-sidebar="collapsed"] .sidebar nav > :is(.nav-section, .nav-machine) {
   display: block;
@@ -40,11 +104,15 @@ html[data-sidebar="collapsed"] .sidebar nav > .nav-section:first-of-type {
   margin-top: var(--space-3);
   border-top-color: transparent;
 }
-html[data-sidebar="collapsed"] .sidebar :is(.nav-archived-toggle, .nav-more, .nav-item.is-archived) {
+/* Empty sections leave no stack of rules: a rule followed by another rule (or by nothing) goes. */
+html[data-sidebar="collapsed"] .sidebar nav > :is(.nav-section, .nav-machine):has(+ :is(.nav-section, .nav-machine, .phone-only)) {
   display: none;
 }
+
+/* The footer: settings, then the controls, in the same column. */
 html[data-sidebar="collapsed"] .sidebar-bottom {
   flex-direction: column;
+  justify-content: center;
   align-items: center;
   gap: 2px;
   margin: 0 8px;
@@ -57,37 +125,13 @@ html[data-sidebar="collapsed"] .sidebar-controls {
   gap: 2px;
 }
 html[data-sidebar="collapsed"] .sidebar-bottom :is(.button.icon-only, .machine-switcher) {
+  justify-content: center;
   width: 32px;
   height: 32px;
   min-height: 32px;
   padding: 0;
-  justify-content: center;
 }
-/* Collapsed: the expand button heads the rail. In the desktop window it takes the window buttons'
-   place once the window has put them away (data-window-buttons-hidden, set by the window). */
-html[data-sidebar="collapsed"] .sidebar-top {
-  justify-content: center;
-}
-.sidebar-top > .only-collapsed {
-  display: none;
-}
-html[data-sidebar="collapsed"] .sidebar-top > .only-collapsed {
-  display: inline-flex;
-  margin-left: 0;
-}
-html[data-shell="desktop"][data-sidebar="collapsed"]:not([data-window-buttons-hidden]) .sidebar-top > .only-collapsed {
-  display: none;
-}
-html[data-shell="desktop"][data-sidebar="collapsed"][data-window-buttons-hidden] .traffic-gap {
-  display: none !important;
-}
-html[data-shell="desktop"][data-sidebar="collapsed"][data-window-buttons-hidden] .app-shell {
-  grid-template-columns: 52px minmax(0, 1fr);
-}
-/* Empty sections leave no stack of rules: a rule followed by another rule (or by nothing) goes. */
-html[data-sidebar="collapsed"] .sidebar nav > :is(.nav-section, .nav-machine):has(+ :is(.nav-section, .nav-machine, .phone-only)) {
-  display: none;
-}
+
 /* The collapsed rail's names, to the right of the hovered icon. */
 .rail-tip {
   position: fixed;

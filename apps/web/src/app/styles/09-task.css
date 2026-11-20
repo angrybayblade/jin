@@ -252,9 +252,6 @@
 .nav-pr.is-attention {
   color: var(--state-failed);
 }
-html[data-sidebar="collapsed"] .nav-pr {
-  display: none;
-}
 
 /* Chat tabs: the same compact pills as a task's tabs. */
 .pane-header.has-tabs:has(> .chat-tabs) {
@@ -330,22 +327,10 @@ html[data-sidebar="collapsed"] .nav-pr {
   width: 14px !important;
   height: 14px !important;
 }
-html[data-sidebar="collapsed"] .jin-button {
-  display: none !important;
-}
-.only-collapsed-row {
-  display: none !important;
-}
-html[data-sidebar="collapsed"] .only-collapsed-row {
-  display: flex !important;
-}
 /* The list starts right under the top bar: no gap above the first section (Jin moved up). */
 .sidebar-top {
   margin-bottom: 0;
 }
 .sidebar nav > .nav-section:first-of-type {
   margin-top: var(--space-1);
-}
-html[data-sidebar="collapsed"] .sidebar nav > .nav-section:first-of-type {
-  margin-top: var(--space-4);
 }

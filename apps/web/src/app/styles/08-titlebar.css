@@ -30,15 +30,6 @@
 .traffic-gap {
   display: none !important;
 }
-.only-collapsed {
-  display: none;
-}
-html[data-sidebar="collapsed"] .only-collapsed {
-  display: inline-flex;
-}
-html[data-sidebar="collapsed"] .hide-collapsed {
-  display: none !important;
-}
 /* The desktop window: no system title bar; the window buttons sit in the sidebar's top bar. */
 html[data-shell="desktop"] .traffic-gap {
   display: block !important;
@@ -49,12 +40,6 @@ html[data-shell="desktop"] .traffic-gap {
 /* Full screen hides the window buttons: the bar's controls slide left into their place. */
 html[data-shell="desktop"][data-fullscreen] .traffic-gap {
   width: 0;
-}
-html[data-shell="desktop"][data-fullscreen][data-sidebar="collapsed"] .app-shell {
-  grid-template-columns: 52px minmax(0, 1fr);
-}
-html[data-shell="desktop"][data-sidebar="collapsed"] .app-shell {
-  grid-template-columns: 76px minmax(0, 1fr);
 }
 /* Top bars move the window (Electrobun reads app-region; the custom property survives WebKit's CSSOM). */
 html[data-shell="desktop"] :is(.pane-header, .sidebar-top) {

@@ -341,13 +341,6 @@
   margin-left: auto;
   font-style: italic;
 }
-html[data-sidebar="collapsed"] :is(.nav-machine-name, .nav-machine-empty) {
-  display: none;
-}
-html[data-sidebar="collapsed"] .nav-machine {
-  justify-content: center;
-  padding: 0;
-}
 .welcome-notice,
 .desk-connection.is-missing {
   padding: var(--space-2) var(--space-3);

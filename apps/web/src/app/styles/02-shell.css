@@ -79,35 +79,6 @@
 .app-shell {
   position: relative;
 }
-html[data-sidebar="collapsed"] .app-shell {
-  grid-template-columns: 52px minmax(0, 1fr);
-}
-html[data-sidebar="collapsed"] :is(.nav-label, .nav-section, .sidebar-empty, .sidebar-where, .machine-switcher-name, .machine-switcher-where, .machine-switcher .machine-dot) {
-  display: none;
-}
-html[data-sidebar="collapsed"] .nav-item {
-  justify-content: center;
-  padding: 2px 0;
-  position: relative;
-}
-html[data-sidebar="collapsed"] .nav-count {
-  position: absolute;
-  top: 0;
-  right: 2px;
-  min-width: 14px;
-  padding: 0 3px;
-  font-size: 10px;
-}
-html[data-sidebar="collapsed"] .sidebar-bottom {
-  justify-content: center;
-  padding-left: 0;
-}
-html[data-sidebar="collapsed"] .sidebar-controls {
-  flex-direction: column;
-}
-html[data-sidebar="collapsed"] .sidebar-resizer {
-  display: none;
-}
 .sidebar-resizer {
   position: absolute;
   top: 0;
