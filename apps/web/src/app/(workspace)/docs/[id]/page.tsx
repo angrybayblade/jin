@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { DocPage } from "@/components/docs/DocPage";
 import { MachineDown } from "@/components/MachineSwitcher";
-import { daemon, daemonWsBase, homeMachine, type DocFull, type Session, type SessionEvent } from "@/lib/daemon";
+import { daemon, DaemonUnavailable, daemonWsBase, homeMachine, type DocFull, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (/no doc/.test(message)) notFound();
+    // The home not answering is said as such; any other failure is the page's error (with its reason).
+    if (!(err instanceof DaemonUnavailable)) throw err;
     return <MachineDown id={homeMachine()} name="jin's home" message={message} />;
   }
   const chat = doc.chatId

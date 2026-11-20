@@ -1,3 +1,4 @@
+import { Boundary } from "@/components/Boundary";
 import { Chat } from "@/components/Chat";
 import { Panes } from "@/components/Panes";
 import { ActivityDesk } from "@/components/ActivityDesk";
@@ -32,8 +33,9 @@ export default async function DeskPage() {
       id="desk"
       defaultSplit={60}
       labels={["Activity", "Desk agent"]}
-      left={<ActivityDesk items={feed} />}
+      left={<Boundary label="Activity"><ActivityDesk items={feed} /></Boundary>}
       right={
+        <Boundary label="The desk agent" resetKey={session?.id ?? "new"}>
         <Chat
           key={session?.id ?? "new"}
           kind="desk"
@@ -50,6 +52,7 @@ export default async function DeskPage() {
           }}
           placeholder="Ask your desk…"
         />
+        </Boundary>
       }
     />
   );

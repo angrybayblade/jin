@@ -1,3 +1,4 @@
+import { Boundary } from "@/components/Boundary";
 import { Chat } from "@/components/Chat";
 import { ChatRefs } from "@/components/ChatRefs";
 import { Panes } from "@/components/Panes";
@@ -25,7 +26,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
   const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
-    <Panes id="home" defaultSplit={70} labels={["Chat", "In this chat"]} left={<>
+    <Panes id="home" defaultSplit={70} labels={["Chat", "In this chat"]} left={<Boundary label="The chat" resetKey={session?.id ?? "new"}>
       <Chat
         key={session?.id ?? "new"}
         chats={sessions}
@@ -42,8 +43,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
           suggestions: ["Catch me up", "What's blocked on me?", "Refresh GitHub and tell me what changed"],
         }}
         placeholder="Ask jin…"
-      /></>}
-      right={<ChatRefs key={session?.id ?? "new"} sessionId={session?.id ?? null} />}
+      /></Boundary>}
+      right={<Boundary label="In this chat" resetKey={session?.id ?? "new"}><ChatRefs key={session?.id ?? "new"} sessionId={session?.id ?? null} /></Boundary>}
     />
   );
 }

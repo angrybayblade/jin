@@ -1,3 +1,4 @@
+import { Missing } from "@/components/Missing";
 import { redirect } from "next/navigation";
 import { TaskView } from "@/components/workspace/TaskView";
 import { TaskSetup } from "@/components/TaskSetup";
@@ -31,20 +32,8 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
     const elsewhere = await findTask(taskId);
     if (elsewhere) redirect(taskHref(elsewhere, taskId));
   }
-  if (!task) {
-    return (
-      <section className="side-panel">
-        <p className="meta pad">No machine jin knows has a task {taskId}.</p>
-      </section>
-    );
-  }
-  if (task.state !== "ready") {
-    return (
-      <section className="side-panel">
-        <p className="meta pad">Task {task.id} was removed.</p>
-      </section>
-    );
-  }
+  if (!task) return <Missing title={`No task ${taskId}`} body="No machine jin knows has it: it may have been removed, or be on a machine that is not connected." />;
+  if (task.state !== "ready") return <Missing title={`${task.id} was removed`} body="Its checkouts are gone. Its chats and docs stay in jin." />;
   const [terminals, prs] = await Promise.all([
     daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}`),
     daemon<TaskPR[]>(`/api/tasks/${encodeURIComponent(taskId)}/prs`).catch(() => [] as TaskPR[]),
