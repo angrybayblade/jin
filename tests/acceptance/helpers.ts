@@ -12,6 +12,9 @@ export const WEB_PORT = process.env.JIN_TEST_WEB_PORT ?? "3927";
 export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 export const WEB_DIST = ".next-acceptance";
 
+/** (The name some tests use for Env.) */
+export type TestEnv = Env;
+
 export interface Env {
   home: string; // JIN_HOME
   workspace: string; // fixture composio-workspace root
@@ -180,11 +183,12 @@ export async function startDaemon(env: Env, extra: Record<string, string> = {}):
 }
 
 /** Wait until fn returns a truthy value. */
-export async function until<T>(fn: () => Promise<T> | T, ms = 10_000, what = "condition"): Promise<T> {
+/** Waits until `fn` answers something truthy, and returns it. */
+export async function until<T>(fn: () => Promise<T> | T, ms = 10_000, what = "condition"): Promise<NonNullable<T>> {
   const deadline = Date.now() + ms;
   for (;;) {
     const v = await fn();
-    if (v) return v;
+    if (v) return v as NonNullable<T>;
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await Bun.sleep(50);
   }
