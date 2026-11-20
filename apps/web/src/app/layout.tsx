@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { DesktopShell } from "@/components/DesktopShell";
@@ -10,6 +10,13 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "jin",
   description: "Catch up, decide what matters, and run agents on it.",
+};
+
+/** viewport-fit=cover: the page runs under the notch and home bar, and pads itself with env(safe-area-inset-*). */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

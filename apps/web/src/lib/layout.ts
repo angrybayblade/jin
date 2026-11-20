@@ -5,6 +5,9 @@
  * before first paint, so nothing jumps). Not a client module: the server renders LAYOUT_BOOT;
  * the functions touch the DOM and are only called in the browser.
  */
+/** Phone-sized windows: the breakpoint globals.css uses for the drawer and single panes (lib/phone.ts). */
+export const PHONE_QUERY = "(max-width: 760px)";
+
 export interface Layout {
   sidebarW?: number;
   sidebarCollapsed?: boolean;
@@ -26,7 +29,8 @@ export function applyLayout(l: Layout) {
   const r = document.documentElement;
   if (l.sidebarW) r.style.setProperty("--sidebar-w", `${l.sidebarW}px`);
   else r.style.removeProperty("--sidebar-w");
-  if (l.sidebarCollapsed) r.dataset.sidebar = "collapsed";
+  // The collapsed rail is a desktop layout: a phone has the drawer instead (lib/phone.ts).
+  if (l.sidebarCollapsed && !window.matchMedia(PHONE_QUERY).matches) r.dataset.sidebar = "collapsed";
   else delete r.dataset.sidebar;
   for (const [k, v] of Object.entries(l.split ?? {})) r.style.setProperty(`--split-${k}`, `${v}%`);
   for (const [k, hidden] of Object.entries(l.asideHidden ?? {})) {
@@ -48,7 +52,7 @@ export function updateLayout(patch: (l: Layout) => Layout) {
 /** In jin's desktop window (Electrobun), jin draws the title bar: html[data-shell="desktop"]. */
 const SHELL_BOOT = `try{var d=document.documentElement;if(window.__electrobun||window.__electrobunWindowId!=null||/[?&]shell=desktop/.test(location.search)){d.dataset.shell="desktop";sessionStorage.setItem("jin-shell","desktop")}else if(sessionStorage.getItem("jin-shell")==="desktop")d.dataset.shell="desktop"}catch(e){}`;
 
-export const LAYOUT_BOOT = SHELL_BOOT + `try{var l=JSON.parse(localStorage.getItem("${KEY}")||"{}"),r=document.documentElement;if(l.sidebarW)r.style.setProperty("--sidebar-w",l.sidebarW+"px");if(l.sidebarCollapsed)r.dataset.sidebar="collapsed";for(var k in l.split||{})r.style.setProperty("--split-"+k,l.split[k]+"%");for(var a in l.asideHidden||{})if(l.asideHidden[a])r.setAttribute("data-aside-"+a,"hidden")}catch(e){}`;
+export const LAYOUT_BOOT = SHELL_BOOT + `try{var l=JSON.parse(localStorage.getItem("${KEY}")||"{}"),r=document.documentElement;if(l.sidebarW)r.style.setProperty("--sidebar-w",l.sidebarW+"px");if(l.sidebarCollapsed&&!matchMedia("${PHONE_QUERY}").matches)r.dataset.sidebar="collapsed";for(var k in l.split||{})r.style.setProperty("--split-"+k,l.split[k]+"%");for(var a in l.asideHidden||{})if(l.asideHidden[a])r.setAttribute("data-aside-"+a,"hidden")}catch(e){}`;
 
 export type Density = "compact" | "comfortable";
 export const DENSITY_COOKIE = "jin-density";

@@ -2,6 +2,7 @@
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { attachTicket } from "@/app/actions";
+import { isPhone } from "@/lib/phone";
 import { useResolvedTheme } from "@/lib/theme";
 
 const THEMES = {
@@ -224,7 +225,8 @@ export function TerminalView({
     if (!active) return;
     requestAnimationFrame(() => {
       fitRef.current?.();
-      focusRef.current?.();
+      // Not on a phone: focusing the terminal brings up the keyboard over half the screen.
+      if (!isPhone()) focusRef.current?.();
     });
   }, [active]);
 
