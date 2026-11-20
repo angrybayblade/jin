@@ -1,3 +1,4 @@
+import { protectJinHome } from "./policy";
 import { randomUUID } from "node:crypto";
 import { DOC_ID, DocAsk, docChatNote, docRoutes, Docs, docTools } from "./docs";
 import { roomRoutes, Rooms } from "./rooms";
@@ -59,6 +60,8 @@ if (dropped.length) console.log(`ignoring ${dropped.length} inherited Claude Cod
 
 const config = loadConfig();
 const db = openDb(config.home);
+// Agents never reach jin's own credentials, database or SSH keys (policy.ts).
+protectJinHome(config.home);
 const app: App = {
   config,
   db,

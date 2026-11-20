@@ -68,6 +68,24 @@ export function simpleCommands(command: string, depth = 0): string[] {
   return out;
 }
 
+/** curl or wget sending data (a body, a form, a file) to a host other than this machine: where it goes, else null. */
+export function uploadTarget(cmd: string): string | null {
+  const curl = /^curl\b/.test(cmd) && /(\s-d\b|\s-d\S|\s--data\S*|\s-F\b|\s--form\b|\s-T\b|\s--upload-file\b|\s-X\s*(POST|PUT|PATCH)\b|\s--request\s+(POST|PUT|PATCH)\b|\s--json\b)/i.test(cmd);
+  const wget = /^wget\b/.test(cmd) && /\s--(post|body)-(data|file)\b|\s--method[= ](POST|PUT|PATCH)\b/i.test(cmd);
+  if (!curl && !wget) return null;
+  const url = /(https?:\/\/[^\s'"]+)/.exec(cmd)?.[1];
+  // This machine, written without a scheme (curl localhost:7317/x): stays here.
+  if (!url && /(^|[\s'"])(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|\s|$)/.test(cmd)) return null;
+  let host: string;
+  try {
+    host = url ? new URL(url).hostname : (/\s([\w.-]+\.[a-z]{2,})(?:[:/]|\s|$)/i.exec(cmd)?.[1] ?? "");
+  } catch {
+    host = "";
+  }
+  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) return null;
+  return host || "an address it names";
+}
+
 /** `pnpm run deploy:prod`, `npm run release`, `yarn deploy`, `bun run publish`, `make deploy`. */
 function unsafeScript(cmd: string): boolean {
   const m = cmd.match(/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+|-w\s+run\s+|--filter\s+\S+\s+(?:run\s+)?)?([A-Za-z0-9:_.\-]+)/) ?? cmd.match(/^make\s+([A-Za-z0-9:_.\-]+)/);
@@ -77,7 +95,55 @@ function unsafeScript(cmd: string): boolean {
   return UNSAFE_SCRIPT.test(name);
 }
 
+// ---------------------------------------------------------------- jin's own secrets
+
+/**
+ * What an agent never reads or touches, whatever it was asked: jin's credentials (the daemon's
+ * token, other machines' tokens, the Composio settings), its database, and SSH private keys.
+ * With the token an agent could call jin's API and approve its own actions; content it reads
+ * from outside (a Slack message, an email, a web page) could ask it to. Agents run as you, so
+ * this is a guardrail for a model being misled, not a sandbox.
+ */
+let guarded: { home: string; paths: string[]; words: RegExp; wholeHome: RegExp } | null = null;
+
+/** jin's home on this machine: what under it is off limits to agents. */
+export function protectJinHome(home: string, userHome = process.env.HOME ?? "") {
+  const h = home.replace(/\/+$/, "");
+  const names = ["daemon.json", "token", "machines", "composio.json", "jin.db"];
+  const paths = [...names.map((n) => `${h}/${n}`), ...(userHome ? [`${userHome.replace(/\/+$/, "")}/.ssh/id_`] : [])];
+  // How a command line may name them: the path itself, ~/.jin/<name>, $JIN_HOME/<name>.
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tail = names.map(esc).join("|");
+  const words = new RegExp(`(${paths.map(esc).join("|")}|(~|\\$HOME|\\$\\{HOME\\})/\\.jin/(${tail})|\\$\\{?JIN_HOME\\}?/(${tail})|\\.ssh/id_|/api/approvals)`);
+  // jin's home as a whole (a search through all of it reads the secrets too): the folder itself,
+  // not a folder in it that agents use (chats' notes, logs, workspace configs).
+  const wholeHome = new RegExp(`(${esc(h)}|(~|\\$HOME|\\$\\{HOME\\})/\\.jin|\\$\\{?JIN_HOME\\}?)/?(?=$|[\\s'"*;|&)])`);
+  guarded = { home: h, paths, words, wholeHome };
+}
+
+const PATH_FIELDS = ["file_path", "path", "notebook_path", "pattern"] as const;
+
+/** Why an agent may not do this (it reaches jin's secrets or its approvals), else null. */
+export function jinSecretsReason(tool: string, input: Record<string, unknown>): string | null {
+  if (!guarded) return null;
+  const { paths, words } = guarded;
+  if (tool === "Bash" || tool === "bash" || tool === "shell") {
+    const command = String(input.command ?? "");
+    if (/\/api\/approvals/.test(command)) return "approvals are decided by the user in jin, never by an agent";
+    return words.test(command) || guarded.wholeHome.test(command) ? "it reaches jin's credentials, database or SSH keys, which agents never touch" : null;
+  }
+  for (const f of PATH_FIELDS) {
+    const v = input[f];
+    if (typeof v !== "string") continue;
+    if (v.replace(/\/+$/, "") === guarded.home || guarded.wholeHome.test(v)) return "it searches all of jin's home, credentials included, which agents never touch";
+    if (paths.some((p) => v === p || v.startsWith(p.endsWith("id_") ? p : `${p}`)) || words.test(v)) return "it reaches jin's credentials, database or SSH keys, which agents never touch";
+  }
+  return null;
+}
+
 export function evaluate(tool: string, input: Record<string, unknown>, rules: PolicyRules = { deny: [], ask: [] }): Verdict {
+  const secret = jinSecretsReason(tool, input);
+  if (secret) return { decision: "deny", reason: `${tool}: ${secret}` };
   if (tool === "Bash" || tool === "bash" || tool === "shell") {
     const command = String(input.command ?? "");
     let ask: Verdict | undefined;
@@ -85,6 +151,8 @@ export function evaluate(tool: string, input: Record<string, unknown>, rules: Po
       for (const r of [...DENY, ...rules.deny]) if (r.pattern.test(cmd)) return { decision: "deny", reason: `\`${cmd}\` ${r.why}; jin never runs it` };
       if (unsafeScript(cmd)) return { decision: "deny", reason: `\`${cmd}\` looks like a deploy or release step; jin never runs it` };
       for (const r of [...ASK, ...rules.ask]) if (!ask && r.pattern.test(cmd)) ask = { decision: "ask", reason: `\`${cmd}\` ${r.why}` };
+      const to = uploadTarget(cmd);
+      if (!ask && to) ask = { decision: "ask", reason: `\`${cmd.slice(0, 120)}\` sends data to ${to}` };
     }
     return ask ?? { decision: "allow", reason: "no rule matched" };
   }
