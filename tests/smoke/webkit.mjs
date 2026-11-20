@@ -13,7 +13,7 @@ const failures = [];
 const browser = await webkit.launch();
 
 /** One page in a fresh window: it loads without an error, fits its window, and passes its own check. */
-async function visit(name, path, { viewport = DESKTOP, layout, check } = {}) {
+async function visit(name, path, { viewport = DESKTOP, layout, check, allowError = false } = {}) {
   const context = await browser.newContext({ viewport });
   if (layout) await context.addInitScript((l) => localStorage.setItem("jin-layout", JSON.stringify(l)), layout);
   const page = await context.newPage();
@@ -24,7 +24,7 @@ async function visit(name, path, { viewport = DESKTOP, layout, check } = {}) {
     await page.goto(ORIGIN + path, { waitUntil: "load", timeout: 60_000 });
     await page.waitForTimeout(1200);
     const text = await page.evaluate(() => document.body.innerText);
-    if (/couldn.t load|Application error|React error/i.test(text)) fail("the error page is showing");
+    if (!allowError && /couldn.t load|Application error|React error/i.test(text)) fail("the error page is showing");
     await check?.(page, fail);
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (wide > 1) fail(`the page is ${wide}px wider than the window`);
@@ -102,7 +102,16 @@ await visit("a doc", `/docs/${DOC}`, {
   },
 });
 
-for (const path of ["/desk", "/machines", "/claude", "/hooks", "/skills", "/notifications", "/setup"]) await visit(path, path);
+for (const path of ["/desk", "/machines", "/claude", "/hooks", "/skills", "/notifications", "/problems", "/setup"]) await visit(path, path);
+
+// A task that is not there: the page says so inside the app (the sidebar stays), not a blank error.
+await visit("a task that is not there", "/t/NOPE-404", {
+  allowError: true,
+  check: async (page, fail) => {
+    if (!(await count(page, ".sidebar"))) fail("the sidebar is gone");
+    if (!(await count(page, ".page-error, .error-view"))) fail("no error view");
+  },
+});
 
 await visit("phone: home", "/", { viewport: PHONE });
 await visit("phone: task", `/t/${TASK}`, { viewport: PHONE });
