@@ -18,8 +18,8 @@ import type { Notice } from "./notify";
 export type HookEventId = "pr.merged" | "task.merged" | "live.event";
 
 export const HOOK_EVENTS: { id: HookEventId; label: string; description: string; fields: string[] }[] = [
-  { id: "pr.merged", label: "A task's PR merged", description: "A pull request attached to a jin task was merged.", fields: ["task.id", "task.title", "task.issue.id", "pr.url", "pr.repo", "pr.number", "pr.title", "machine"] },
-  { id: "task.merged", label: "A task's PRs all merged", description: "Every pull request of a task is merged or closed, at least one merged: the task is done.", fields: ["task.id", "task.title", "task.issue.tracker", "task.issue.id", "prs", "machine"] },
+  { id: "pr.merged", label: "A task's PR merged", description: "A pull request attached to a jin task was merged.", fields: ["task.id", "task.title", "task.issue.id", "task.issue.url", "pr.url", "pr.repo", "pr.number", "pr.title", "machine"] },
+  { id: "task.merged", label: "A task's PRs all merged", description: "Every pull request of a task is merged or closed, at least one merged: the task is done.", fields: ["task.id", "task.title", "task.issue.tracker", "task.issue.id", "task.issue.url", "task.issue.read", "task.issue.close", "prs", "machine"] },
   { id: "live.event", label: "A live event", description: "Something arrived from Slack, Linear, Notion, Gmail or GitHub (Live events).", fields: ["toolkit", "trigger", "title", "actor", "summary", "url", "thread.title", "thread.ref", "forYou", "tags"] },
 ];
 
@@ -65,10 +65,10 @@ export const DEFAULT_HOOKS: Omit<Hook, "id" | "createdAt">[] = [
     instructions: [
       "A task's pull requests are all merged. Clean up after it, step by step, without asking in prose first; each outward step waits for the user's approval in jin.",
       "1. Archive the task with jin_archive_task (pass the event's machine, if it has one).",
-      "2. The issue: if the event's task has an issue (task.issue) in Linear, read it. If it is not Done, Completed or Canceled, move it to Done and add a one-line comment linking the merged PR(s). If it is already done, leave it. No issue: skip this step.",
+      "2. The issue: if the event's task has an issue (task.issue), read it as task.issue.read says, then close it as task.issue.close says (it names its tracker's tools). If it is already done, leave it. No issue: skip this step.",
       "3. Slack: search the last 30 days for messages that link the PR URL(s) or mention the task id or its issue id. On each thread the merge resolves, add a white_check_mark reaction to the thread's first message. No replies or new messages. Skip threads you already reacted to, and ones you are unsure about.",
       "4. Remove the task's worktrees with jin_remove_task. If it refuses because work would be lost, report what and leave it.",
-      "If the Linear or Slack tools are missing, say so and go on.",
+      "If the issue tracker's or Slack's tools are missing, say so and go on.",
     ].join("\n"),
   },
 ];
@@ -121,7 +121,17 @@ export class Hooks {
     };
     const saved = read<Hook[]>(this.file);
     this.hooks = saved ?? DEFAULT_HOOKS.map((h) => ({ ...h, id: randomUUID(), createdAt: new Date().toISOString() }));
-    if (!saved) this.persist();
+    // A default hook still word for word as jin first wrote it (when it assumed Linear) takes
+    // today's wording; one you edited is left as it is.
+    let refreshed = false;
+    for (const h of this.hooks) {
+      const now = DEFAULT_HOOKS.find((d) => d.name === h.name && d.createdBy === h.createdBy);
+      if (now && h.createdBy === "jin (default)" && h.instructions.includes("(task.issue) in Linear, read it") && h.instructions !== now.instructions) {
+        h.instructions = now.instructions;
+        refreshed = true;
+      }
+    }
+    if (!saved || refreshed) this.persist();
     this.runLog = read<HookRun[]>(this.runsFile) ?? [];
   }
 

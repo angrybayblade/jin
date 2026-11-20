@@ -52,7 +52,7 @@ function contextRule(c: TaskContext): string {
   const follows = (c.links ?? []).map((l) => `  - ${l.label}${l.url ? ` ${l.url}` : ""}`);
   return [
     follows.length ? `THIS TASK FOLLOWS (as of when you started):\n${follows.join("\n")}` : "",
-    "TASK CONTEXT: discussions, tickets and docs around this task live outside the code. When the work depends on one (a decision made in a Slack thread, the Linear ticket's scope, a Notion spec, review comments on a PR), call the `task_context` tool (or run `jin-task context`): it lists the PRs, Linear issue, Slack threads and channels and Notion pages the task follows, with the latest on each and how to read each in full. Then read only what you need with the Slack, Linear and Notion tools or gh. Don't load everything up front; ask again later to see what changed (links can be added while you work).",
+    "TASK CONTEXT: discussions, tickets and docs around this task live outside the code. When the work depends on one (a decision made in a Slack thread, the issue's scope, a Notion spec, review comments on a PR), call the `task_context` tool (or run `jin-task context`): it lists the PRs, Linear issue, Slack threads and channels and Notion pages the task follows, with the latest on each and how to read each in full. Then read only what you need with the Slack, Linear and Notion tools or gh. Don't load everything up front; ask again later to see what changed (links can be added while you work).",
   ]
     .filter(Boolean)
     .join("\n");

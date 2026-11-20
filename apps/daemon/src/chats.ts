@@ -344,7 +344,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     {
       name: "jin_link_task",
       description:
-        "Link a Slack thread or channel, a Notion page or a Linear issue to a task (its URL), so what happens there shows in the task's Activity. A channel link takes threads started from now on. A task's PRs and its own Linear issue are linked already.",
+        "Link a Slack thread or channel, a Notion page or an issue (Linear, GitHub) to a task (its URL), so what happens there shows in the task's Activity. A channel link takes threads started from now on. A task's PRs and its own Linear issue are linked already.",
       input: { taskId: z.string(), url: z.string(), machine: machineArg },
       run: async (a) => {
         const on = remote(a.machine as string | undefined);
@@ -359,7 +359,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     {
       name: "jin_review_prs",
       description:
-        "Review pull requests as a task: a REV-<month><day><n> task with each repo checked out at its PR's head, and Claude Code started on the review (with the user's skills tagged pr-review). If a review task already covers these PRs, returns that one instead. Returns at once.",
+        "Review pull requests as a task: a review task (numbered by the workspace) with each repo checked out at its PR's head, and Claude Code started on the review (with the user's skills tagged pr-review). If a review task already covers these PRs, returns that one instead. Returns at once.",
       input: {
         prs: z.array(z.string()).min(1).describe("PR links, or <repo>#<number> (one per repo)"),
         prompt: z.string().optional().describe("what the review should focus on; defaults to reviewing the PRs"),
