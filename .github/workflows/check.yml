@@ -28,12 +28,16 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      # WebKit's system libraries once (a slow mirror can take minutes), then the browser itself,
+      # whose download is what stalls: that alone is retried.
+      - name: WebKit's system libraries
+        timeout-minutes: 15
+        run: node node_modules/playwright-core/cli.js install-deps webkit
       - name: WebKit for the smoke checks
         timeout-minutes: 12
-        # The download can stall: each try gets four minutes.
         run: |
           for try in 1 2 3; do
-            timeout 240 node node_modules/playwright-core/cli.js install --with-deps webkit && exit 0
+            timeout 240 node node_modules/playwright-core/cli.js install webkit && exit 0
             echo "try $try did not finish"
           done
           exit 1
