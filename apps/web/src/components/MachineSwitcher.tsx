@@ -1,29 +1,30 @@
 "use client";
 import { RetrySoon } from "./AutoRefresh";
-import { Bell, Monitor, Plus, Radio, Server, Settings2, Sparkles, Webhook } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Bell, Radio, Server, Settings2, SlidersHorizontal, Sparkles, Webhook, Wrench } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import type { Machine } from "@/lib/daemon";
 import { openContextMenu, type MenuItem } from "./ContextMenu";
 import { machineState } from "./Machines";
 
+/** jin's settings pages, after "Manage machines": the menu in the sidebar's footer, and the phone drawer's list. */
+const SETTINGS = [
+  { label: "Live events", icon: Radio, href: "/live" },
+  { label: "Hooks", icon: Webhook, href: "/hooks" },
+  { label: "Skills", icon: Sparkles, href: "/skills" },
+  { label: "Claude Code", icon: SlidersHorizontal, href: "/claude" },
+  { label: "Notifications", icon: Bell, href: "/notifications" },
+] as const;
+
 /** The sidebar's footer: jin's settings, and the machines it reaches (to add or manage; tasks on any of them are in the list above). */
-export function SettingsMenu({ machines, workspace }: { machines: Machine[]; workspace: string }) {
+export function SettingsMenu({ machines }: { machines: Machine[]; workspace?: string }) {
   const router = useRouter();
-  const items = (): MenuItem[] => [
-    { header: "Machines" },
-    { label: "This machine", icon: Monitor, hint: workspace, run: () => router.push("/setup") },
-    ...machines.map((m) => {
-      const s = machineState(m);
-      return { label: m.label, icon: Server, hint: s.label, run: () => router.push(`/machines?m=${m.id}`) } satisfies MenuItem;
-    }),
-    { label: "Add a machine…", icon: Plus, run: () => router.push("/machines") },
-    { divider: true },
-    { label: "Live events", icon: Radio, run: () => router.push("/live") },
-    { label: "Hooks", icon: Webhook, run: () => router.push("/hooks") },
-    { label: "Skills", icon: Sparkles, run: () => router.push("/skills") },
-    { label: "Notifications", icon: Bell, run: () => router.push("/notifications") },
-  ];
   const down = machines.filter((m) => machineState(m).tone === "bad").length;
+  const items = (): MenuItem[] => [
+    { label: "Manage machines", icon: Server, hint: down ? `${down} not answering` : `${machines.length + 1}`, run: () => router.push("/machines") },
+    { divider: true },
+    ...SETTINGS.map(({ label, icon, href }) => ({ label, icon, run: () => router.push(href) })),
+  ];
   return (
     <button
       type="button"
@@ -40,6 +41,27 @@ export function SettingsMenu({ machines, workspace }: { machines: Machine[]; wor
       <span className="machine-switcher-name">{machines.length ? `${machines.length + 1} machines` : "Settings"}</span>
       {down > 0 && <span className="machine-dot is-bad" title={`${down} not answering`} />}
     </button>
+  );
+}
+
+/** The same settings as plain links, for the phone drawer (a menu that pops up over a drawer is one layer too many). */
+export function SettingsLinks({ machines }: { machines: Machine[] }) {
+  const path = usePathname();
+  const down = machines.filter((m) => machineState(m).tone === "bad").length;
+  const links = [{ label: "Manage machines", icon: Server, href: "/machines", hint: down ? `${down} not answering` : undefined }, ...SETTINGS, { label: "Set up jin", icon: Wrench, href: "/setup" }];
+  return (
+    <>
+      <div className="nav-section">
+        <span>Settings</span>
+      </div>
+      {links.map(({ label, icon: Icon, href, ...rest }) => (
+        <Link key={href} href={href} className={`nav-item ${path === href ? "active" : ""}`}>
+          <Icon size={14} className="nav-icon" />
+          <span className="nav-label">{label}</span>
+          {"hint" in rest && rest.hint && <span className="nav-sub">{rest.hint}</span>}
+        </Link>
+      ))}
+    </>
   );
 }
 

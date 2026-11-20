@@ -136,9 +136,16 @@ function openExternal(url: unknown) {
   Bun.spawn(["open", url], { stdio: ["ignore", "ignore", "ignore"] });
 }
 // A page asking for a new window (a link with target=_blank that slipped past the page's own handling).
+// jin's own pages (⌘-click on one of its links) open in this window, never the browser.
 win.webview.on("new-window-open", (e: any) => {
   const d = e?.data?.detail;
-  openExternal(typeof d === "string" ? d : d?.url);
+  const url = typeof d === "string" ? d : d?.url;
+  if (typeof url === "string" && url.startsWith(`${URL}/`)) {
+    const at = new globalThis.URL(url);
+    at.searchParams.set("shell", "desktop");
+    return win.webview.loadURL(at.toString());
+  }
+  openExternal(url);
 });
 
 // Double-clicking jin's title bar does what the system setting says (Desktop & Dock →
@@ -158,6 +165,7 @@ win.webview.on("host-message", (e: any) => {
     }
   }
   if (typeof m === "object" && m?.type === "jin:open-external") return openExternal((m as { url?: string }).url);
+  if (typeof m === "object" && m?.type === "jin:window-buttons") return showWindowButtons((m as { visible?: boolean }).visible !== false);
   if (typeof m !== "object" || m?.type !== "jin:title-bar-double-click" || win.isFullScreen()) return;
   const action = doubleClickAction();
   if (action === "Minimize") win.minimize();
@@ -183,9 +191,76 @@ function toggleZoom() {
   setTimeout(() => (zoomed = win.getFrame()), 300);
 }
 
+// The collapsed sidebar has no room for the window buttons: the page asks for them to go and
+// come back. The page's layout follows the attribute set here, so a page in an older window keeps
+// its gap for the buttons.
+let buttonsShown = true;
+const hideButtons = windowButtonsHider();
+function showWindowButtons(show: boolean) {
+  buttonsShown = show;
+  if (!hideButtons) return;
+  hideButtons(!show);
+  win.webview.executeJavascript(`document.documentElement.toggleAttribute("data-window-buttons-hidden", ${!show})`);
+}
+
+/**
+ * Hide or show the window's close, minimize and zoom buttons: [[win standardWindowButton:n]
+ * setHidden:], through the Objective-C runtime (Electrobun has no API for it; moving them out of
+ * the window does not work, they stop at its corner). AppKit wants the main thread, and
+ * performSelectorOnMainThread cannot pass a BOOL, so each call goes as an NSInvocation.
+ */
+function windowButtonsHider(): ((hidden: boolean) => void) | null {
+  if (process.platform !== "darwin") return null;
+  try {
+    const objc = "/usr/lib/libobjc.A.dylib";
+    const { symbols: rt } = dlopen(objc, {
+      objc_getClass: { args: [FFIType.cstring], returns: FFIType.ptr },
+      sel_registerName: { args: [FFIType.cstring], returns: FFIType.ptr },
+    });
+    const send0 = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr } }).symbols.objc_msgSend;
+    const sendP = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr, FFIType.ptr], returns: FFIType.ptr } }).symbols.objc_msgSend;
+    const sendU = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.ptr } }).symbols.objc_msgSend;
+    const sendPI = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.i64], returns: FFIType.void } }).symbols.objc_msgSend;
+    const sendMain = dlopen(objc, { objc_msgSend: { args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.bool], returns: FFIType.void } }).symbols.objc_msgSend;
+    const c = (s: string) => ptr(Buffer.from(`${s}\0`));
+    const sel = (s: string) => rt.sel_registerName(c(s));
+    const NSInvocation = rt.objc_getClass(c("NSInvocation"));
+    const setHidden = sel("setHidden:");
+    if (!NSInvocation) return null;
+    // Kept alive: NSInvocation copies the argument, but only when it is set.
+    const flag = new Uint8Array(1);
+    return (hidden: boolean) => {
+      const window = win.ptr;
+      if (!window) return;
+      flag[0] = hidden ? 1 : 0;
+      for (const n of [0, 1, 2]) {
+        const button = sendU(window, sel("standardWindowButton:"), n);
+        if (!button) continue;
+        const signature = sendP(button, sel("methodSignatureForSelector:"), setHidden);
+        const inv = sendP(NSInvocation, sel("invocationWithMethodSignature:"), signature);
+        if (!inv) continue;
+        sendP(inv, sel("setSelector:"), setHidden);
+        sendP(inv, sel("setTarget:"), button);
+        sendPI(inv, sel("setArgument:atIndex:"), ptr(flag), 2);
+        send0(inv, sel("retainArguments"));
+        sendMain(inv, sel("performSelectorOnMainThread:withObject:waitUntilDone:"), sel("invoke"), null, false);
+      }
+    };
+  } catch (err) {
+    console.error(`cannot hide the window buttons: ${err}`);
+    return null;
+  }
+}
+
 // Tell the page when the window enters or leaves full screen (the window buttons go away).
 const syncFullScreen = () => win.webview.executeJavascript(`document.documentElement.toggleAttribute("data-fullscreen", ${win.isFullScreen()})`);
-win.on("resize", () => setTimeout(syncFullScreen, 60));
+win.on("resize", () =>
+  setTimeout(() => {
+    syncFullScreen();
+    // Leaving full screen can bring the buttons back.
+    if (!buttonsShown) hideButtons?.(true);
+  }, 60),
+);
 win.webview.on("dom-ready", syncFullScreen);
 
 // ---------------------------------------------------------------- Dock badge

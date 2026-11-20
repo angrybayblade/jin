@@ -1,4 +1,5 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 declare global {
@@ -26,6 +27,7 @@ export function isExternal(href: string, origin = location.origin): boolean {
  * the room kept for the window buttons closes up.
  */
 export function DesktopShell() {
+  const router = useRouter();
   useEffect(() => {
     const root = document.documentElement;
     if (root.dataset.shell !== "desktop") return;
@@ -40,20 +42,45 @@ export function DesktopShell() {
     // The window is not a browser: links to other sites, and new windows, go to your default browser.
     const openExternal = (url: string) => window.__electrobunSendToHost?.({ type: "jin:open-external", url });
     const nativeOpen = window.open;
+    // jin's own pages open here: the window has no tabs, and they are not for the browser.
+    const here = (href: string) => {
+      const u = new URL(href, location.origin);
+      router.push(`${u.pathname}${u.search}${u.hash}`);
+    };
     window.open = ((url?: string | URL) => {
       const href = url ? String(url) : "";
       if (href && isExternal(href)) openExternal(new URL(href, location.origin).href);
+      else if (href) here(href);
       return null;
     }) as typeof window.open;
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || (e.button !== 0 && e.button !== 1)) return;
       const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
       if (!(a instanceof HTMLAnchorElement)) return;
-      if (!isExternal(a.href)) return; // jin's own pages stay in the window
+      if (!isExternal(a.href)) {
+        // ⌘-, Ctrl-, Shift- or middle-click would ask for a new window, which the window hands to
+        // the browser: jin's own pages open here instead (a plain click is the link's own).
+        if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) || a.hasAttribute("download")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        here(a.href);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       openExternal(a.href);
     };
+    // The collapsed sidebar asks the window to put its buttons away (the expand button takes their place).
+    let shown: boolean | null = null;
+    const syncButtons = () => {
+      const visible = root.dataset.sidebar !== "collapsed";
+      if (visible === shown) return;
+      shown = visible;
+      window.__electrobunSendToHost?.({ type: "jin:window-buttons", visible });
+    };
+    syncButtons();
+    const watch = new MutationObserver(syncButtons);
+    watch.observe(root, { attributes: true, attributeFilter: ["data-sidebar"] });
     document.addEventListener("dblclick", onDouble);
     document.addEventListener("click", onClick, true);
     document.addEventListener("auxclick", onClick, true);
@@ -64,7 +91,8 @@ export function DesktopShell() {
       document.removeEventListener("auxclick", onClick, true);
       window.removeEventListener("resize", onResize);
       window.open = nativeOpen;
+      watch.disconnect();
     };
-  }, []);
+  }, [router]);
   return null;
 }
