@@ -1,0 +1,410 @@
+/* ------------------------------------------------------------------ chat (Zero's chat panel) */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* The welcome sits in the middle of the pane. */
+.chat-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px var(--d-pad);
+  margin: auto 0;
+}
+.welcome-overline {
+  margin-bottom: 12px;
+  font-size: var(--type-meta);
+  font-weight: var(--weight-secondary);
+  color: var(--accent-ink);
+}
+.chat-welcome h1 {
+  margin: 0 0 16px;
+  font-size: var(--d-welcome);
+  font-weight: var(--weight-primary);
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+}
+.chat-welcome > p {
+  margin: 0;
+  max-width: 380px;
+  color: var(--secondary);
+}
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 360px;
+  margin-top: var(--space-5);
+}
+.suggestions > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  color: var(--secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.suggestions > button > svg {
+  margin-left: auto;
+  color: var(--muted);
+}
+.suggestions > button:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.messages {
+  padding: var(--d-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.message {
+  min-width: 0;
+}
+/* Your message: a quiet bubble on the right. */
+.message.user {
+  align-self: flex-end;
+  max-width: min(80%, 640px);
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--surface-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--d-chat-text);
+}
+/* "Worked for 2m 31s ›": the turn's work, folded. */
+.work-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.work-toggle:hover {
+  color: var(--ink);
+}
+.work-flag {
+  color: var(--state-waiting);
+}
+.step-chevron {
+  flex: none;
+  transition: transform 120ms ease;
+}
+.step-chevron.is-open {
+  transform: rotate(90deg);
+}
+.work {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+.step-text .message-markdown {
+  color: var(--secondary);
+  font-size: var(--type-meta);
+}
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.step-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--type-meta);
+  text-align: left;
+}
+button.step-line {
+  cursor: pointer;
+  width: fit-content;
+}
+button.step-line:hover {
+  color: var(--ink);
+}
+.step-line > svg,
+.step-line > canvas,
+.step-line > span:first-child {
+  flex: none;
+}
+.step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-line.is-live .step-label {
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+.step-line.is-denied {
+  color: var(--state-waiting);
+}
+.step-line.is-waiting {
+  color: var(--state-waiting);
+}
+.tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 4px 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+.tool-call {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+}
+.tool-call > svg {
+  flex: none;
+}
+.tool-call code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary);
+  font-size: 11px;
+}
+.chat-note {
+  font-size: var(--type-meta);
+  color: var(--muted);
+}
+.chat-note.is-error {
+  color: var(--state-failed);
+}
+.composer-area {
+  padding: var(--space-2) var(--d-pad) var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+.composer {
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.composer:has(textarea:focus-visible) {
+  border-color: var(--line-strong);
+}
+.composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  max-height: min(45vh, 420px);
+  overflow-y: auto;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  field-sizing: content;
+  font: var(--d-chat-text)/1.6 var(--font-ui);
+  color: var(--ink);
+}
+.composer textarea::placeholder {
+  font-size: 14px;
+  color: var(--muted);
+}
+.composer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.composer-engine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-meta);
+  color: var(--muted);
+}
+.composer-error {
+  color: var(--state-failed);
+}
+.send-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--action);
+  color: var(--on-action);
+  cursor: pointer;
+}
+.send-button:disabled {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  cursor: default;
+}
+.send-button.stop {
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+}
+
+/* Zero's markdown */
+.message-markdown {
+  font-size: var(--d-md-text);
+  line-height: 1.6;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.message-markdown :is(p, ul, ol, blockquote, pre, .markdown-table) {
+  margin: 0 0 12px;
+}
+.message-markdown > :last-child {
+  margin-bottom: 0;
+}
+.message-markdown :is(h1, h2, h3, h4) {
+  margin: 16px 0 8px;
+  font-weight: var(--weight-primary);
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+.message-markdown :is(ul, ol) {
+  padding-left: 22px;
+}
+.message-markdown li {
+  margin: 4px 0;
+}
+.message-markdown strong {
+  font-weight: var(--weight-primary);
+}
+.message-markdown code {
+  font-size: 0.9em;
+  background: var(--hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.message-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre;
+  padding: 12px 16px;
+  background: var(--hover);
+  border-radius: var(--radius-control);
+}
+.message-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.message-markdown .markdown-table {
+  max-width: 100%;
+  overflow: auto;
+}
+.message-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.message-markdown :is(th, td) {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.link-chip {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent-tint);
+  text-decoration: none;
+}
+.link-chip:hover {
+  background: var(--selected-hover);
+}
+
+/* ------------------------------------------------------------------ approvals (drawer above the composer) */
+.approval-drawer {
+  max-height: min(40dvh, 320px);
+  overflow-y: auto;
+}
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-1);
+  font-size: var(--type-meta);
+  font-weight: var(--weight-secondary);
+  color: var(--secondary);
+}
+.count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--state-waiting-tint);
+  color: var(--state-waiting);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface) var(--grain);
+}
+.approval-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+}
+.approval-row + .approval-row {
+  border-top: 1px solid var(--line);
+}
+.approval-title {
+  font-weight: var(--weight-secondary);
+}
+.approval-command {
+  display: block;
+  font-size: var(--type-meta);
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+.approval-actions {
+  display: flex;
+  gap: var(--space-2);
+}

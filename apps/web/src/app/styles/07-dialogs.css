@@ -1,0 +1,483 @@
+/* ------------------------------------------------------------------ new task dialog and setup view */
+.nav-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-section-action {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.nav-section-action:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 64px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+}
+.modal::backdrop {
+  background: rgb(20 19 22 / 0.35);
+}
+.modal-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 20px;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -6px -6px 2px 0;
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: var(--type-primary);
+  font-weight: var(--weight-primary);
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+.field legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.field :is(input, select, textarea) {
+  font-size: var(--d-text);
+}
+/* One look for text fields and pickers: same height, border, radius and surface. */
+.field :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  height: var(--d-control-h);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+.field :is(input, select, textarea)::placeholder {
+  color: var(--muted);
+}
+.field :is(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
+}
+.field textarea {
+  min-height: 64px;
+  padding: 6px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  resize: vertical;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: var(--space-3);
+}
+.repo-picker {
+  display: grid;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+.repo-option {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px var(--space-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+.repo-option + .repo-option {
+  border-top: 1px solid var(--line);
+}
+.repo-option:hover {
+  background: var(--hover);
+}
+.repo-option.is-picked {
+  background: var(--accent-tint);
+}
+.repo-option .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-option input,
+.check input {
+  height: auto;
+  margin: 0;
+  accent-color: var(--action);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+.field-error {
+  margin: 0;
+  font-size: var(--type-meta);
+  color: var(--state-failed);
+}
+.task-setup {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.task-setup-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--d-pad);
+}
+.task-setup-body p {
+  margin: 0;
+}
+.setup-log {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+  color: var(--code-fg);
+  font-size: var(--type-code);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ command palette, finder, tab switcher */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgb(20 19 22 / 0.18);
+}
+.palette {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.22);
+  overflow: hidden;
+}
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background-image: var(--grain);
+}
+.palette-input input {
+  flex: 1;
+  height: 44px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-primary) / 1 var(--font-ui);
+}
+.palette-input input:focus-visible {
+  outline: 0;
+}
+.palette-mode {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-code);
+}
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+.palette-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.palette-item.is-selected {
+  background: var(--accent-tint);
+}
+.palette-icon {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.palette-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--d-text);
+}
+.palette-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--type-meta);
+  text-align: right;
+  direction: rtl; /* long paths keep their file end visible */
+}
+.palette-empty {
+  padding: var(--space-4) var(--space-3);
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.palette-hints {
+  display: flex;
+  gap: var(--space-3);
+  padding: 6px var(--space-3);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Two-step close: the × becomes "Close?" until the second click (or a few seconds pass). */
+.file-tab-close.is-armed {
+  width: auto;
+  padding: 0 6px;
+  opacity: 1;
+  background: var(--state-failed-tint);
+  color: var(--state-failed);
+  font-size: 11px;
+  font-weight: var(--weight-secondary);
+}
+
+/* ------------------------------------------------------------------ context menus, inline rename */
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.18);
+  outline: 0;
+}
+.context-header {
+  padding: 4px 8px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: var(--weight-secondary);
+}
+.context-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--d-text);
+  text-align: left;
+  cursor: pointer;
+}
+.context-item.is-active,
+.context-item:hover {
+  background: var(--hover);
+}
+.context-item:disabled {
+  color: var(--muted);
+  cursor: default;
+  background: transparent;
+}
+.context-item.is-danger {
+  color: var(--state-failed);
+}
+.context-item.is-armed {
+  background: var(--state-failed-tint);
+  color: var(--state-failed);
+  font-weight: var(--weight-secondary);
+}
+.context-icon {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.context-item.is-danger .context-icon {
+  color: inherit;
+}
+.context-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-hint {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+.context-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+.rename-input {
+  width: 100%;
+  min-width: 80px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--d-text);
+}
+.nav-item.is-archived {
+  opacity: 0.7;
+}
+.nav-archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--d-nav-h);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.nav-archived-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.sidebar-error {
+  margin: 0 8px 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-control);
+  background: var(--state-failed-tint);
+  color: var(--state-failed);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ chat tabs in the pane's top bar */
+.pane-header.has-tabs {
+  padding: 0 var(--space-2);
+  align-items: stretch;
+}
+.chat-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chat-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 0 4px 0 10px;
+  border-bottom: 2px solid transparent;
+  color: var(--secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chat-tab:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.chat-tab.is-active {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+.chat-tab.is-new {
+  padding-right: 10px;
+  font-style: italic;
+  cursor: default;
+}
+.chat-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-tab:hover .file-tab-close,
+.chat-tab.is-active .file-tab-close {
+  opacity: 1;
+}

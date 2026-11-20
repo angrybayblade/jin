@@ -1,0 +1,126 @@
+/* ------------------------------------------------------------------ sidebar: width floor, right-aligned bar, the rail */
+/* Narrow enough for the window buttons plus the bar's four controls, never narrower (a stored width
+   from before the floor is lifted too). */
+:root {
+  --sidebar-min: 216px;
+}
+/* The bar's controls sit at the sidebar's right edge, the window buttons alone on the left. */
+.sidebar-top > .traffic-gap + span {
+  margin-left: auto;
+}
+/* Collapsed: one centred column of equal squares; sections and machines become short rules. */
+html[data-sidebar="collapsed"] .sidebar {
+  padding: 0 0 8px;
+}
+html[data-sidebar="collapsed"] .sidebar nav {
+  align-items: center;
+  gap: 2px;
+}
+html[data-sidebar="collapsed"] .sidebar :is(.nav-item, .nav-item.task) {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 !important;
+  gap: 0;
+  justify-content: center;
+  flex: none;
+}
+html[data-sidebar="collapsed"] .sidebar nav > :is(.nav-section, .nav-machine) {
+  display: block;
+  width: 20px;
+  height: 0;
+  margin: var(--space-2) auto;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+html[data-sidebar="collapsed"] .sidebar nav > :is(.nav-section, .nav-machine) > * {
+  display: none;
+}
+html[data-sidebar="collapsed"] .sidebar nav > .nav-section:first-of-type {
+  margin-top: var(--space-3);
+  border-top-color: transparent;
+}
+html[data-sidebar="collapsed"] .sidebar :is(.nav-archived-toggle, .nav-more, .nav-item.is-archived) {
+  display: none;
+}
+html[data-sidebar="collapsed"] .sidebar-bottom {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 0 8px;
+  padding: var(--space-2) 0 0;
+}
+html[data-sidebar="collapsed"] .sidebar-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+html[data-sidebar="collapsed"] .sidebar-bottom :is(.button.icon-only, .machine-switcher) {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  justify-content: center;
+}
+/* Collapsed: the expand button heads the rail. In the desktop window it takes the window buttons'
+   place once the window has put them away (data-window-buttons-hidden, set by the window). */
+html[data-sidebar="collapsed"] .sidebar-top {
+  justify-content: center;
+}
+.sidebar-top > .only-collapsed {
+  display: none;
+}
+html[data-sidebar="collapsed"] .sidebar-top > .only-collapsed {
+  display: inline-flex;
+  margin-left: 0;
+}
+html[data-shell="desktop"][data-sidebar="collapsed"]:not([data-window-buttons-hidden]) .sidebar-top > .only-collapsed {
+  display: none;
+}
+html[data-shell="desktop"][data-sidebar="collapsed"][data-window-buttons-hidden] .traffic-gap {
+  display: none !important;
+}
+html[data-shell="desktop"][data-sidebar="collapsed"][data-window-buttons-hidden] .app-shell {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+/* Empty sections leave no stack of rules: a rule followed by another rule (or by nothing) goes. */
+html[data-sidebar="collapsed"] .sidebar nav > :is(.nav-section, .nav-machine):has(+ :is(.nav-section, .nav-machine, .phone-only)) {
+  display: none;
+}
+/* The collapsed rail's names, to the right of the hovered icon. */
+.rail-tip {
+  position: fixed;
+  z-index: 70;
+  max-width: 320px;
+  padding: 4px 8px;
+  transform: translateY(-50%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--type-meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+}
+/* The Activity panel never scrolls sideways (WebKit let it, by a long link or URL): every row
+   shrinks to the panel, chips ellipsize, long words break. */
+.act-panel > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.act-link {
+  min-width: 0;
+}
+.act-link :is(a, span) {
+  min-width: 0;
+}
+.act-panel :is(p, li, a, span) {
+  overflow-wrap: anywhere;
+}
+.act-link :is(a, span) {
+  overflow-wrap: normal;
+}

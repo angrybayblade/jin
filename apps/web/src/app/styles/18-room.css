@@ -1,0 +1,469 @@
+/* ------------------------------------------------------------------ a task's agent room */
+.room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 256px;
+  height: 100%;
+  min-height: 0;
+  background: var(--canvas);
+}
+.room-box {
+  min-height: 0;
+  container-type: inline-size;
+}
+.room.is-wide-side {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
+}
+.room-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.room-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--d-pad) var(--space-3);
+}
+/* Each agent has a colour: its dot, and where it is named. */
+.room [data-color="violet"] {
+  --room-c: #8b7cf6;
+}
+.room [data-color="blue"] {
+  --room-c: #4f9cf5;
+}
+.room [data-color="amber"] {
+  --room-c: #d99a2b;
+}
+.room [data-color="green"] {
+  --room-c: #4caf7a;
+}
+.room [data-color="rose"] {
+  --room-c: #e0708a;
+}
+.room [data-color="teal"] {
+  --room-c: #3fb5b0;
+}
+.room-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--room-c, var(--line-strong));
+}
+.room-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  font-size: var(--type-meta);
+}
+.room-msg-name {
+  color: var(--ink);
+  font-size: var(--d-text);
+  font-weight: var(--weight-secondary);
+}
+.room-msg-body {
+  min-width: 0;
+  padding-left: 14px;
+  overflow-wrap: anywhere;
+}
+.room-you-text {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--ink);
+  font: var(--d-chat-text) / 1.6 var(--font-ui);
+}
+.room-pin {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.room-msg:hover .room-pin,
+.room-pin.is-on,
+.room-pin:focus-visible {
+  opacity: 1;
+}
+.room-pin:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.room-pin.is-on {
+  color: var(--state-waiting);
+}
+.room-note {
+  margin: 0;
+  padding-left: 14px;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.room-working {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+.room-working-what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.room-handle {
+  display: inline;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--room-c, var(--muted)) 20%, transparent);
+  color: var(--ink);
+  font: inherit;
+}
+button.room-handle {
+  cursor: pointer;
+}
+button.room-handle:hover {
+  background: color-mix(in srgb, var(--room-c, var(--muted)) 34%, transparent);
+}
+.room-empty {
+  max-width: 560px;
+  margin: auto;
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.room-empty p {
+  margin: 0 0 var(--space-3);
+}
+.room-empty-title {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: var(--weight-secondary);
+}
+.room-empty-handles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.room-composer {
+  position: relative;
+}
+.room-pick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.18);
+}
+.room-pick button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.room-pick button:hover,
+.room-pick button.is-active {
+  background: var(--accent-tint);
+}
+.room-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  border-left: 1px solid var(--line);
+}
+.room-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: var(--type-meta);
+  font-weight: var(--weight-secondary);
+}
+.room-side-head:not(:first-child) {
+  margin-top: var(--space-3);
+}
+.room-roster,
+.room-pins {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.room-agent {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-control);
+}
+.room-agent:hover {
+  background: var(--hover);
+}
+.room-agent-main {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.room-agent-main .room-dot {
+  margin-top: 6px;
+}
+.room-agent-text {
+  display: grid;
+  min-width: 0;
+}
+.room-agent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-agent-state.is-working {
+  color: var(--state-running);
+}
+.room-agent-state.is-needs-you,
+.room-agent-state.is-queued {
+  color: var(--state-waiting);
+}
+.room-agent-state.is-failed {
+  color: var(--state-failed);
+}
+.room-agent-more {
+  flex: none;
+  opacity: 0;
+}
+.room-agent:hover .room-agent-more,
+.room-agent-more:focus-visible {
+  opacity: 1;
+}
+.room-pins button {
+  display: grid;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.room-pins button:hover {
+  background: var(--hover);
+}
+.room-pin-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+.room-profile {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 4px;
+}
+.room-profile .room-side-head {
+  padding: 0;
+}
+.room-profile .field-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.room-profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.room-activity {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.room-activity-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 4px 6px;
+}
+.room-step {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--type-meta);
+  overflow-wrap: anywhere;
+}
+.room-step.is-tool {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.room-step.is-said {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.room-step.is-denied {
+  color: var(--state-failed);
+}
+.room-step.is-turn summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.room-step.is-turn pre {
+  max-height: 260px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font-size: 11px;
+}
+/* A narrow room: the agents move above the conversation. */
+@container (max-width: 620px) {
+  .room,
+  .room.is-wide-side {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .room-main {
+    grid-row: 2;
+  }
+  .room-side {
+    grid-row: 1;
+    max-height: 190px;
+    border-left: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* Room polish: what a turn made (doc chips), notes as quiet rules, copy next to pin. */
+.room-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+.room-note .room-refs {
+  display: inline-flex;
+  margin: 0 0 0 var(--space-2);
+  vertical-align: middle;
+}
+.room-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--type-meta);
+  text-decoration: none;
+}
+.room-ref:hover {
+  border-color: var(--line-strong);
+  background: var(--hover);
+}
+.room-ref-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-secondary);
+}
+.room-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: 0;
+}
+.room-note::before,
+.room-note::after {
+  content: "";
+  flex: 1;
+  min-width: 12px;
+  border-top: 1px solid var(--line);
+}
+.room-note > span:first-child {
+  min-width: 0;
+  text-align: center;
+}
+.room-pin + .room-pin {
+  margin-left: 0;
+}
+
+/* An agent's reply as it forms (for you; the room gets its final message), above its working line. */
+.room-working.has-draft {
+  flex-wrap: wrap;
+  padding: var(--space-2);
+}
+.room-draft {
+  flex: 0 0 100%;
+  max-height: 220px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+button.room-ref {
+  font-family: inherit;
+  cursor: pointer;
+}

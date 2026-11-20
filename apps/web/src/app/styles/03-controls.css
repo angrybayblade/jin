@@ -1,0 +1,59 @@
+/* ------------------------------------------------------------------ controls */
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--d-control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: var(--weight-secondary);
+  font-size: var(--d-text);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.button:hover {
+  background: var(--hover);
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.button.primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--on-action);
+}
+.button.primary:hover {
+  background: var(--action-hover);
+}
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--secondary);
+}
+.button.quiet:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.button.small {
+  height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--type-meta);
+}
+/* Focus is never shown with an outline (a rule of this app). Keyboard focus shows as the
+   hover tint on controls, and as a stronger border on fields that have one. */
+*:focus,
+*:focus-visible {
+  outline: none;
+}
+:is(button, a):not(.primary):focus-visible {
+  background: var(--hover);
+  color: var(--ink);
+}
+:is(input, textarea, select):focus-visible {
+  border-color: var(--line-strong);
+}

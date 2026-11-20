@@ -1,0 +1,130 @@
+/* ------------------------------------------------------------------ Claude Code settings */
+.cs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+.cs-list {
+  gap: 6px;
+}
+.cs-count {
+  color: var(--muted);
+}
+.cs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1);
+  align-items: center;
+}
+.cs-row.is-env {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto;
+}
+.cs-row.is-hook {
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+}
+.cs-row.is-new-hook {
+  grid-template-columns: 150px 170px minmax(0, 1fr) auto;
+  margin-top: var(--space-2);
+}
+.cs-row :is(input, select) {
+  height: var(--d-control-h);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--d-text);
+}
+.cs-row input.mono {
+  font-family: var(--font-code);
+  font-size: var(--type-meta);
+}
+.cs-row :is(input, select):focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.cs-row input:disabled {
+  opacity: 0.5;
+}
+.cs-row input[readonly] {
+  background: var(--surface-subtle);
+}
+.cs-hooks {
+  display: grid;
+  gap: var(--space-2);
+}
+.cs-hook-event {
+  display: grid;
+  gap: 6px;
+}
+.cs-hook-event h4 {
+  margin: 0;
+  font-size: var(--type-meta);
+  font-weight: var(--weight-primary);
+  color: var(--secondary);
+}
+.cs-matcher {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-meta);
+  color: var(--secondary);
+}
+.cs-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-size: var(--type-meta);
+}
+.cs-machine select {
+  height: 26px;
+}
+.cs-raw summary {
+  list-style: none;
+}
+.cs-raw summary::-webkit-details-marker {
+  display: none;
+}
+.cs-raw-text {
+  min-height: 280px;
+  padding: var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-code);
+  font-size: var(--type-meta);
+  resize: vertical;
+}
+@media (max-width: 700px) {
+  .cs-row.is-new-hook,
+  .cs-row.is-hook {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .cs-row.is-new-hook > select,
+  .cs-row.is-hook > .cs-matcher {
+    grid-column: 1 / -1;
+  }
+}
+
+/* /skills in the composer's picker: the name, what it does, its arguments. */
+/* One name column for every row (as wide as the longest name, at most half), then the description on one line. */
+.mention-picker.skill-picker {
+  display: grid;
+  grid-template-columns: fit-content(50%) minmax(0, 1fr);
+  align-content: start;
+}
+.skill-picker > * {
+  grid-column: 1 / -1;
+}
+.mention-option.skill-option {
+  grid-template-columns: subgrid;
+  column-gap: 16px;
+}
+.skill-option .mention-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

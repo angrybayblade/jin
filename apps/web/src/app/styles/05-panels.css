@@ -1,0 +1,496 @@
+/* ------------------------------------------------------------------ side panel (today, desks) */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+}
+.side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.side-scroll p {
+  margin: 0 0 var(--space-3);
+}
+/* Feed: a tree. Each thread (PR, Linear issue, Slack thread or DM, Notion page, mail thread)
+   is one collapsed line; opening it lists who did what. Text clamps to one line. */
+.side-scroll {
+  overflow-x: hidden;
+}
+.feed-groups {
+  list-style: none;
+  margin: 0;
+  padding: 4px var(--space-2);
+}
+.feed-group {
+  position: relative;
+  min-width: 0;
+}
+.fg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.fg-head::-webkit-details-marker {
+  display: none;
+}
+.fg-head:hover,
+.feed-group:has(> .fg-actions:hover) > details > .fg-head {
+  background: var(--hover);
+}
+.fg-chevron {
+  flex: none;
+  color: var(--secondary);
+  transition: transform 120ms;
+}
+details[open] > .fg-head .fg-chevron {
+  transform: rotate(90deg);
+}
+.fg-src {
+  flex: none;
+  color: var(--secondary);
+}
+.fg-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.fg-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.fg-dot.is-ci_failed {
+  background: var(--state-failed);
+}
+.fg-dot.is-review_requested {
+  background: var(--state-waiting);
+}
+.fg-count {
+  flex: none;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+  background: var(--hover);
+  color: var(--secondary);
+}
+.fg-age {
+  flex: none;
+  min-width: 22px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+/* Open, snooze and dismiss float over the line's end on hover, taking no room otherwise. */
+.fg-actions {
+  position: absolute;
+  top: 3px;
+  right: 30px;
+  display: flex;
+  padding-left: 14px;
+  /* The head's hover tint over the pane's background, so the overlay blends in. */
+  background: linear-gradient(to right, transparent, var(--hover) 14px), linear-gradient(to right, transparent, var(--canvas) 14px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+.feed-group:not(.has-bobby) .fg-actions {
+  right: 4px;
+}
+.feed-group:has(> details > .fg-head:hover) > .fg-actions,
+.fg-actions:hover,
+.fg-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.fg-actions .button.icon-only.small {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--secondary);
+}
+.fg-actions .button.icon-only.small:hover {
+  color: var(--ink);
+}
+/* The leaves, indented under the thread with a guide line. */
+.fg-rows {
+  list-style: none;
+  margin: 0 0 4px 10px;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--line);
+}
+.fg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: var(--radius-control);
+  font-size: var(--type-meta);
+}
+.fg-row:hover {
+  background: var(--hover);
+}
+.fg-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--secondary);
+  text-decoration: none;
+}
+.fg-actor {
+  color: var(--ink);
+  margin-right: 5px;
+}
+.fg-what.is-ci_failed {
+  color: var(--state-failed);
+}
+.fg-what.is-review_requested {
+  color: var(--state-waiting);
+}
+.kind-chip {
+  margin-right: 6px;
+}
+.fg-snippet {
+  color: var(--tertiary, var(--secondary));
+  opacity: 0.8;
+}
+.fg-age {
+  flex: none;
+  font-size: 11px;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.fg-more summary {
+  cursor: pointer;
+  padding-left: 2px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--secondary);
+  list-style: none;
+}
+.fg-more summary::-webkit-details-marker {
+  display: none;
+}
+.fg-more summary:hover {
+  color: var(--ink);
+}
+.fg-more[open] summary {
+  display: none;
+}
+.kind-chip {
+  justify-self: start;
+  padding: 0 6px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  background: var(--accent-tint);
+  color: var(--secondary);
+}
+.kind-chip.is-ci_failed {
+  background: var(--state-failed-tint);
+  color: var(--state-failed);
+}
+.kind-chip.is-review_requested {
+  background: var(--state-waiting-tint);
+  color: var(--state-waiting);
+}
+
+/* ------------------------------------------------------------------ workspace pane (dark) */
+.workspace-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.workspace-pane .pane-header {
+  background: var(--canvas);
+  border-color: var(--line);
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--d-control-h);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--secondary);
+  font-size: var(--d-text);
+  cursor: pointer;
+}
+.tab:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.tab.is-selected {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.tab-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-height: 0;
+}
+.file-editor {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+.file-tree {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  padding: var(--space-2) 0;
+}
+.file-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: var(--d-tree-row);
+  padding-right: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--secondary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-row:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.tree-row.is-open {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+.tree-spacer {
+  width: 12px;
+  flex-shrink: 0;
+}
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.editor-main > section,
+.editor-main > div:last-child {
+  flex: 1;
+  min-height: 0;
+}
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--d-editor-bar);
+  min-height: var(--d-editor-bar);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--type-meta);
+}
+.editor-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  color: var(--secondary);
+}
+.dirty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-running);
+}
+.editor-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: var(--space-5);
+  text-align: center;
+}
+.terminal-view {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  background: var(--surface);
+}
+.terminal-host {
+  position: absolute;
+  inset: 4px 4px 4px 8px;
+}
+.terminal-status {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  font-size: var(--type-meta);
+  color: var(--muted);
+}
+.diff-view {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.diff-repo {
+  padding: var(--space-3);
+}
+.diff-repo h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 13px;
+  font-weight: var(--weight-secondary);
+}
+.diff-body {
+  margin: 0;
+  padding: var(--space-2) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+.diff-body > div {
+  padding: 0 var(--space-3);
+  white-space: pre;
+  color: var(--code-fg);
+}
+.diff-body .d-add {
+  background: var(--diff-add);
+  color: var(--diff-add-ink);
+}
+.diff-body .d-del {
+  background: var(--diff-remove);
+  color: var(--diff-remove-ink);
+}
+.diff-body .d-hunk {
+  color: var(--code-keyword);
+}
+.diff-body :is(.d-file, .d-head) {
+  color: var(--code-comment);
+}
+
+/* ------------------------------------------------------------------ narrow */
+@media (max-width: 1100px) {
+  .panes,
+  html[data-aside-home] .panes,
+  html[data-aside-desk] .panes,
+  html[data-aside-task] .panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 0 minmax(0, 45%);
+  }
+  .splitter,
+  .aside-toggle {
+    display: none;
+  }
+  .chat-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+/* Phones: the shell, drawer and single panes are at the end of the file ("phone"). */
+@media (max-width: 760px) {
+  .file-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .approval-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .approval-row .action-mark {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ Claude Code pane (dark TUI) */
+.claude-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  border-right: 1px solid var(--line);
+}
+.claude-pane .pane-header,
+.workspace-pane .pane-header {
+  background: var(--canvas);
+}
+.pane-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+.claude-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.claude-body .editor-empty {
+  flex: 1;
+  gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.terminal-view .xterm {
+  height: 100%;
+}
+.terminal-view .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+  /* xterm.css paints it black; the strip below the last row should match the theme. */
+  background-color: transparent !important;
+}

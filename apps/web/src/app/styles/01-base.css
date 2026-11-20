@@ -1,0 +1,90 @@
+/*
+ * Jin workspace styles, on Zero's design system (ComposioHQ/zero docs/design-system.md):
+ * a persistent shell (sidebar + work area), flat white surfaces, graphite emphasis, an
+ * 8px rhythm, one named scroll region per area, no page-level overflow. Every surface
+ * follows the theme (tokens.css): app-wide light/dark/system, and a pane may override it.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font: var(--weight-meta) var(--d-text) / 1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: inherit;
+}
+code,
+pre,
+.mono {
+  font-family: var(--font-code);
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+.meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.pad {
+  padding: var(--space-4);
+}
+[hidden] {
+  display: none !important;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* ------------------------------------------------------------------ thermal mark (Zero) */
+.thermal-mark {
+  width: var(--mark-size);
+  height: var(--mark-size);
+  display: inline-block;
+  flex-shrink: 0;
+  position: relative;
+}
+.thermal-mark-fallback,
+.thermal-mark-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.thermal-mark-canvas {
+  opacity: 0;
+}
+.thermal-mark.is-rendered .thermal-mark-canvas {
+  opacity: 1;
+}
+.thermal-mark.is-rendered .thermal-mark-fallback {
+  visibility: hidden;
+}
+.status-mark,
+.action-mark {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  margin: 0 6px;
+  flex-shrink: 0;
+}

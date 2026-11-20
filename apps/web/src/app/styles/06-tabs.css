@@ -1,0 +1,140 @@
+/* ------------------------------------------------------------------ tabs (Claude Code sessions, shells, files) */
+.terminal-tabs {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-tabbar,
+.file-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-height: var(--d-tab-h);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--canvas);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.term-tab,
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 0 4px 0 10px;
+  border-bottom: 2px solid transparent;
+  color: var(--secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.term-tab:hover,
+.file-tab:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.term-tab.is-active,
+.file-tab.is-active {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+.term-tab-name,
+.file-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-tab-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.term-tab:hover .file-tab-close,
+.file-tab:hover .file-tab-close,
+.term-tab.is-active .file-tab-close,
+.file-tab.is-active .file-tab-close {
+  opacity: 1;
+}
+.file-tab-close:hover {
+  background: var(--selected-hover);
+  color: var(--ink);
+}
+.term-tab-new {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.term-tab-new:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.term-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.term-body .editor-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.term-body .editor-empty p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ Bobby badge (PR review in Bobby) */
+.bobby-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--secondary);
+  font-size: 11px;
+  font-weight: var(--weight-secondary);
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.bobby-badge:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--hover);
+}
+.bobby-badge.is-compact {
+  width: 20px;
+  padding: 0;
+  justify-content: center;
+  margin-left: 2px;
+}
+.bobby-badge.is-busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.bobby-badge[data-error] {
+  color: var(--state-failed);
+}
+.bobby-badge img {
+  display: block;
+  flex-shrink: 0;
+}

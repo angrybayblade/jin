@@ -1,0 +1,69 @@
+/* ------------------------------------------------------------------ sidebar top bar, desktop title bar */
+.sidebar-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--d-header-h);
+  min-height: var(--d-header-h);
+  margin-bottom: 6px;
+}
+/* Its bottom line lines up with the panes' header lines: edge to edge, stopping just short
+   of the sidebar's border (as a pane's line stops at the splitter). */
+.sidebar-top::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  right: -3px;
+  bottom: 0;
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+}
+.sidebar-top > span {
+  display: inline-flex;
+  align-items: center;
+}
+.history-buttons {
+  display: inline-flex;
+  gap: 0;
+}
+.traffic-gap {
+  display: none !important;
+}
+.only-collapsed {
+  display: none;
+}
+html[data-sidebar="collapsed"] .only-collapsed {
+  display: inline-flex;
+}
+html[data-sidebar="collapsed"] .hide-collapsed {
+  display: none !important;
+}
+/* The desktop window: no system title bar; the window buttons sit in the sidebar's top bar. */
+html[data-shell="desktop"] .traffic-gap {
+  display: block !important;
+  width: 70px;
+  flex: none;
+  transition: width 220ms ease;
+}
+/* Full screen hides the window buttons: the bar's controls slide left into their place. */
+html[data-shell="desktop"][data-fullscreen] .traffic-gap {
+  width: 0;
+}
+html[data-shell="desktop"][data-fullscreen][data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+html[data-shell="desktop"][data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+/* Top bars move the window (Electrobun reads app-region; the custom property survives WebKit's CSSOM). */
+html[data-shell="desktop"] :is(.pane-header, .sidebar-top) {
+  -webkit-app-region: drag;
+  --electrobun-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html[data-shell="desktop"] :is(.pane-header, .sidebar-top) :is(button, a, input, select, textarea, [role="tab"], [role="button"]) {
+  -webkit-app-region: no-drag;
+  --electrobun-app-region: no-drag;
+}
