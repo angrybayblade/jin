@@ -18,7 +18,7 @@ import {
   setupMachineWorkspace,
   startMachineSignIn,
   submitMachineSignInCode,
-} from "@/app/actions";
+} from "@/lib/actions";
 import type { Machine, MachineAuth, MachineStep } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 

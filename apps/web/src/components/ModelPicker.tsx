@@ -1,7 +1,7 @@
 "use client";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
-import { modelChoices } from "@/app/actions";
+import { modelChoices } from "@/lib/actions";
 import type { Effort, ModelChoices, RunChoice, Session } from "@/lib/daemon";
 import { openContextMenu } from "./ContextMenu";
 

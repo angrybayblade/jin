@@ -4,7 +4,7 @@ import { FileText, MessageSquare, Plus, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { createDoc } from "@/app/actions";
+import { createDoc } from "@/lib/actions";
 import type { DocSummary } from "@/lib/daemon";
 
 const ago = (iso: string) => {

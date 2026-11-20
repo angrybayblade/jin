@@ -2,7 +2,7 @@
 import { GitPullRequest, ListChecks, Sparkles, SquareKanban } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { searchMentions } from "@/app/actions";
+import { searchMentions } from "@/lib/actions";
 import type { ChatSkill, Mention } from "@/lib/daemon";
 
 /**

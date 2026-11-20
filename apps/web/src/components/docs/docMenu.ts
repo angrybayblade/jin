@@ -1,6 +1,6 @@
 "use client";
 import { Archive, ClipboardCopy, Copy, ExternalLink, FolderInput, FolderMinus, Pencil, Trash2 } from "lucide-react";
-import { addTaskLink, archiveDoc, deleteDoc, duplicateDoc, removeTaskLink, taskTargets } from "@/app/actions";
+import { addTaskLink, archiveDoc, deleteDoc, duplicateDoc, removeTaskLink, taskTargets } from "@/lib/actions";
 import { openContextMenu, type MenuItem } from "../ContextMenu";
 
 /**

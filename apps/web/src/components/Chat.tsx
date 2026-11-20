@@ -3,7 +3,7 @@ import { fromSession } from "@/lib/agent-state";
 import { ArrowUp, ChevronRight, Square } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
+import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/lib/actions";
 import type { Approval, ChatKind, RunChoice, Session, SessionEvent, SessionKind } from "@/lib/daemon";
 import { useMentionPicker } from "./Mentions";
 import { useSkillPicker } from "./SkillPicker";

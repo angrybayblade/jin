@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { openInBobby } from "@/app/actions";
+import { openInBobby } from "@/lib/actions";
 
 /**
  * Opens a pull request's review in Bobby (a focus-first PR reviewer) in your browser, starting

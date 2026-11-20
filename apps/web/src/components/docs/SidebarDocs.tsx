@@ -3,7 +3,7 @@ import { FileText, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { renameDoc } from "@/app/actions";
+import { renameDoc } from "@/lib/actions";
 import type { DocSummary } from "@/lib/daemon";
 import { openContextMenu } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";

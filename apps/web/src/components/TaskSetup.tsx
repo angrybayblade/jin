@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getTaskJob } from "@/app/actions";
+import { getTaskJob } from "@/lib/actions";
 import type { TaskJob } from "@/lib/daemon";
 import { ThermalMark } from "./ThermalMark";
 

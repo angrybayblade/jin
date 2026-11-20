@@ -15,105 +15,135 @@ export async function decideApproval(form: FormData) {
 }
 
 export async function collectGithub() {
-  await daemon("/api/collect/github", { method: "POST" });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon("/api/collect/github", { method: "POST" });
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Snooze or dismiss feed items: one, or a whole thread (several itemId fields). */
 export async function feedAction(form: FormData) {
-  const ids = form.getAll("itemId").map(String).filter(Boolean);
-  const action = text(form, "action");
-  if (!ids.length) throw new Error("no feed items");
-  const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await Promise.all(
-    ids.map((raw) => {
-      const id = encodeURIComponent(raw);
-      if (action === "dismiss" || action === "done") return daemon(`/api/feed/${id}/${action}`, { method: "POST" });
-      if (action === "snooze") return daemon(`/api/feed/${id}/snooze`, { method: "POST", json: { until } });
-      throw new Error(`unknown feed action ${action}`);
-    }),
-  );
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    const ids = form.getAll("itemId").map(String).filter(Boolean);
+    const action = text(form, "action");
+    if (!ids.length) throw new Error("no feed items");
+    const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await Promise.all(
+      ids.map((raw) => {
+        const id = encodeURIComponent(raw);
+        if (action === "dismiss" || action === "done") return daemon(`/api/feed/${id}/${action}`, { method: "POST" });
+        if (action === "snooze") return daemon(`/api/feed/${id}/snooze`, { method: "POST", json: { until } });
+        throw new Error(`unknown feed action ${action}`);
+      }),
+    );
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Done with, or later for, every item of a thread (the desk's Focus mode). */
 export async function feedSet(ids: string[], action: "done" | "snooze") {
-  const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await Promise.all(ids.map((id) => daemon(`/api/feed/${encodeURIComponent(id)}/${action}`, { method: "POST", ...(action === "snooze" ? { json: { until } } : {}) })));
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await Promise.all(ids.map((id) => daemon(`/api/feed/${encodeURIComponent(id)}/${action}`, { method: "POST", ...(action === "snooze" ? { json: { until } } : {}) })));
+    revalidatePath("/", "layout");
+  });
 }
 
 /** A fresh start: everything still open from before `before` is done (kept, not deleted). */
 export async function sweepFeed(before: string): Promise<number> {
-  const r = await daemon<{ cleared: number }>("/api/feed/sweep", { method: "POST", json: { before } });
-  revalidatePath("/", "layout");
-  return r.cleared;
+  return failSafe(async () => {
+    const r = await daemon<{ cleared: number }>("/api/feed/sweep", { method: "POST", json: { before } });
+    revalidatePath("/", "layout");
+    return r.cleared;
+  });
 }
 
 // ---------------------------------------------------------------- chats
 
 export async function createChat(kind: ChatKind, prompt: string, choice: RunChoice = {}): Promise<Session> {
-  const s = await daemon<Session>("/api/chats", { method: "POST", json: { kind, prompt, ...choice } });
-  revalidatePath("/", "layout");
-  return s;
+  return failSafe(async () => {
+    const s = await daemon<Session>("/api/chats", { method: "POST", json: { kind, prompt, ...choice } });
+    revalidatePath("/", "layout");
+    return s;
+  });
 }
 
 export async function startTaskSession(taskId: string, prompt: string, choice: RunChoice = {}): Promise<Session> {
-  const s = await daemon<Session>(`/api/tasks/${encodeURIComponent(taskId)}/sessions`, { method: "POST", json: { prompt, ...choice } });
-  revalidatePath("/", "layout");
-  return s;
+  return failSafe(async () => {
+    const s = await daemon<Session>(`/api/tasks/${encodeURIComponent(taskId)}/sessions`, { method: "POST", json: { prompt, ...choice } });
+    revalidatePath("/", "layout");
+    return s;
+  });
 }
 
 export async function sendMessage(sessionId: string, prompt: string, choice: RunChoice = {}): Promise<Session> {
-  return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", json: { prompt, ...choice } });
+  return failSafe(async () => {
+    return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", json: { prompt, ...choice } });
+  });
 }
 
 /** The models and effort levels the composer offers. */
 export async function modelChoices(): Promise<ModelChoices> {
-  return daemon<ModelChoices>("/api/models");
+  return failSafe(async () => {
+    return daemon<ModelChoices>("/api/models");
+  });
 }
 
 export async function stopSession(sessionId: string): Promise<Session> {
-  return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" });
+  return failSafe(async () => {
+    return daemon<Session>(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" });
+  });
 }
 
 /** A one-time ticket for the browser to open a websocket to the daemon. */
 export async function streamTicket(sessionId: string): Promise<string> {
-  const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: `/api/sessions/${sessionId}/stream` } });
-  return ticket;
+  return failSafe(async () => {
+    const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: `/api/sessions/${sessionId}/stream` } });
+    return ticket;
+  });
 }
 
 // ---------------------------------------------------------------- terminals (shell and Claude Code)
 
 export async function attachTicket(terminalId: string): Promise<string> {
-  const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: `/api/terminals/${terminalId}/attach` } });
-  return ticket;
+  return failSafe(async () => {
+    const { ticket } = await daemon<{ ticket: string }>("/api/tickets", { method: "POST", json: { path: `/api/terminals/${terminalId}/attach` } });
+    return ticket;
+  });
 }
 
 /** `machine`: the task's machine, from a page that is not on it (the sidebar); else the page's own. */
 export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number; forkFrom?: string; machine?: string }): Promise<TerminalInfo> {
-  const { machine, ...json } = opts;
-  const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json, machine });
-  revalidatePath("/", "layout");
-  return t;
+  return failSafe(async () => {
+    const { machine, ...json } = opts;
+    const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json, machine });
+    revalidatePath("/", "layout");
+    return t;
+  });
 }
 
 /** Start a tab's process again (after a daemon restart, Claude Code resumes its conversation). */
 export async function startTerminal(id: string): Promise<TerminalInfo> {
-  const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}/start`, { method: "POST", json: {} });
-  revalidatePath("/", "layout");
-  return t;
+  return failSafe(async () => {
+    const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}/start`, { method: "POST", json: {} });
+    revalidatePath("/", "layout");
+    return t;
+  });
 }
 
 export async function closeTerminal(id: string): Promise<void> {
-  await daemon(`/api/terminals/${encodeURIComponent(id)}`, { method: "DELETE" });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(`/api/terminals/${encodeURIComponent(id)}`, { method: "DELETE" });
+    revalidatePath("/", "layout");
+  });
 }
 
 // ---------------------------------------------------------------- workspace pane
 
 export async function listFiles(taskId: string, path: string): Promise<FileEntry[]> {
-  return daemon<FileEntry[]>(`/api/tasks/${encodeURIComponent(taskId)}/files?path=${encodeURIComponent(path)}`);
+  return failSafe(async () => {
+    return daemon<FileEntry[]>(`/api/tasks/${encodeURIComponent(taskId)}/files?path=${encodeURIComponent(path)}`);
+  });
 }
 
 export async function readFile(taskId: string, path: string): Promise<{ content: string } | { error: string }> {
@@ -125,11 +155,15 @@ export async function readFile(taskId: string, path: string): Promise<{ content:
 }
 
 export async function writeFile(taskId: string, path: string, content: string): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/file`, { method: "PUT", json: { path, content } });
+  return failSafe(async () => {
+    await daemon(`/api/tasks/${encodeURIComponent(taskId)}/file`, { method: "PUT", json: { path, content } });
+  });
 }
 
 export async function getDiff(taskId: string): Promise<RepoDiff[]> {
-  return daemon<RepoDiff[]>(`/api/tasks/${encodeURIComponent(taskId)}/diff`);
+  return failSafe(async () => {
+    return daemon<RepoDiff[]>(`/api/tasks/${encodeURIComponent(taskId)}/diff`);
+  });
 }
 
 // ---------------------------------------------------------------- bobby (PR reviews)
@@ -147,24 +181,32 @@ export async function openInBobby(pr: string): Promise<{ url: string } | { error
 
 /** What an @ in a chat could mean (on the home: every machine's tasks, PRs, issues). */
 export async function searchMentions(q: string): Promise<Mention[]> {
-  return daemon<Mention[]>(`/api/mentions?q=${encodeURIComponent(q)}`, { timeoutMs: 12_000 });
+  return failSafe(async () => {
+    return daemon<Mention[]>(`/api/mentions?q=${encodeURIComponent(q)}`, { timeoutMs: 12_000 });
+  });
 }
 
 /** What a chat mentioned: PRs, tickets, tasks, Slack threads, Notion pages, links. */
 export async function chatRefs(sessionId: string): Promise<ChatRef[]> {
-  return daemon<ChatRef[]>(`/api/sessions/${encodeURIComponent(sessionId)}/refs`, { timeoutMs: 8_000 });
+  return failSafe(async () => {
+    return daemon<ChatRef[]>(`/api/sessions/${encodeURIComponent(sessionId)}/refs`, { timeoutMs: 8_000 });
+  });
 }
 
 /** The kinds of task the (first) workspace runs, for the new-task form. */
 /** The kinds of task a machine's workspace runs, and its issue tracker (null: its tasks have no issues). */
 export async function listTaskKinds(machine?: string): Promise<{ kinds: TaskKindSpec[]; tracker: TrackerView | null }> {
-  const w = (await daemon<{ id: string; taskKinds?: TaskKindSpec[]; tracker?: TrackerView | null }[]>("/api/workspaces", { machine }))[0];
-  return { kinds: w?.taskKinds ?? [], tracker: w?.tracker ?? null };
+  return failSafe(async () => {
+    const w = (await daemon<{ id: string; taskKinds?: TaskKindSpec[]; tracker?: TrackerView | null }[]>("/api/workspaces", { machine }))[0];
+    return { kinds: w?.taskKinds ?? [], tracker: w?.tracker ?? null };
+  });
 }
 
 export async function listRepos(workspace?: string, machine?: string): Promise<Repo[]> {
-  const ws = workspace ?? (await daemon<{ id: string }[]>("/api/workspaces", { machine }))[0]?.id;
-  return ws ? daemon<Repo[]>(`/api/workspaces/${encodeURIComponent(ws)}/repos`, { machine }) : [];
+  return failSafe(async () => {
+    const ws = workspace ?? (await daemon<{ id: string }[]>("/api/workspaces", { machine }))[0]?.id;
+    return ws ? daemon<Repo[]>(`/api/workspaces/${encodeURIComponent(ws)}/repos`, { machine }) : [];
+  });
 }
 
 /** Create a task in the background; its page shows setup progress until it is ready. */
@@ -193,24 +235,32 @@ export async function startTaskJob(input: { id: string; kind?: "change" | "scrat
 }
 
 export async function getTaskJob(id: string): Promise<TaskJob> {
-  return daemon<TaskJob>(`/api/task-jobs/${encodeURIComponent(id)}`);
+  return failSafe(async () => {
+    return daemon<TaskJob>(`/api/task-jobs/${encodeURIComponent(id)}`);
+  });
 }
 
 // ---------------------------------------------------------------- finder
 
 export async function findFiles(taskId: string, q: string): Promise<{ path: string }[]> {
-  return daemon<{ path: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/find?q=${encodeURIComponent(q)}&limit=40`);
+  return failSafe(async () => {
+    return daemon<{ path: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/find?q=${encodeURIComponent(q)}&limit=40`);
+  });
 }
 
 export async function searchFiles(taskId: string, q: string): Promise<{ path: string; line: number; text: string }[]> {
-  return daemon<{ path: string; line: number; text: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/grep?q=${encodeURIComponent(q)}&limit=120`);
+  return failSafe(async () => {
+    return daemon<{ path: string; line: number; text: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/grep?q=${encodeURIComponent(q)}&limit=120`);
+  });
 }
 
 // ---------------------------------------------------------------- context menus: rename, archive, remove
 
 export async function updateTask(id: string, patch: { title?: string | null; archived?: boolean }, machine?: string): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", json: patch, machine });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", json: patch, machine });
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Remove a task with the workspace's own tooling. */
@@ -226,47 +276,65 @@ export async function removeTask(id: string, machine?: string, discard = false):
 }
 
 export async function revealTask(id: string, machine?: string): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(id)}/reveal`, { method: "POST", machine });
+  return failSafe(async () => {
+    await daemon(`/api/tasks/${encodeURIComponent(id)}/reveal`, { method: "POST", machine });
+  });
 }
 
 export async function updateSession(id: string, patch: { title?: string; archived?: boolean }): Promise<void> {
-  await daemon(`/api/sessions/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(`/api/sessions/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  await daemon(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function updateTerminal(id: string, patch: { title?: string; archived?: boolean }): Promise<TerminalInfo> {
-  const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
-  revalidatePath("/", "layout");
-  return t;
+  return failSafe(async () => {
+    const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}`, { method: "PATCH", json: patch });
+    revalidatePath("/", "layout");
+    return t;
+  });
 }
 
 export async function restartTerminal(id: string): Promise<TerminalInfo> {
-  const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}/restart`, { method: "POST", json: {} });
-  revalidatePath("/", "layout");
-  return t;
+  return failSafe(async () => {
+    const t = await daemon<TerminalInfo>(`/api/terminals/${encodeURIComponent(id)}/restart`, { method: "POST", json: {} });
+    revalidatePath("/", "layout");
+    return t;
+  });
 }
 
 export async function archivedTerminals(taskId: string): Promise<TerminalInfo[]> {
-  return daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}&archived=1`);
+  return failSafe(async () => {
+    return daemon<TerminalInfo[]>(`/api/terminals?task=${encodeURIComponent(taskId)}&archived=1`);
+  });
 }
 
 export async function archivedChats(kind: string): Promise<Session[]> {
-  return daemon<Session[]>(`/api/sessions?kind=${encodeURIComponent(kind)}&archived=1`);
+  return failSafe(async () => {
+    return daemon<Session[]>(`/api/sessions?kind=${encodeURIComponent(kind)}&archived=1`);
+  });
 }
 
 // ---------------------------------------------------------------- notifications
 
 export async function setNotifications(s: NotificationSettings): Promise<NotificationSettings> {
-  return daemon<NotificationSettings>("/api/notifications", { method: "PATCH", json: s });
+  return failSafe(async () => {
+    return daemon<NotificationSettings>("/api/notifications", { method: "PATCH", json: s });
+  });
 }
 
 export async function testNotification(): Promise<{ sent: boolean; skipped: string | null }> {
-  return daemon("/api/notifications/test", { method: "POST" });
+  return failSafe(async () => {
+    return daemon("/api/notifications/test", { method: "POST" });
+  });
 }
 
 export async function reportPresence(p: { path: string; chat: string | null; terminal: string | null; focused: boolean }): Promise<void> {
@@ -287,26 +355,51 @@ export async function attachTaskPr(taskId: string, url: string): Promise<TaskPR 
 }
 
 export async function detachTaskPr(taskId: string, url: string): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs`, { method: "DELETE", json: { url } });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs`, { method: "DELETE", json: { url } });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function refreshTaskPrs(taskId: string): Promise<void> {
-  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs/refresh`, { method: "POST" });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(`/api/tasks/${encodeURIComponent(taskId)}/prs/refresh`, { method: "POST" });
+    revalidatePath("/", "layout");
+  });
 }
 
 // ---------------------------------------------------------------- remote machines (this machine's daemon)
+
+/**
+ * Every action that would throw instead returns its failure as a value (lib/actions throws it
+ * again in the browser, message intact): in production Next strips a thrown error's message
+ * before it reaches the browser, and "something failed" helps nobody.
+ */
+async function failSafe<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    // Next's own control flow (redirect, notFound) is not a failure.
+    if (err && typeof err === "object" && "digest" in err && /^NEXT_/.test(String((err as { digest?: unknown }).digest))) throw err;
+    const message = err instanceof Error ? err.message.replace(/^\w+ \S+: /, "") : String(err);
+    console.error(`action failed: ${message}`);
+    return { jinError: message } as T;
+  }
+}
 
 const fail = (err: unknown) => ({ error: err instanceof Error ? err.message.replace(/^\w+ \S+: /, "") : String(err) });
 const machinePath = (id: string, rest = "") => `/api/machines/${encodeURIComponent(id)}${rest}`;
 
 export async function listMachines(): Promise<Machine[]> {
-  return daemon<Machine[]>("/api/machines", { local: true });
+  return failSafe(async () => {
+    return daemon<Machine[]>("/api/machines", { local: true });
+  });
 }
 
 export async function getMachine(id: string): Promise<Machine> {
-  return daemon<Machine>(machinePath(id), { local: true });
+  return failSafe(async () => {
+    return daemon<Machine>(machinePath(id), { local: true });
+  });
 }
 
 /** Add a machine by the host you'd type after `ssh`; onboarding starts at once. */
@@ -322,19 +415,27 @@ export async function addMachine(host: string, label?: string): Promise<Machine 
 
 /** Run onboarding again: also updates jin's daemon there to this jin's commit. */
 export async function rerunMachineSetup(id: string): Promise<void> {
-  await daemon(machinePath(id, "/setup"), { method: "POST", local: true });
+  return failSafe(async () => {
+    await daemon(machinePath(id, "/setup"), { method: "POST", local: true });
+  });
 }
 
 export async function checkMachineAuth(id: string): Promise<void> {
-  await daemon(machinePath(id, "/auth"), { method: "POST", local: true });
+  return failSafe(async () => {
+    await daemon(machinePath(id, "/auth"), { method: "POST", local: true });
+  });
 }
 
 export async function startMachineSignIn(id: string, tool: string): Promise<void> {
-  await daemon(machinePath(id, `/auth/${tool}`), { method: "POST", local: true });
+  return failSafe(async () => {
+    await daemon(machinePath(id, `/auth/${tool}`), { method: "POST", local: true });
+  });
 }
 
 export async function cancelMachineSignIn(id: string, tool: string): Promise<void> {
-  await daemon(machinePath(id, `/auth/${tool}`), { method: "DELETE", local: true });
+  return failSafe(async () => {
+    await daemon(machinePath(id, `/auth/${tool}`), { method: "DELETE", local: true });
+  });
 }
 
 export async function submitMachineSignInCode(id: string, tool: string, code: string): Promise<{ error: string } | null> {
@@ -358,7 +459,9 @@ export async function setMachineToolToken(id: string, tool: string, token: strin
 
 /** Look again for workspaces on the machine. */
 export async function detectMachineWorkspaces(id: string): Promise<void> {
-  await daemon(machinePath(id, "/workspaces/detect"), { method: "POST", local: true });
+  return failSafe(async () => {
+    await daemon(machinePath(id, "/workspaces/detect"), { method: "POST", local: true });
+  });
 }
 
 export async function setupMachineWorkspace(id: string, opts: { provider: string; path?: string }): Promise<{ error: string } | null> {
@@ -371,27 +474,37 @@ export async function setupMachineWorkspace(id: string, opts: { provider: string
 }
 
 export async function removeMachine(id: string): Promise<void> {
-  await daemon(machinePath(id), { method: "DELETE", local: true });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(machinePath(id), { method: "DELETE", local: true });
+    revalidatePath("/", "layout");
+  });
 }
 
 
 // ---------------------------------------------------------------- first-run setup (this machine's daemon)
 
 export async function getSetup(): Promise<SetupState> {
-  return daemon<SetupState>("/api/setup", { local: true });
+  return failSafe(async () => {
+    return daemon<SetupState>("/api/setup", { local: true });
+  });
 }
 
 export async function checkSetupAuth(): Promise<void> {
-  await daemon("/api/setup/auth", { method: "POST", local: true });
+  return failSafe(async () => {
+    await daemon("/api/setup/auth", { method: "POST", local: true });
+  });
 }
 
 export async function startSetupSignIn(tool: string): Promise<void> {
-  await daemon(`/api/setup/auth/${tool}`, { method: "POST", local: true });
+  return failSafe(async () => {
+    await daemon(`/api/setup/auth/${tool}`, { method: "POST", local: true });
+  });
 }
 
 export async function cancelSetupSignIn(tool: string): Promise<void> {
-  await daemon(`/api/setup/auth/${tool}`, { method: "DELETE", local: true });
+  return failSafe(async () => {
+    await daemon(`/api/setup/auth/${tool}`, { method: "DELETE", local: true });
+  });
 }
 
 export async function submitSetupSignInCode(tool: string, code: string): Promise<{ error: string } | null> {
@@ -481,7 +594,9 @@ export async function moveToHome(id: string): Promise<{ history: { sessions: num
 // ---------------------------------------------------------------- live events (Composio, on the home)
 
 export async function getLive(): Promise<LiveStatus> {
-  return daemon<LiveStatus>("/api/composio");
+  return failSafe(async () => {
+    return daemon<LiveStatus>("/api/composio");
+  });
 }
 
 export async function liveLogin(): Promise<{ url: string } | { error: string }> {
@@ -535,13 +650,17 @@ export async function liveLinearTeams(): Promise<{ id: string; name: string; key
 }
 
 export async function liveListener(on: boolean): Promise<void> {
-  await daemon("/api/composio/listener", { method: "POST", json: { on } });
+  return failSafe(async () => {
+    await daemon("/api/composio/listener", { method: "POST", json: { on } });
+  });
 }
 
 // ---------------------------------------------------------------- hooks (on the home)
 
 export async function getHooks(): Promise<HooksStatus> {
-  return daemon<HooksStatus>("/api/event-hooks");
+  return failSafe(async () => {
+    return daemon<HooksStatus>("/api/event-hooks");
+  });
 }
 
 export async function saveHook(h: Partial<Hook>): Promise<Hook | { error: string }> {
@@ -632,7 +751,9 @@ export async function startReview(prs: string[], prompt?: string, setup?: boolea
 // ---------------------------------------------------------------- what notifies (on the home)
 
 export async function getNotificationKinds(): Promise<NotificationKinds[]> {
-  return daemon<NotificationKinds[]>("/api/notifications/kinds");
+  return failSafe(async () => {
+    return daemon<NotificationKinds[]>("/api/notifications/kinds");
+  });
 }
 
 export async function chooseNotificationKinds(app: string, kinds: string[]): Promise<NotificationKinds[] | { error: string }> {
@@ -688,10 +809,12 @@ export async function chatSkills(kind: string): Promise<ChatSkill[]> {
 const docPath = (id: string) => `/api/docs/${encodeURIComponent(id)}`;
 
 export async function listDocs(q?: string, tag?: string): Promise<DocSummary[]> {
-  const qs = new URLSearchParams();
-  if (q) qs.set("q", q);
-  if (tag) qs.set("tag", tag);
-  return daemon<DocSummary[]>(`/api/docs${qs.size ? `?${qs}` : ""}`);
+  return failSafe(async () => {
+    const qs = new URLSearchParams();
+    if (q) qs.set("q", q);
+    if (tag) qs.set("tag", tag);
+    return daemon<DocSummary[]>(`/api/docs${qs.size ? `?${qs}` : ""}`);
+  });
 }
 
 export async function createDoc(title?: string, body?: string): Promise<Doc | { error: string }> {
@@ -723,8 +846,10 @@ export async function saveDoc(id: string, patch: { title?: string; body?: string
 }
 
 export async function archiveDoc(id: string, archived = true): Promise<void> {
-  await daemon(docPath(id), { method: "PATCH", json: { archived } });
-  revalidatePath("/", "layout");
+  return failSafe(async () => {
+    await daemon(docPath(id), { method: "PATCH", json: { archived } });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function commentDoc(id: string, text: string, anchor: DocAnchor | null): Promise<DocThread | { error: string }> {
@@ -761,8 +886,10 @@ export async function decideDocSuggestion(id: string, suggestionId: string, acce
 
 /** Ask jin in the doc's chat (it starts on first use). */
 export async function askDoc(id: string, prompt: string, choice: RunChoice = {}): Promise<{ id: string }> {
-  const r = await daemon<{ chatId: string }>(`${docPath(id)}/ask`, { method: "POST", json: { prompt, ...choice } });
-  return { id: r.chatId };
+  return failSafe(async () => {
+    const r = await daemon<{ chatId: string }>(`${docPath(id)}/ask`, { method: "POST", json: { prompt, ...choice } });
+    return { id: r.chatId };
+  });
 }
 
 /** A doc chat's session and its events (when jin's chat for a doc started from a comment). */
@@ -776,11 +903,15 @@ export async function docChat(chatId: string): Promise<{ session: Session; event
 }
 
 export async function docVersions(id: string): Promise<DocVersion[]> {
-  return daemon<DocVersion[]>(`${docPath(id)}/versions`);
+  return failSafe(async () => {
+    return daemon<DocVersion[]>(`${docPath(id)}/versions`);
+  });
 }
 
 export async function docVersion(id: string, version: number): Promise<{ version: number; title: string; body: string; by: string; at: string }> {
-  return daemon(`${docPath(id)}/versions/${version}`);
+  return failSafe(async () => {
+    return daemon(`${docPath(id)}/versions/${version}`);
+  });
 }
 
 export async function restoreDocVersion(id: string, version: number, base: number): Promise<Doc | { error: string }> {

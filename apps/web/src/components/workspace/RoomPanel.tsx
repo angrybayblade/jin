@@ -1,7 +1,7 @@
 "use client";
 import { ArrowUp, AtSign, Check, Copy, Eye, FileText, GitCompare, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Square, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { decideRoomApproval, getRoom, modelChoices, pinRoomMessage, postRoomMessage, roomAgentAction, roomAgentEvents, saveRoomAgent } from "@/app/actions";
+import { decideRoomApproval, getRoom, modelChoices, pinRoomMessage, postRoomMessage, roomAgentAction, roomAgentEvents, saveRoomAgent } from "@/lib/actions";
 import type { ModelChoices, RoomAgent, RoomApproval, RoomMessage, RoomProfile, SessionEvent } from "@/lib/daemon";
 import { openContextMenu, type MenuItem } from "../ContextMenu";
 import { Markdown } from "../Markdown";

@@ -4,7 +4,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FileText, FolderTree, GitCompare, GitPullRequest, MoreHorizontal, NotebookPen, PanelRightClose, Users, UserPlus, Square, Trash2, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archivedTerminals, clearRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
+import { archivedTerminals, clearRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/lib/actions";
 import { DocPage } from "../docs/DocPage";
 import { docMenu } from "../docs/docMenu";
 import type { DocFull, Session, SessionEvent } from "@/lib/daemon";

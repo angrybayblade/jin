@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Empty } from "@/components/States";
 import { Check, ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Mail, MessageSquare, RefreshCw, Sparkles } from "lucide-react";
-import { collectGithub, feedAction } from "@/app/actions";
+import { collectGithub, feedAction } from "@/lib/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { groupFeed, rowWhat, type FeedGroup, type FeedRow } from "@/lib/feed-groups";
 import { isPullRequest } from "@/lib/pr";

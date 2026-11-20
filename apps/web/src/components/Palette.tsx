@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { collectGithub, findFiles, searchFiles, testNotification } from "@/app/actions";
+import { collectGithub, findFiles, searchFiles, testNotification } from "@/lib/actions";
 import type { Task } from "@/lib/daemon";
 import { fuzzy } from "@/lib/fuzzy";
 import { setDensity, updateLayout } from "@/lib/layout";

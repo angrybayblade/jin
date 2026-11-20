@@ -23,7 +23,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, Suspense, useEffect, useState } from "react";
-import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
+import { openTerminal, removeTask, revealTask, updateTask } from "@/lib/actions";
 import type { DocSummary, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
 import { splitPath, taskHref } from "@/lib/paths";
 import { setDrawer } from "@/lib/phone";

@@ -2,7 +2,7 @@
 import { Bell, BellOff, BellRing, Send, SlidersHorizontal } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { reportPresence, setNotifications, testNotification } from "@/app/actions";
+import { reportPresence, setNotifications, testNotification } from "@/lib/actions";
 import type { NotificationSettings } from "@/lib/daemon";
 import { activeTerminal } from "@/lib/presence";
 import { contextMenu } from "./ContextMenu";

@@ -3,7 +3,7 @@ import { Empty } from "@/components/States";
 import { ArrowRight, Check, ChevronRight, Clock, Crosshair, ExternalLink, MessageSquareText, RefreshCw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { collectGithub, feedSet, sweepFeed } from "@/app/actions";
+import { collectGithub, feedSet, sweepFeed } from "@/lib/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { COMPOSE_EVENT } from "@/lib/desk-events";
 import { rowWhat } from "@/lib/feed-groups";

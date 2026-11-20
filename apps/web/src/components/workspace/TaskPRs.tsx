@@ -2,7 +2,7 @@
 import { ClipboardCopy, ExternalLink, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Link2Off, Plus, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { attachTaskPr, detachTaskPr, openInBobby, refreshTaskPrs } from "@/app/actions";
+import { attachTaskPr, detachTaskPr, openInBobby, refreshTaskPrs } from "@/lib/actions";
 import type { TaskPR } from "@/lib/daemon";
 import { contextMenu, type MenuItem } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";

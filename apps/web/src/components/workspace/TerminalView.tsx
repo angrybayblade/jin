@@ -1,7 +1,7 @@
 "use client";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
-import { attachTicket } from "@/app/actions";
+import { attachTicket } from "@/lib/actions";
 import { isPhone } from "@/lib/phone";
 import { useResolvedTheme } from "@/lib/theme";
 

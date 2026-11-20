@@ -5,7 +5,7 @@ import { Archive, ArchiveRestore, MessageSquarePlus, Pencil, Plus, Trash2, X } f
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { archivedChats, deleteSession, updateSession } from "@/app/actions";
+import { archivedChats, deleteSession, updateSession } from "@/lib/actions";
 import type { ChatKind, Session, SessionState } from "@/lib/daemon";
 import { useTabShortcuts } from "@/lib/shortcuts";
 import { contextMenu, openContextMenu, type MenuItem } from "./ContextMenu";

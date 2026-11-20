@@ -2,7 +2,7 @@
 import { ScanEye } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { startReview } from "@/app/actions";
+import { startReview } from "@/lib/actions";
 
 /** Review a pull request as a task: makes the review task (or opens the one already reviewing it). */
 export function ReviewButton({ pr, label = false }: { pr: string; label?: boolean }) {

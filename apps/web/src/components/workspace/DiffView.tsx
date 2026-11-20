@@ -2,7 +2,7 @@
 import { Failed } from "@/components/States";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { getDiff } from "@/app/actions";
+import { getDiff } from "@/lib/actions";
 import type { RepoDiff } from "@/lib/daemon";
 
 function lineClass(l: string): string {

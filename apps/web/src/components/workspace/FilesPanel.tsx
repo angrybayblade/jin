@@ -2,7 +2,7 @@
 import { Failed, Loading } from "@/components/States";
 import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
 import { useEffect, useState } from "react";
-import { listFiles } from "@/app/actions";
+import { listFiles } from "@/lib/actions";
 import type { FileEntry } from "@/lib/daemon";
 
 function TreeNode({ taskId, entry, depth, open, onOpen }: { taskId: string; entry: FileEntry; depth: number; open: string | null; onOpen: (p: string) => void }) {

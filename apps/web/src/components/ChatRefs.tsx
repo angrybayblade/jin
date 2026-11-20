@@ -3,7 +3,7 @@ import { Empty } from "@/components/States";
 import { CircleDot, ExternalLink, FileText, GitPullRequest, Link2, ListChecks, Mail, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { chatRefs } from "@/app/actions";
+import { chatRefs } from "@/lib/actions";
 import type { ChatRef } from "@/lib/daemon";
 
 /**

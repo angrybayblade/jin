@@ -3,7 +3,7 @@ import { Archive, Check, Clipboard, Download, FileText, History, MessageSquare, 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archiveDoc, askDoc, commentDoc, decideDocSuggestion, docChat, docVersion, docVersions, getDoc, replyDoc, resolveDocThread, restoreDocVersion, saveDoc } from "@/app/actions";
+import { archiveDoc, askDoc, commentDoc, decideDocSuggestion, docChat, docVersion, docVersions, getDoc, replyDoc, resolveDocThread, restoreDocVersion, saveDoc } from "@/lib/actions";
 import { Chat } from "@/components/Chat";
 import { openContextMenu } from "@/components/ContextMenu";
 import { Panes } from "@/components/Panes";

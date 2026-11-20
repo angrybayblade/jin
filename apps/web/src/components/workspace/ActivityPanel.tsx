@@ -2,7 +2,7 @@
 import { Empty, Loading } from "@/components/States";
 import { CircleDot, FileText, GitPullRequest, Hash, Link2, MessageSquare, NotebookPen, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { addTaskLink, getActivity, removeTaskLink } from "@/app/actions";
+import { addTaskLink, getActivity, removeTaskLink } from "@/lib/actions";
 import type { TaskActivity, TaskLink } from "@/lib/daemon";
 import { FeedThreads } from "../TodayPanel";
 

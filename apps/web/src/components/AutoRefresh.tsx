@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { changeStamp } from "@/app/actions";
+import { changeStamp } from "@/lib/actions";
 
 /**
  * Re-renders the server components when what they show changes: a cheap fingerprint from the

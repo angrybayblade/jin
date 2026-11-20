@@ -1,4 +1,4 @@
-import { decideApproval } from "@/app/actions";
+import { decideApproval } from "@/lib/actions";
 import type { Approval } from "@/lib/daemon";
 import { ActionMark } from "./ThermalMark";
 

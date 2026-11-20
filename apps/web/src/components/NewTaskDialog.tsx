@@ -2,7 +2,7 @@
 import { Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { listRepos, listTaskKinds, startReview, startTaskJob, taskTitle } from "@/app/actions";
+import { listRepos, listTaskKinds, startReview, startTaskJob, taskTitle } from "@/lib/actions";
 import type { Repo, TaskKindSpec, TrackerView } from "@/lib/daemon";
 import { taskHref } from "@/lib/paths";
 

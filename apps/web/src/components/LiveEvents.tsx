@@ -1,7 +1,7 @@
 "use client";
 import { Check, ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getLive, liveConnect, liveLinearTeams, liveListener, liveLogin, liveProjects, liveSetEvent, liveUseProject } from "@/app/actions";
+import { getLive, liveConnect, liveLinearTeams, liveListener, liveLogin, liveProjects, liveSetEvent, liveUseProject } from "@/lib/actions";
 import type { LiveStatus } from "@/lib/daemon";
 
 const NAME: Record<string, string> = { slack: "Slack", linear: "Linear", notion: "Notion", gmail: "Gmail", github: "GitHub" };

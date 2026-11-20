@@ -2,7 +2,7 @@
 import { Empty, Failed, Loading } from "@/components/States";
 import { CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Lightbulb, PenLine, Split } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getJournal } from "@/app/actions";
+import { getJournal } from "@/lib/actions";
 import type { JournalEntry, JournalView } from "@/lib/daemon";
 
 const KIND = {

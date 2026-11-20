@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { chatSkills } from "@/app/actions";
+import { chatSkills } from "@/lib/actions";
 import type { ChatSkill } from "@/lib/daemon";
 
 /**

@@ -2,7 +2,7 @@
 import { Eye, EyeOff, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { saveClaudeSettings } from "@/app/actions";
+import { saveClaudeSettings } from "@/lib/actions";
 import type { ClaudeSettingsFile } from "@/lib/daemon";
 
 /**
