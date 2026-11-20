@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { DOC_ID, DocAsk, docChatNote, docRoutes, Docs, docTools } from "./docs";
 import { roomRoutes, Rooms } from "./rooms";
+import { type IssueDetails, Trackers, trackerView, type IssueTracker } from "./trackers";
 import { problemRoutes, problems } from "./problems";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createAdapter } from "./adapters";
+import { createAdapter, provider } from "./adapters";
 import { haikuTitle, scriptedTitle } from "./titles";
 import { type MachineSnapshot, Mentions, mentionRoutes } from "./mentions";
 import { bobbyRoutes } from "./bobby";
@@ -75,9 +76,33 @@ const upsertWorkspace = db.query(
   "insert into workspaces (id, adapter, root, updated_at) values (?, ?, ?, ?) on conflict (id) do update set adapter = excluded.adapter, root = excluded.root, updated_at = excluded.updated_at",
 );
 for (const w of app.workspaces) upsertWorkspace.run(w.id, w.adapter, w.root, now());
-const tasks = new Tasks(db, adapters);
+// Issue trackers: how each reaches its issues is wired below (Linear through Composio, GitHub through gh).
+let lookupLinear: ((id: string) => Promise<IssueDetails | null>) | undefined;
+const trackers = new Trackers({
+  linear: (id) => lookupLinear?.(id) ?? Promise.resolve(null),
+  github: async (id) => {
+    const m = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(id);
+    if (!m) return null;
+    const p = Bun.spawn(["gh", "issue", "view", m[2]!, "-R", m[1]!, "--json", "title,url,state,assignees"], { stdout: "pipe", stderr: "ignore" });
+    const out = await new Response(p.stdout).text();
+    if ((await p.exited) !== 0) return null;
+    const d = JSON.parse(out) as { title: string; url: string; state: string; assignees?: { login: string }[] };
+    return { title: d.title, url: d.url, state: d.state.toLowerCase(), assignee: d.assignees?.[0]?.login ?? null, team: m[1]! };
+  },
+  owners: () => app.workspaces.flatMap((w) => w.github.owners),
+});
+/** A workspace's tracker (null: its tasks have no issues). */
+const trackerOf = (workspace: string) => trackers.get(app.workspaces.find((w) => w.id === workspace)?.tracker);
+const tasks = new Tasks(db, adapters, (workspace, t) => {
+  // A change task named after its issue (the provider says its workspaces do): that issue, in the workspace's tracker.
+  const w = app.workspaces.find((x) => x.id === workspace);
+  const tracker = trackerOf(workspace);
+  if (!w || !tracker || (t.kind ?? "change") !== "change" || !provider(w.adapter).taskIdIsIssue) return null;
+  const id = tracker.parseId(t.id);
+  return id ? { tracker: tracker.id, id, url: tracker.urlOf(id) } : null;
+});
 const feed = new Feed(db);
-taskRoutes(app.router, tasks, adapters);
+taskRoutes(app.router, tasks, adapters, (w) => trackerOf(w));
 feedRoutes(app.router, feed, tasks, app.workspaces);
 fileRoutes(app.router, tasks);
 finderRoutes(app.router, new Finder(tasks));
@@ -273,7 +298,9 @@ const fireEvent = (ev: Omit<FiredEvent, "machine">) => {
 prs.onMerged((taskId, pr) => {
   const t = tasks.get(taskId);
   if (t.kind === "review") return; // someone else's PR: its merge is not this task's work done
-  const task = { id: t.id, title: t.title ?? t.slug, issue: t.issue };
+  // The issue as its tracker reads it: an agent acting on the event is told how to read and close it.
+  const tracker = t.issue ? trackers.get(t.issue.tracker) : null;
+  const task = { id: t.id, title: t.title ?? t.slug, issue: t.issue && { ...t.issue, url: t.issue.url ?? tracker?.urlOf(t.issue.id) ?? null, noun: tracker?.noun ?? "issue", read: tracker?.howToRead(t.issue.id) ?? null, close: tracker?.howToClose ?? null } };
   fireEvent({ event: "pr.merged", key: pr.url, payload: { task, pr: { url: pr.url, repo: pr.repo, number: pr.number, title: pr.title } } });
   const all = prs.list(taskId);
   if (all.every((p) => p.state === "MERGED" || p.state === "CLOSED")) {
@@ -405,7 +432,7 @@ const githubWatch = new GithubWatch(config.home, (e) => liveDeliver(e), undefine
 // What tasks follow (links): on the home, the Slack threads and channels they watch.
 const watches = new Watches(config.home);
 watchRoutes(app.router, watches);
-const taskLinks = new TaskLinks(db);
+const taskLinks = new TaskLinks(db, trackers);
 tasks.onRemoved((taskId) => taskLinks.removeTask(taskId));
 const linksOf = (taskId: string) => {
   const t = tasks.get(taskId);
@@ -441,6 +468,7 @@ const retitle = (links: TaskLink[]) =>
     }
   })();
 linkRoutes(app.router, {
+  trackers,
   links: taskLinks,
   linksOf,
   changed: pushWatches,
@@ -527,14 +555,16 @@ mentions = new Mentions({
     const d = JSON.parse(out) as { title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; statusCheckRollup?: { conclusion?: string; state?: string; status?: string }[]; author?: { login?: string } };
     return { title: d.title, url: d.url, state: d.state, draft: d.isDraft, review: d.reviewDecision || null, checks: rollup(d.statusCheckRollup ?? []), author: d.author?.login ?? null };
   },
-  // Only the fields shown (and the issue's own link), through Linear's GraphQL.
-  issue: async (id) => {
-    const d = await within(composio.tool("LINEAR_RUN_QUERY_OR_MUTATION", { query_or_mutation: "query($id:String!){ issue(id:$id){ title url state{name} assignee{displayName} team{name} } }", variables: { id } }), 10_000);
-    const i = ((d?.data as Record<string, unknown> | undefined)?.issue ?? null) as { title?: string; url?: string; state?: { name?: string }; assignee?: { displayName?: string } | null; team?: { name?: string } | null } | null;
-    return i?.title ? { title: i.title, url: i.url ?? null, state: i.state?.name ?? null, assignee: i.assignee?.displayName ?? null, team: i.team?.name ?? null } : null;
-  },
+  trackers,
+  inUse: () => app.workspaces.map((w) => trackers.get(w.tracker)).filter((t): t is IssueTracker => t !== null),
 });
 mentionRoutes(app.router, mentions, (id) => sessions.events(id));
+// Linear's issues are read through Composio (only the fields shown, and the issue's own link).
+lookupLinear = async (id) => {
+  const d = await within(composio.tool("LINEAR_RUN_QUERY_OR_MUTATION", { query_or_mutation: "query($id:String!){ issue(id:$id){ title url state{name} assignee{displayName} team{name} } }", variables: { id } }), 10_000);
+  const i = ((d?.data as Record<string, unknown> | undefined)?.issue ?? null) as { title?: string; url?: string; state?: { name?: string }; assignee?: { displayName?: string } | null; team?: { name?: string } | null } | null;
+  return i?.title ? { title: i.title, url: i.url ?? null, state: i.state?.name ?? null, assignee: i.assignee?.displayName ?? null, team: i.team?.name ?? null } : null;
+};
 composio.startListener();
 composio.resumeNative();
 

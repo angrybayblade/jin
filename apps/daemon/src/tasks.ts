@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { AdapterError, provider, type ProviderTask, type ReviewedPR, type TaskIssue, type TaskKind, type TaskSpec, type WorkspaceAdapter } from "./adapters";
 import { now } from "./db";
+import { trackerView, type IssueTracker } from "./trackers";
 import { body, HttpError, json, type Router } from "./http";
 
 export interface Task {
@@ -88,6 +89,8 @@ export class Tasks {
   constructor(
     private db: Database,
     private adapters: Map<string, WorkspaceAdapter>,
+    /** The issue a workspace's task is for, by its tracker (when the adapter did not say). */
+    private issueOf: (workspace: string, task: ProviderTask) => TaskIssue | null = () => null,
   ) {}
 
   adapter(workspace: string): WorkspaceAdapter {
@@ -151,7 +154,7 @@ export class Tasks {
     const meta = new Map((this.db.query("select id, source_item from tasks").all() as { id: string; source_item: string | null }[]).map((r) => [r.id, r.source_item]));
     const out: Task[] = [];
     for (const [workspace, adapter] of this.adapters) {
-      for (const t of adapter.listTasks()) out.push(fromProvider(workspace, t, meta.get(t.id) ?? null));
+      for (const t of adapter.listTasks()) out.push(fromProvider(workspace, { ...t, issue: t.issue ?? this.issueOf(workspace, t) }, meta.get(t.id) ?? null));
     }
     return out;
   }
@@ -273,11 +276,23 @@ export class Tasks {
   }
 }
 
-export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, WorkspaceAdapter>) {
+export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, WorkspaceAdapter>, trackerOf: (workspace: string) => IssueTracker | null = () => null) {
   router
     .on("GET", "/api/workspaces", () =>
-      // With the kinds of task each one runs (from its provider), for the new-task form.
-      json([...adapters.values()].map((a) => ({ id: a.config.id, adapter: a.config.adapter, root: a.config.root, taskKinds: provider(a.config.adapter).taskKinds }))),
+      // With the kinds of task each one runs (from its provider) and its tracker, for the new-task form.
+      json(
+        [...adapters.values()].map((a) => {
+          const tracker = trackerOf(a.config.id);
+          return {
+            id: a.config.id,
+            adapter: a.config.adapter,
+            root: a.config.root,
+            tracker: tracker ? trackerView(tracker) : null,
+            // A kind named after its issue takes the tracker's id hint ("ENG-123"); with no tracker it is a plain id.
+            taskKinds: provider(a.config.adapter).taskKinds.map((k) => (k.idIsIssue ? { ...k, idIsIssue: Boolean(tracker), idHint: tracker?.idHint ?? k.idHint ?? "TASK-1" } : k)),
+          };
+        }),
+      ),
     )
     .on("GET", "/api/workspaces/:id/repos", async (_req, p) => json(await tasks.adapter(p.id!).repos()))
     .on("POST", "/api/workspaces/:id/tasks", async (req, p) => json(await tasks.start(p.id!, await body<TaskSpec>(req)), 201))
