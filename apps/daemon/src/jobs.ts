@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { taskKindOf, type TaskSpec } from "./adapters";
 import type { Feed } from "./feed";
@@ -27,15 +28,46 @@ const LOG_LINES = 400;
 
 /**
  * Creates tasks in the background so neither the UI nor jin's chat waits on the workspace's
- * tooling (creating checkouts, installing). Progress is the tooling's own output. Jobs live in memory: a daemon restart ends
- * a running one (the workspace may be left with a partly set-up task, as after a ctrl-c).
+ * tooling (creating checkouts, installing). Progress is the tooling's own output. Jobs are kept
+ * in jin's database: one that was running when the daemon stopped is shown as failed, with what
+ * that means (the workspace may have a partly set-up task), not silently gone.
  */
 export class TaskJobs {
   private jobs = new Map<string, TaskJob>();
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   private finished: ((job: TaskJob) => void)[] = [];
 
-  constructor(private deps: TerminalDeps & { feed: Feed }) {}
+  constructor(private deps: TerminalDeps & { feed: Feed; db?: Database }) {
+    const db = deps.db;
+    if (!db) return;
+    const rows = db.query("select body from task_jobs order by started_at desc limit 50").all() as { body: string }[];
+    for (const { body: raw } of rows.reverse()) {
+      const job = JSON.parse(raw) as TaskJob;
+      if (job.state === "running") {
+        job.state = "failed";
+        job.error = "jin restarted while this task was being set up. The workspace may hold a partly set-up task: remove it and create it again, or open it and finish the setup yourself.";
+        job.log.push(`failed: ${job.error}`);
+        job.finishedAt = new Date().toISOString();
+      }
+      this.jobs.set(job.id, job);
+    }
+    db.query("delete from task_jobs where id not in (select id from task_jobs order by started_at desc limit 50)").run();
+    this.saveAll();
+  }
+
+  /** Kept in the database (now, or soon while output streams in). */
+  private save(job: TaskJob, soon = false) {
+    if (!this.deps.db) return;
+    if (soon) {
+      this.saveTimer ??= setTimeout(() => ((this.saveTimer = null), this.saveAll()), 2000);
+      return;
+    }
+    this.deps.db.query("insert into task_jobs (id, started_at, body) values (?, ?, ?) on conflict (id) do update set body = excluded.body").run(job.id, job.startedAt, JSON.stringify(job));
+  }
+  private saveAll() {
+    for (const j of this.jobs.values()) this.save(j);
+  }
 
   /** A setup finished (done or failed). */
   onFinish(fn: (job: TaskJob) => void) {
@@ -97,9 +129,11 @@ export class TaskJobs {
       finishedAt: null,
     };
     this.jobs.set(job.id, job);
+    this.save(job);
     const say = (line: string) => {
       job.log.push(line);
       if (job.log.length > LOG_LINES) job.log.splice(0, job.log.length - LOG_LINES);
+      this.save(job, true);
     };
     void (async () => {
       try {
@@ -121,6 +155,7 @@ export class TaskJobs {
         say(`failed: ${job.error}`);
       } finally {
         job.finishedAt = new Date().toISOString();
+        this.save(job);
         for (const fn of this.finished) {
           try {
             fn(job);

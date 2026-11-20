@@ -280,6 +280,8 @@ const MIGRATIONS: string[] = [
   `,
   // 14: what an agent's turn made or changed (docs), shown with its message.
   `alter table room_messages add column refs text not null default '[]';`,
+  // 15: task setups (jobs), kept across restarts.
+  `create table task_jobs (id text primary key, started_at text not null, body text not null);`,
 ];
 
 export function openDb(home: string): Database {
