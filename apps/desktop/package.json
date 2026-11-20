@@ -2,6 +2,9 @@
   "name": "@jin/desktop",
   "private": true,
   "description": "jin in a native macOS window (Electrobun, built with hutch)",
+  "scripts": {
+    "typecheck:local": "tsc -p . --noEmit"
+  },
   "devDependencies": {
     "@types/bun": "1.4.4"
   }

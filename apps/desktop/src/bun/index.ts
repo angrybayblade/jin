@@ -9,11 +9,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import Electrobun, { ApplicationMenu, BrowserWindow } from "electrobun/main";
 
-const HOME = process.env.JIN_HOME ?? join(homedir(), ".jin");
-const APP = process.env.JIN_APP_DIR ?? join(HOME, "release", "app");
-const WEB_PORT = Number(process.env.JIN_WEB_PORT ?? 3917);
-const URL = process.env.JIN_URL ?? `http://127.0.0.1:${WEB_PORT}`;
-const MANAGE = process.env.JIN_SERVICES !== "0" && !process.env.JIN_URL;
+const HOME = process.env["JIN_HOME"] ?? join(homedir(), ".jin");
+const APP = process.env["JIN_APP_DIR"] ?? join(HOME, "release", "app");
+const WEB_PORT = Number(process.env["JIN_WEB_PORT"] ?? 3917);
+const URL = process.env["JIN_URL"] ?? `http://127.0.0.1:${WEB_PORT}`;
+const MANAGE = process.env["JIN_SERVICES"] !== "0" && !process.env["JIN_URL"];
 
 // WebKit needs an Edit menu for copy and paste to reach the page (the terminal pastes through it).
 ApplicationMenu.setApplicationMenu([
@@ -33,7 +33,7 @@ ApplicationMenu.setApplicationMenu([
 
 /** An app opened from Finder gets a bare PATH; jin's daemon needs yours (gh, claude, git, node, the workspace's tools). */
 function loginPath(): string {
-  const shell = process.env.SHELL || "/bin/zsh";
+  const shell = process.env["SHELL"] || "/bin/zsh";
   const r = Bun.spawnSync([shell, "-lc", 'printf "%s" "$PATH"'], { stderr: "ignore" });
   const found = r.exitCode === 0 ? r.stdout.toString().trim() : "";
   const extra = [join(homedir(), ".bun/bin"), join(homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
@@ -61,7 +61,7 @@ async function ensureServices(): Promise<string | null> {
   // Never hand a parent Claude Code session's variables to the daemon's agents.
   for (const k of Object.keys(env)) if (k.startsWith("CLAUDE_CODE_") || k === "CLAUDECODE") delete env[k];
   const bun = [join(homedir(), ".bun/bin/bun"), "/opt/homebrew/bin/bun"].find(existsSync) ?? process.execPath;
-  const daemonPort = Number(process.env.JIN_PORT ?? 7317);
+  const daemonPort = Number(process.env["JIN_PORT"] ?? 7317);
   if (!(await answers(`http://127.0.0.1:${daemonPort}/health`))) startDetached("daemon", [bun, join(APP, "apps/daemon/src/main.ts")], APP, env);
   // The web server's own health check: the home page can be slow while another machine's tunnel comes back.
   const web = `${URL}/healthz`;
@@ -82,7 +82,7 @@ const win = new BrowserWindow({
   url: MANAGE ? "views://mainview/index.html" : `${URL}/?shell=desktop`,
   frame: { width: 1512, height: 940, x: 80, y: 60 },
   titleBarStyle: "hiddenInset",
-  trafficLightOffset: { x: 14, y: Number(process.env.JIN_TRAFFIC_Y ?? 4) },
+  trafficLightOffset: { x: 14, y: Number(process.env["JIN_TRAFFIC_Y"] ?? 4) },
   renderer: "native",
 });
 
@@ -130,6 +130,9 @@ if (MANAGE) {
   });
 }
 
+// Electrobun's typings leave out two webview events it does send (a new window asked for, a message from the page).
+const onWebview = win.webview.on.bind(win.webview) as unknown as (event: string, handler: (e: any) => void) => void;
+
 // Links to other sites open in your default browser: the window is jin, not a browser.
 function openExternal(url: unknown) {
   if (typeof url !== "string" || !/^(https?|mailto):/i.test(url)) return;
@@ -137,7 +140,7 @@ function openExternal(url: unknown) {
 }
 // A page asking for a new window (a link with target=_blank that slipped past the page's own handling).
 // jin's own pages (⌘-click on one of its links) open in this window, never the browser.
-win.webview.on("new-window-open", (e: any) => {
+onWebview("new-window-open", (e: any) => {
   const d = e?.data?.detail;
   const url = typeof d === "string" ? d : d?.url;
   if (typeof url === "string" && url.startsWith(`${URL}/`)) {
@@ -154,7 +157,7 @@ const doubleClickAction = () => {
   const r = Bun.spawnSync(["defaults", "read", "-g", "AppleActionOnDoubleClick"]);
   return r.exitCode === 0 ? r.stdout.toString().trim() : "Maximize";
 };
-win.webview.on("host-message", (e: any) => {
+onWebview("host-message", (e: any) => {
   // The page's message arrives as an object (older builds sent a JSON string).
   let m = e?.data?.detail as { type?: string } | string | undefined;
   if (typeof m === "string") {
@@ -315,7 +318,7 @@ async function waitingOnYou(): Promise<number> {
 const badge = dockBadge();
 if (badge) {
   const update = async () => {
-    const n = process.env.JIN_BADGE ?? (await waitingOnYou()); // JIN_BADGE: show a fixed label (to check the badge)
+    const n = process.env["JIN_BADGE"] ?? (await waitingOnYou()); // JIN_BADGE: show a fixed label (to check the badge)
     badge(String(n) === "0" ? "" : String(n));
   };
   void update();
