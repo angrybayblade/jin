@@ -1,3 +1,4 @@
+import { problems } from "./problems";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { type Detected, detectionScript, provider, PROVIDERS, providerTools, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
@@ -509,8 +510,8 @@ export class Machines {
           return;
         }
       }
-      void this.checkAuth(id).catch(() => {});
-      void this.detectWorkspaces(id).catch(() => {});
+      void this.checkAuth(id).catch(problems.catch(`checking sign-ins on ${id}`));
+      void this.detectWorkspaces(id).catch(problems.catch(`finding workspaces on ${id}`));
     } finally {
       this.busy.delete(id);
     }
@@ -618,7 +619,7 @@ export class Machines {
       t.state = "down";
       if (t.stopped) return;
       console.error(`tunnel to ${m.label}: ssh exited (${code}); reopening in ${t.backoff / 1000}s`);
-      t.timer = setTimeout(() => void this.openTunnel(id).catch(() => {}), t.backoff);
+      t.timer = setTimeout(() => void this.openTunnel(id).catch(problems.catch(`tunnel to ${m.label}`)), t.backoff);
       t.backoff = Math.min(t.backoff * 2, 30_000);
     });
     // Health checks every 5s: a dead line is found (and reconnected) within about 10s.
@@ -884,7 +885,7 @@ export class Machines {
   resume() {
     // A reverse line belongs only to the home (a switch that did not finish leaves none).
     for (const m of this.records()) if (!m.home && m.reversePort) this.update(m.id, { reversePort: null });
-    for (const m of this.records()) if (m.token) void this.openTunnel(m.id).catch(() => {});
+    for (const m of this.records()) if (m.token) void this.openTunnel(m.id).catch(problems.catch(`tunnel to ${m.label}`));
   }
 
   stopAll() {
@@ -944,7 +945,7 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     const s = driveSignIn(proc, tool, (patch) => this.setAuth(id, tool, patch), async (ok) => {
       if (this.signIns.get(key) !== s) return;
       this.signIns.delete(key);
-      if (ok) await this.checkAuth(id).catch(() => {});
+      if (ok) await this.checkAuth(id).catch(problems.catch(`checking sign-ins on ${id}`));
     });
     this.signIns.set(key, s);
   }
@@ -964,7 +965,7 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     const s = this.signIns.get(key);
     this.signIns.delete(key);
     s?.proc.kill();
-    void this.checkAuth(id).catch(() => {});
+    void this.checkAuth(id).catch(problems.catch(`checking sign-ins on ${id}`));
   }
 
   /** A tool without the browser: a token, set on the machine (sent over ssh's stdin, never on a command line). */
@@ -1039,7 +1040,7 @@ echo "JIN-ROOT $ROOT"
         }, { quiet: /^JIN-ROOT / });
         if (code !== 0) throw new Error("setting up the workspace failed; see the log");
         this.update(id, { workspace: out.match(/^JIN-ROOT (.+)$/m)?.[1]?.trim() ?? null });
-        await this.detectWorkspaces(id).catch(() => {});
+        await this.detectWorkspaces(id).catch(problems.catch(`finding workspaces on ${id}`));
         step.state = "done";
       } catch (err) {
         step.state = "failed";
@@ -1072,7 +1073,8 @@ export function machineRoutes(router: Router, machines: Machines, exportHistory?
     })
     .on("POST", "/api/machines/:id/setup", (_req, p) => {
       machines.record(p.id!);
-      void machines.setup(p.id!).catch(() => {});
+      // Its steps say what failed, on the machine's page; the log keeps it too.
+      void machines.setup(p.id!).catch(problems.catch(`setting up ${p.id}`));
       return json(machines.view(p.id!), 202);
     })
     .on("POST", "/api/machines/:id/auth", async (_req, p) => {

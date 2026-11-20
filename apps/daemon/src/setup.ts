@@ -1,3 +1,4 @@
+import { problems } from "./problems";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -75,7 +76,7 @@ export class LocalSetup {
   }
 
   async view(): Promise<SetupView> {
-    if (!this.checked) await this.checkAuth().catch(() => {});
+    if (!this.checked) await this.checkAuth().catch(problems.catch("checking sign-ins"));
     const auth = authTools().map((t) => ({ ...this.authOf(t), ...describeTool(t) }));
     const signedIn = (t: AuthTool) => auth.find((a) => a.tool === t)?.state === "signed-in";
     return {
@@ -111,7 +112,7 @@ export class LocalSetup {
     const s = driveSignIn(proc, tool, (patch) => this.setAuth(tool, patch), async (ok) => {
       if (this.signIns.get(tool) !== s) return;
       this.signIns.delete(tool);
-      if (ok) await this.checkAuth().catch(() => {});
+      if (ok) await this.checkAuth().catch(problems.catch("checking sign-ins"));
     });
     this.signIns.set(tool, s);
   }
@@ -129,7 +130,7 @@ export class LocalSetup {
     const s = this.signIns.get(tool);
     this.signIns.delete(tool);
     s?.proc.kill();
-    void this.checkAuth().catch(() => {});
+    void this.checkAuth().catch(problems.catch("checking sign-ins"));
   }
 
   /** Use the workspace at `path` (of the given kind, or whichever kind it is): writes its config and starts using it. */

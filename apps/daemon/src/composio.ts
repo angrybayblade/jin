@@ -1,3 +1,4 @@
+import { problems } from "./problems";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -440,7 +441,7 @@ export class Composio {
       for (const t of mine) if (t.status === "ACTIVE" && !t.disabled_at) await this.disable(t.id);
       return;
     }
-    await this.learnMe(ev.toolkit).catch(() => {});
+    await this.learnMe(ev.toolkit).catch(problems.catch(`learning who you are in ${ev.toolkit}`));
     const account = await this.account(ev.toolkit);
     const configs = this.configsFor(kind);
     const wanted = new Set<string>();

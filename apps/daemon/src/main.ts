@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DOC_ID, DocAsk, docChatNote, docRoutes, Docs, docTools } from "./docs";
 import { roomRoutes, Rooms } from "./rooms";
+import { problemRoutes, problems } from "./problems";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createAdapter } from "./adapters";
@@ -100,6 +101,7 @@ const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.wor
     return d ? docChatNote(d) : undefined;
   } });
 sessionRoutes(app.router, sessions, adapters);
+problemRoutes(app.router);
 rooms = new Rooms({
   db,
   sessions,
@@ -169,7 +171,7 @@ const prepareSkills = async (taskId: string) => {
   writeTaskPlugin(config.home, taskId, list);
 };
 terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude, prepare: prepareSkills });
-const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
+const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed, db });
 // A task that starts in its agent room: its first prompt is said there.
 jobs.roomPost = (taskId, text) => void rooms?.post(taskId, text);
 jobs.prepare = prepareSkills;
@@ -212,7 +214,7 @@ claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
 }, onClaudeStatus, (terminalId, urls) => {
   // Claude Code created a PR in a task: attach it, whatever it does next.
   const taskId = terminals.get(terminalId).taskId;
-  if (taskId) for (const url of urls) void prs.attach(taskId, url, "hook").catch(() => {});
+  if (taskId) for (const url of urls) void prs.attach(taskId, url, "hook").catch(problems.catch(`attaching ${url} to ${taskId}`));
 }, journal);
 
 // Pull requests attached to tasks; open ones are refreshed from GitHub every few minutes.
@@ -231,7 +233,7 @@ jobs.onFinish((job) => {
     const repos = await tasks.adapter(t.workspace).repos();
     for (const p of t.prs) {
       const url = p.url ?? (repos.find((r) => r.name === p.repo)?.github ? `https://github.com/${repos.find((r) => r.name === p.repo)!.github}/pull/${p.number}` : null);
-      if (url) await prs.attach(t.id, url, "review").catch(() => {});
+      if (url) await prs.attach(t.id, url, "review").catch(problems.catch(`attaching ${url} to ${t.id}`));
     }
   })().catch((err) => console.error(`review ${job.taskId}: ${err}`));
 });
@@ -241,11 +243,11 @@ prs.onEnded((taskId) => {
     if (t.kind !== "review" || !prs.list(taskId).every((p) => p.state === "MERGED" || p.state === "CLOSED")) return;
     tasks.update(taskId, { archived: true });
     await tasks.removeIfClean(taskId).catch((err) => console.log(`review ${taskId} archived, kept: ${err instanceof Error ? err.message : err}`));
-  })().catch(() => {});
+  })().catch(problems.catch("archiving a finished review"));
 });
 // Every few minutes (and soon after start): find PRs opened from tasks' branches, refresh open ones.
 const syncPrs = async () => {
-  for (const t of tasks.list().filter((x) => x.state === "ready")) await prs.discover(t).catch(() => {});
+  for (const t of tasks.list().filter((x) => x.state === "ready")) await prs.discover(t).catch(problems.catch(`finding ${t.id}'s PRs`));
   await prs.refreshOpen();
 };
 const prTimer = setInterval(() => void syncPrs(), 5 * 60_000);
@@ -307,7 +309,7 @@ setupRoutes(app.router, setup);
 // Whether each desk's connection (gh, Claude's connectors) is there.
 const desks = new Desks(config, app.workspaces);
 deskRoutes(app.router, desks);
-setTimeout(() => void desks.status().catch(() => {}), 8_000); // warm, so a desk page does not wait
+setTimeout(() => void desks.status().catch(problems.catch("checking the desks' connections")), 8_000); // warm, so a desk page does not wait
 
 // A cheap fingerprint of what the app shows (tasks, tabs, chats, approvals, setups, PRs, feed):
 // the web app re-renders when it changes instead of on a timer.
@@ -415,7 +417,7 @@ const pushWatches = () => {
   const keys = taskLinks.list().filter((l) => live.has(l.taskId)).map((l) => l.key);
   const home = homeLink();
   if (!home) return watches.set("local", keys);
-  void machines.call(home.id, "PUT", "/api/feed/watches", { machine: machines.identity?.id ?? "local", keys }).catch(() => {});
+  void machines.call(home.id, "PUT", "/api/feed/watches", { machine: machines.identity?.id ?? "local", keys }).catch(problems.catch("telling the home what tasks follow"));
 };
 // A Notion link's address may not carry its title (app.notion.com/p/<id>): ask Notion, through
 // the connection on the home (or here).
@@ -434,7 +436,7 @@ const linkTitle = async (l: TaskLink): Promise<string | null> => {
 const retitle = (links: TaskLink[]) =>
   void (async () => {
     for (const l of links.filter((x) => x.kind === "notion" || x.kind === "doc")) {
-      const t = await linkTitle(l).catch(() => null);
+      const t = await linkTitle(l).catch(problems.catch(`the title of ${l.key}`, null));
       if (t && t !== l.label) taskLinks.setLabel(l.taskId, l.key, t);
     }
   })();
@@ -538,7 +540,7 @@ composio.resumeNative();
 
 // Always on (vm mode, e.g. the hub): the GitHub feed refreshes on its own every 10 minutes.
 const feedTimer = config.mode === "vm" && !process.env.JIN_NO_TIMERS
-  ? setInterval(() => void collectGithub(app.workspaces).then((items) => feed.add(items)).catch(() => {}), 10 * 60_000)
+  ? setInterval(() => void collectGithub(app.workspaces).then((items) => feed.add(items)).catch(problems.catch("collecting GitHub")), 10 * 60_000)
   : null;
 
 function shutdown() {

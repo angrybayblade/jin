@@ -1,3 +1,4 @@
+import { problems } from "./problems";
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -104,7 +105,7 @@ export class TaskPRs {
     this.db
       .query(`insert into task_prs (task_id, url, repo, number, attached_by, attached_at) values (?, ?, ?, ?, ?, ?) on conflict(task_id, url) do ${by === "branch" ? "nothing" : "update set detached = 0"}`)
       .run(taskId, canonical, `${pr.owner}/${pr.repo}`, pr.number, by, now());
-    await this.refreshOne(taskId, canonical).catch(() => {});
+    await this.refreshOne(taskId, canonical).catch(problems.catch(`refreshing ${canonical}`));
     return toPR(this.db.query("select * from task_prs where task_id = ? and url = ?").get(taskId, canonical) as Row);
   }
 
@@ -127,7 +128,7 @@ export class TaskPRs {
       if (!slug || !branch || branch === "HEAD") continue;
       const found = JSON.parse((await this.gh(["pr", "list", "--repo", slug, "--head", branch, "--state", "all", "--json", "url", "--limit", "10"]).catch(() => "[]")) || "[]") as { url: string }[];
       const known = new Set((this.db.query("select url from task_prs where task_id = ?").all(task.id) as { url: string }[]).map((r) => r.url));
-      for (const { url } of found) if (!known.has(url)) await this.attach(task.id, url, "branch").catch(() => {});
+      for (const { url } of found) if (!known.has(url)) await this.attach(task.id, url, "branch").catch(problems.catch(`attaching ${url} to ${task.id}`));
     }
   }
 
@@ -166,7 +167,7 @@ export class TaskPRs {
 
   /** Refresh open PRs (merged and closed ones do not change). */
   async refreshOpen() {
-    for (const p of this.list().filter((x) => x.state !== "MERGED" && x.state !== "CLOSED")) await this.refreshOne(p.taskId, p.url).catch(() => {});
+    for (const p of this.list().filter((x) => x.state !== "MERGED" && x.state !== "CLOSED")) await this.refreshOne(p.taskId, p.url).catch(problems.catch(`refreshing ${p.url}`));
   }
 }
 
@@ -203,8 +204,8 @@ export function prRoutes(router: Router, prs: TaskPRs, tasks: Tasks, terminals: 
       return json({ detached: true });
     })
     .on("POST", "/api/tasks/:id/prs/refresh", async (_req, p) => {
-      await prs.discover(tasks.get(p.id!)).catch(() => {});
-      for (const pr of prs.list(p.id!)) await prs.refreshOne(pr.taskId, pr.url).catch(() => {});
+      await prs.discover(tasks.get(p.id!)).catch(problems.catch(`finding ${p.id}'s PRs`));
+      for (const pr of prs.list(p.id!)) await prs.refreshOne(pr.taskId, pr.url).catch(problems.catch(`refreshing ${pr.url}`));
       return json(prs.list(p.id!));
     })
     // `jin-task attach-pr <url>` from inside a task's Claude Code (or shell): the terminal names the task.
