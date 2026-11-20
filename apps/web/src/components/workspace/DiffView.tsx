@@ -1,4 +1,5 @@
 "use client";
+import { Failed } from "@/components/States";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { getDiff } from "@/app/actions";
@@ -37,7 +38,7 @@ export function DiffView({ taskId, active }: { taskId: string; active: boolean }
           <RefreshCw size={13} /> Refresh
         </button>
       </div>
-      {error && <p className="meta pad">{error}</p>}
+      {error && <Failed message={error} retry={() => void load()} />}
       {repos?.map((r) => (
         <section key={r.repo} className="diff-repo">
           <h3>

@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { FileText, MessageSquare, Plus, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -70,15 +71,20 @@ export function DocLibrary({ docs }: { docs: DocSummary[] }) {
         </div>
         {error && <p className="machine-error">{error}</p>}
         {!docs.length ? (
-          <div className="docs-empty">
-            <FileText size={28} />
-            <p>No docs yet. Write a spec, an RFC or notes, and work on it with jin: it comments, reviews and suggests edits you accept or reject.</p>
-            <button type="button" className="button primary" onClick={() => void create()} disabled={busy}>
-              <Plus size={14} /> New doc
-            </button>
-          </div>
+          <Empty
+            place="pane"
+            icon={FileText}
+            title="No docs yet"
+            action={
+              <button type="button" className="button primary" onClick={() => void create()} disabled={busy}>
+                <Plus size={14} /> New doc
+              </button>
+            }
+          >
+            Write a spec, an RFC or notes, and work on it with jin: it comments, reviews and suggests edits you accept or reject.
+          </Empty>
         ) : !shown.length ? (
-          <p className="meta docs-none">No docs match.</p>
+          <Empty>No docs match.</Empty>
         ) : (
           <ul className="docs-list">
             {shown.map((d) => (

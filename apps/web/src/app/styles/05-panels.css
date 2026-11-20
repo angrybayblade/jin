@@ -349,14 +349,6 @@ details[open] > .fg-head .fg-chevron {
   border-radius: 50%;
   background: var(--state-running);
 }
-.editor-empty {
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  font-size: 13px;
-  padding: var(--space-5);
-  text-align: center;
-}
 .terminal-view {
   flex: 1;
   min-width: 0;
@@ -477,13 +469,6 @@ details[open] > .fg-head .fg-chevron {
   min-height: 0;
   display: flex;
   position: relative;
-}
-.claude-body .editor-empty {
-  flex: 1;
-  gap: var(--space-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .terminal-view .xterm {
   height: 100%;

@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { clearProblems } from "@/app/actions";
@@ -29,7 +30,7 @@ export function ProblemsPage({ groups }: { groups: { id: string; label: string; 
       <div className="machines-body is-single" data-scroll="y">
         <main className="machines-main">
           <article className="machine-detail">
-            {!total && !groups.some((g) => g.error) && <p className="meta">Nothing has failed since jin last started.</p>}
+            {!total && !groups.some((g) => g.error) && <Empty title="No problems">Nothing has failed in the background since jin last started.</Empty>}
             {groups.map((g) =>
               !g.problems.length && !g.error ? null : (
                 <section key={g.id} className="md-card">

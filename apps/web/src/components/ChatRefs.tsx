@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { CircleDot, ExternalLink, FileText, GitPullRequest, Link2, ListChecks, Mail, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -92,7 +93,7 @@ export function ChatRefs({ sessionId }: { sessionId: string | null }) {
       </header>
       <div className="side-scroll" data-scroll="y">
         {refs === null ? null : list.length === 0 ? (
-          <p className="meta pad">PRs, tickets, Slack threads and pages this chat talks about show up here.</p>
+          <Empty>PRs, tickets, Slack threads and pages this chat talks about show up here.</Empty>
         ) : (
           GROUPS.map(({ kind, label, Icon }) => {
             const rows = list.filter((r) => r.kind === kind);

@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -610,11 +611,9 @@ export function Machines({ machines, selected }: { machines: Machine[]; selected
           {chosen ? (
             <MachineDetail key={chosen.id} initial={chosen} onRemoved={() => (setPick(null), router.refresh())} />
           ) : (
-            <div className="machines-empty">
-              <Server size={28} />
-              <p>Add a machine you reach with ssh: a dev VM, a box under your desk.</p>
-              <p className="meta">Its tasks, Claude Code sessions and terminals run there, and keep running when this machine sleeps.</p>
-            </div>
+            <Empty place="pane" icon={Server} title="Add a machine you reach with ssh">
+              <p>A dev VM, a box under your desk: its tasks, Claude Code sessions and terminals run there, and keep running when this machine sleeps.</p>
+            </Empty>
           )}
         </main>
       </div>

@@ -1,4 +1,5 @@
 "use client";
+import { Empty, Loading } from "@/components/States";
 import { CircleDot, FileText, GitPullRequest, Hash, Link2, MessageSquare, NotebookPen, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { addTaskLink, getActivity, removeTaskLink } from "@/app/actions";
@@ -75,9 +76,9 @@ export function ActivityPanel({ taskId }: { taskId: string }) {
       </div>
       {error && <p className="machine-error act-error">{error}</p>}
       {a === null && !error ? (
-        <p className="meta act-empty">Loading…</p>
+        <Loading />
       ) : a && a.items.length === 0 ? (
-        <p className="meta act-empty">Nothing yet. Events on the PRs, the issue and what you link show here.</p>
+        <Empty>Nothing yet. Events on the PRs, the issue and what you link show here.</Empty>
       ) : (
         a && <FeedThreads items={a.items} />
       )}

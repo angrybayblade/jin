@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -136,7 +137,7 @@ export function SkillsPage({ initial, home }: { initial: SkillsStatus; home: str
             {s.skills.map((k) => (
               <SkillCard key={k.name} skill={k} s={s} onDone={done} />
             ))}
-            {s.skills.length === 0 && !adding && <p className="meta">No skills yet.</p>}
+            {s.skills.length === 0 && !adding && <Empty title="No skills yet" />}
             <p className="meta">
               A task&apos;s Claude Code gets the skills tagged for its kind:{" "}
               {Object.entries(s.taskTags)

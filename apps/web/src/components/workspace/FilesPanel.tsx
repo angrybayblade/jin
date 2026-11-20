@@ -1,4 +1,5 @@
 "use client";
+import { Failed, Loading } from "@/components/States";
 import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
 import { useEffect, useState } from "react";
 import { listFiles } from "@/app/actions";
@@ -39,9 +40,9 @@ export function FilesPanel({ taskId, openPath, onOpen }: { taskId: string; openP
   }, [taskId]);
   return (
     <nav className="files-panel file-tree" data-scroll="y" aria-label="Files">
-      {error && <p className="meta pad">{error}</p>}
+      {error && <Failed message={error} />}
       {roots === null ? (
-        <p className="meta pad">Loading…</p>
+        !error && <Loading />
       ) : (
         <ul>
           {roots.map((e) => (

@@ -1,4 +1,5 @@
 "use client";
+import { Empty, Failed, Loading } from "@/components/States";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FileText, FolderTree, GitCompare, GitPullRequest, MoreHorizontal, NotebookPen, PanelRightClose, Users, UserPlus, Square, Trash2, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -722,20 +723,19 @@ export function TaskWorkspace({
               <TerminalView key={currentTerm.id} terminalId={currentTerm.id} wsBase={wsBase} active autoFocus={!isPhone()} onState={(s) => s === "exited" && remember({ ...currentTerm, status: "exited" })} />
             </Boundary>
           ) : currentTerm.status === "exited" ? (
-            <div className="editor-empty">
-              <p>{currentTerm.kind === "claude" ? "Claude Code exited." : "The shell exited."}</p>
-              <button type="button" className="button" onClick={() => void start(currentTerm.id)}>
-                <Play size={13} /> {currentTerm.kind === "claude" && currentTerm.claudeSessionId ? "Resume the conversation" : "Start again"}
-              </button>
-            </div>
+            <Empty
+              place="pane"
+              title={currentTerm.kind === "claude" ? "Claude Code exited" : "The shell exited"}
+              action={
+                <button type="button" className="button" onClick={() => void start(currentTerm.id)}>
+                  <Play size={13} /> {currentTerm.kind === "claude" && currentTerm.claudeSessionId ? "Resume the conversation" : "Start again"}
+                </button>
+              }
+            />
+          ) : error ? (
+            <Failed place="pane" message={error} />
           ) : (
-            <div className="editor-empty">
-              {error ?? (
-                <>
-                  <ThermalMark size={24} state="working" /> {currentTerm.kind === "claude" ? "Resuming Claude Code…" : "Starting the shell…"}
-                </>
-              )}
-            </div>
+            <Loading place="pane" label={currentTerm.kind === "claude" ? "Resuming Claude Code…" : "Starting the shell…"} />
           )
         ) : currentFile ? (
           <div className="editor-main">
@@ -749,7 +749,7 @@ export function TaskWorkspace({
               )}
             </div>
             {doc?.error ? (
-              <div className="editor-empty">{doc.error}</div>
+              <Failed place="pane" message={doc.error} />
             ) : doc ? (
               <Editor
                 height="100%"
@@ -771,14 +771,14 @@ export function TaskWorkspace({
                 options={{ fontSize: 13, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", minimap: { enabled: false }, scrollBeyondLastLine: false, smoothScrolling: true, renderLineHighlight: "line", automaticLayout: true }}
               />
             ) : (
-              <div className="editor-empty">Loading…</div>
+              <Loading place="pane" />
             )}
           </div>
         ) : currentDoc ? (
           (() => {
             const d = docData[currentDoc];
-            if (!d) return <div className="editor-empty">Loading…</div>;
-            if ("error" in d) return <div className="editor-empty">{d.error}</div>;
+            if (!d) return <Loading place="pane" />;
+            if ("error" in d) return <Failed place="pane" message={d.error} retry={() => setDocData(({ [currentDoc]: _, ...rest }) => rest)} />;
             return <Boundary label="The doc" resetKey={currentDoc}><DocPage key={currentDoc} embedded initial={d.doc} chat={d.chat} wsBase={d.wsBase} onTitle={(t) => (setDocTitles((x) => ({ ...x, [currentDoc]: t })), relabelSoon(currentDoc))} /></Boundary>;
           })()
         ) : current === "room" ? (
@@ -792,7 +792,7 @@ export function TaskWorkspace({
             <DiffView taskId={taskId} active />
           </Boundary>
         ) : (
-          <div className="editor-empty">{error ?? "Open a Claude Code session or a terminal with +, or a file from the tree."}</div>
+          error ? <Failed place="pane" message={error} /> : <Empty place="pane" title="Nothing open">Open a Claude Code session or a terminal with +, the agent room, or a file from the tree.</Empty>
         )}
       </div>} right={<Boundary label={side === "files" ? "Files" : side === "journal" ? "The journal" : "Activity"} resetKey={`${scope}:${side}`}><TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => (openFile(p), toBody())} /></Boundary>} />
     </section>

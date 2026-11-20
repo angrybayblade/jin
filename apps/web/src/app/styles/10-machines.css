@@ -137,18 +137,6 @@
   min-width: 0;
   padding: var(--space-4) var(--space-4) 48px;
 }
-.machines-empty {
-  display: grid;
-  justify-items: center;
-  gap: var(--space-2);
-  max-width: 420px;
-  margin: 80px auto 0;
-  text-align: center;
-  color: var(--secondary);
-}
-.machines-empty p {
-  margin: 0;
-}
 .machine-pill {
   padding: 2px 8px;
   border-radius: 999px;

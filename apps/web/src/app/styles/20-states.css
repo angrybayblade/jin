@@ -1,0 +1,77 @@
+/* ------------------------------------------------------------------ view states: loading, empty, failed (components/States) */
+.view-state {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.view-state.is-panel {
+  /* In a panel that stretches it (a side panel fills its column): stays at the top. */
+  align-content: start;
+  justify-items: start;
+  padding: var(--space-4);
+  font-size: var(--type-meta);
+}
+.view-state.is-pane {
+  align-content: center;
+  justify-items: center;
+  max-width: 460px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: var(--space-5) var(--d-pad);
+  text-align: center;
+}
+.view-state.is-loading {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
+.view-state.is-pane.is-loading {
+  justify-content: center;
+}
+.view-state-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 1.5px solid var(--line-strong);
+  border-top-color: var(--secondary);
+  border-radius: 50%;
+  animation: view-state-spin 0.8s linear infinite;
+}
+@keyframes view-state-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .view-state-spinner {
+    animation: none;
+  }
+}
+.view-state-icon {
+  color: var(--muted);
+}
+.view-state-title {
+  margin: 0;
+  color: var(--ink);
+  font-weight: var(--weight-secondary);
+}
+.view-state.is-pane .view-state-title {
+  font-size: 15px;
+}
+.view-state-body {
+  display: grid;
+  gap: var(--space-2);
+}
+.view-state-body p {
+  margin: 0;
+}
+.view-state-action {
+  margin-top: var(--space-1);
+}
+.view-state.is-failed {
+  color: var(--state-failed);
+}
+.view-state-message {
+  overflow-wrap: anywhere;
+}

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Empty } from "@/components/States";
 import { Check, ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Mail, MessageSquare, RefreshCw, Sparkles } from "lucide-react";
 import { collectGithub, feedAction } from "@/app/actions";
 import type { FeedItem } from "@/lib/daemon";
@@ -148,7 +149,7 @@ export function TodayPanel({ items, title = "Today", note, lead, main }: { items
       <div className="side-scroll" data-scroll="y">
         {note && <p className="meta pad">{note}</p>}
         {open.length === 0 ? (
-          <p className="meta pad">Nothing waiting. Refresh to pull from GitHub.</p>
+          <Empty>Nothing waiting. Refresh to pull from GitHub.</Empty>
         ) : (
           <ul className="feed-groups">
             {groups.map((g) => (

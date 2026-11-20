@@ -1,4 +1,5 @@
 "use client";
+import { Empty, Failed, Loading } from "@/components/States";
 import { CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Lightbulb, PenLine, Split } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getJournal } from "@/app/actions";
@@ -70,12 +71,12 @@ export function JournalPanel({ taskId, onOpen }: { taskId: string; onOpen: (path
       clearInterval(t);
     };
   }, [taskId]);
-  if (error && !view) return <p className="meta pad">{error}</p>;
-  if (!view) return <p className="meta pad">Loading…</p>;
+  if (error && !view) return <Failed message={error} />;
+  if (!view) return <Loading />;
   const sessions = new Set([...view.concerns.flatMap((c) => c.entries), ...view.unjournaled].map((e) => e.session));
   const showSession = sessions.size > 1;
   if (!view.concerns.length && !view.unjournaled.length)
-    return <p className="meta pad">Nothing journaled yet. Claude Code records its decisions, work and findings here as it goes.</p>;
+    return <Empty title="Nothing journaled yet">Claude Code records its decisions, work and findings here as it goes.</Empty>;
   const latest = view.concerns.reduce<string | null>((a, c) => (!a || c.lastAt > (view.concerns.find((x) => x.name === a)?.lastAt ?? "") ? c.name : a), null);
   return (
     <div className="journal" data-scroll="y">

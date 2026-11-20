@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { ArrowRight, Check, ChevronRight, Clock, Crosshair, ExternalLink, MessageSquareText, RefreshCw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -216,7 +217,7 @@ export function ActivityDesk({ items }: { items: FeedItem[] }) {
                 Needs you <span className="lane-n">{n}</span>
               </h3>
               {n === 0 ? (
-                <p className="meta pad">You&apos;re clear. New things that need you land here first.</p>
+                <Empty>You&apos;re clear. New things that need you land here first.</Empty>
               ) : (
                 <ul className="feed-groups">
                   {shown.map((t) => (

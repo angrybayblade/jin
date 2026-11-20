@@ -289,7 +289,6 @@ button.jr-ref:hover {
   background: var(--surface);
   color: var(--ink);
 }
-.act-empty,
 .act-error {
   padding: 0 10px;
 }

@@ -1,4 +1,5 @@
 "use client";
+import { Empty } from "@/components/States";
 import { Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -155,7 +156,7 @@ export function HooksPage({ initial, home }: { initial: HooksStatus; home: strin
             {s.hooks.map((h) => (
               <HookCard key={h.id} hook={h} s={s} onSaved={refresh} />
             ))}
-            {s.hooks.length === 0 && !adding && <p className="meta">No hooks yet. Add one, or ask jin in the chat to set one up.</p>}
+            {s.hooks.length === 0 && !adding && <Empty title="No hooks yet">Add one, or ask jin in the chat to set one up.</Empty>}
             <p className="meta">
               A hook starts a jin chat with its instructions and the event&apos;s details, once per event. The agent has jin&apos;s tools and your connectors; Linear and Slack changes, and removing worktrees, wait for your approval.
             </p>
