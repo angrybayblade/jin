@@ -12,7 +12,7 @@ let terminalId: string;
 beforeAll(async () => {
   env = setupEnv();
   // A stand-in for Claude Code: records how jin launched it, then waits.
-  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${env.home}/claude-args.txt"\nexec sleep 600\n`);
+  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\n[ "$1" = auth ] && exit 1\nprintf '%s\\n' "$@" > "${env.home}/claude-args.txt"\nexec sleep 600\n`);
   chmodSync(join(env.bin, "claude"), 0o755);
   d = await startDaemon(env);
   await d.json("/api/workspaces/composio/tasks", { method: "POST", json: { id: "PR-1", repos: ["platform"], slug: "attach prs" } });
