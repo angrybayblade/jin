@@ -331,6 +331,9 @@ const ATTACH = /^\/api\/terminals\/([^/]+)\/attach$/;
 const isWebsocket = (req: Request) => req.headers.get("upgrade")?.toLowerCase() === "websocket";
 
 const server = Bun.serve<SocketData>({
+  // Some answers take a while (the setup check asks every tool; a review fetches its PRs): the
+  // default would drop a request that is quiet for ten seconds. This is the longest Bun allows.
+  idleTimeout: 255,
   hostname: HOST,
   port: config.port,
   fetch(req, srv) {
