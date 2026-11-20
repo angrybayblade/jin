@@ -22,6 +22,9 @@
   overflow-y: auto;
 }
 .nav-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: var(--space-4) 8px var(--space-1);
   font-size: var(--type-meta);
   font-weight: var(--weight-secondary);

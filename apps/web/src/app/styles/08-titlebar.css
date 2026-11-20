@@ -3,10 +3,17 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* Even rhythm after the window buttons: toggle, back, forward. */
+  gap: 4px;
   height: var(--d-header-h);
   min-height: var(--d-header-h);
-  margin-bottom: 6px;
+  /* The list starts right under it. */
+  margin-bottom: 0;
+}
+.sidebar-top .button.icon-only {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
 }
 /* Its bottom line lines up with the panes' header lines: edge to edge, stopping just short
    of the sidebar's border (as a pane's line stops at the splitter). */

@@ -1,9 +1,4 @@
 /* ------------------------------------------------------------------ new task dialog and setup view */
-.nav-section {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .nav-section-action {
   display: grid;
   place-items: center;
