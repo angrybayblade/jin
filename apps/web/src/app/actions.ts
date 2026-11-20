@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -936,6 +936,20 @@ export async function roomStatus(taskId: string): Promise<{ working: number; wai
 export async function clearRoom(taskId: string): Promise<{ ok: true } | { error: string }> {
   try {
     await daemon(roomPath(taskId, "/messages"), { method: "DELETE" });
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Background failures on a machine (this one unless named). */
+export async function listProblems(machine?: string): Promise<Problem[]> {
+  return daemon<Problem[]>("/api/problems", { machine, timeoutMs: 4000 }).catch(() => []);
+}
+
+export async function clearProblems(machine: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    await daemon("/api/problems", { method: "DELETE", machine });
     return { ok: true };
   } catch (err) {
     return fail(err);

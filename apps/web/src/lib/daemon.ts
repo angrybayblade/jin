@@ -683,3 +683,12 @@ export interface RoomProfile {
   /** "default": the model's default effort. */
   effort: string;
 }
+
+/** Something a daemon did in the background that failed. */
+export interface Problem {
+  scope: string;
+  message: string;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+}

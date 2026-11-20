@@ -2,6 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import { PresenceReporter } from "@/components/Notifications";
 import { AutoRefresh, RetrySoon } from "@/components/AutoRefresh";
 import { ContextMenuHost } from "@/components/ContextMenu";
+import { Notices } from "@/components/Notices";
 import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
@@ -46,17 +47,18 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
           homeDown = machines.find((m) => m.id === home)?.label ?? home;
           return empty;
         });
-  let shell: { status: Status; sessions: Session[]; approvals: Approval[]; notifications: NotificationSettings; groups: MachineTasks[]; docs: DocSummary[] };
+  let shell: { status: Status; sessions: Session[]; approvals: Approval[]; notifications: NotificationSettings; groups: MachineTasks[]; docs: DocSummary[]; problems: number };
   try {
-    const [status, sessions, approvals, notifications, groups, docs] = await Promise.all([
+    const [status, sessions, approvals, notifications, groups, docs, problems] = await Promise.all([
       daemon<Status>("/api/status", { local: true }),
       fromHome(daemon<Session[]>("/api/sessions"), [] as Session[]),
       fromHome(daemon<Approval[]>("/api/approvals?state=pending"), [] as Approval[]),
       daemon<NotificationSettings>("/api/notifications").catch(() => ({ enabled: true, sound: true })),
       Promise.all([tasksOf({ id: "local", label: "This machine" }, true), ...remote.map((m) => tasksOf(m, false))]),
       fromHome(daemon<DocSummary[]>("/api/docs"), [] as DocSummary[]).catch(() => [] as DocSummary[]),
+      daemon<unknown[]>("/api/problems", { local: true }).then((l) => l.length).catch(() => 0),
     ]);
-    shell = { status, sessions, approvals, notifications, groups, docs };
+    shell = { status, sessions, approvals, notifications, groups, docs, problems };
   } catch (err) {
     if (!(err instanceof DaemonUnavailable)) throw err;
     return (
@@ -85,10 +87,12 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         notifications={shell.notifications}
         machines={machines}
         docs={shell.docs}
+        problems={shell.problems}
       />
       <SidebarResizer />
       <Palette tasks={shell.groups.flatMap((g) => g.tasks.map((t) => ({ ...t, machine: g.id, machineLabel: g.label })))} />
       <ContextMenuHost />
+      <Notices />
       <Suspense fallback={null}>
         <PresenceReporter />
       </Suspense>

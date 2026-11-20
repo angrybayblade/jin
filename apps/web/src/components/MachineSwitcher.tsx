@@ -1,6 +1,6 @@
 "use client";
 import { RetrySoon } from "./AutoRefresh";
-import { Bell, Radio, Server, Settings2, SlidersHorizontal, Sparkles, Webhook, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, Radio, Server, Settings2, SlidersHorizontal, Sparkles, Webhook, Wrench } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { Machine } from "@/lib/daemon";
@@ -14,16 +14,17 @@ const SETTINGS = [
   { label: "Skills", icon: Sparkles, href: "/skills" },
   { label: "Claude Code", icon: SlidersHorizontal, href: "/claude" },
   { label: "Notifications", icon: Bell, href: "/notifications" },
+  { label: "Problems", icon: AlertTriangle, href: "/problems" },
 ] as const;
 
 /** The sidebar's footer: jin's settings, and the machines it reaches (to add or manage; tasks on any of them are in the list above). */
-export function SettingsMenu({ machines }: { machines: Machine[]; workspace?: string }) {
+export function SettingsMenu({ machines, problems = 0 }: { machines: Machine[]; workspace?: string; /** Background failures on this machine. */ problems?: number }) {
   const router = useRouter();
   const down = machines.filter((m) => machineState(m).tone === "bad").length;
   const items = (): MenuItem[] => [
     { label: "Manage machines", icon: Server, hint: down ? `${down} not answering` : `${machines.length + 1}`, run: () => router.push("/machines") },
     { divider: true },
-    ...SETTINGS.map(({ label, icon, href }) => ({ label, icon, run: () => router.push(href) })),
+    ...SETTINGS.map(({ label, icon, href }) => ({ label, icon, ...(href === "/problems" && problems ? { hint: `${problems}` } : {}), run: () => router.push(href) })),
   ];
   return (
     <button
@@ -39,7 +40,7 @@ export function SettingsMenu({ machines }: { machines: Machine[]; workspace?: st
     >
       <Settings2 size={13} />
       <span className="machine-switcher-name">{machines.length ? `${machines.length + 1} machines` : "Settings"}</span>
-      {down > 0 && <span className="machine-dot is-bad" title={`${down} not answering`} />}
+      {(down > 0 || problems > 0) && <span className="machine-dot is-bad" title={[down ? `${down} not answering` : "", problems ? `${problems} problem${problems === 1 ? "" : "s"} (Problems)` : ""].filter(Boolean).join("; ")} />}
     </button>
   );
 }

@@ -70,6 +70,7 @@ export function Sidebar({
   notifications,
   machines = [],
   docs = [],
+  problems = 0,
 }: {
   /** Every connected machine's tasks, this machine's first. */
   groups: MachineTasks[];
@@ -83,6 +84,8 @@ export function Sidebar({
   machines?: Machine[];
   /** jin docs, most recently changed first. */
   docs?: DocSummary[];
+  /** Background failures on this machine (the settings button shows them). */
+  problems?: number;
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -327,7 +330,7 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <SettingsMenu machines={machines} workspace={workspace} />
+        <SettingsMenu machines={machines} workspace={workspace} problems={problems} />
         <span className="sidebar-controls">
           {mode !== "vm" && <NotificationToggle initial={notifications} />}
           <DensityToggle />
