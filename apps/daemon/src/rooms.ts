@@ -1,3 +1,4 @@
+import { problems } from "./problems";
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
@@ -249,6 +250,14 @@ export class Rooms {
 
   constructor(private deps: RoomDeps) {
     this.db = deps.db;
+    // jin restarted: a turn that was running was cut off (its session is interrupted), and turns
+    // waiting behind it are gone. Each room says so once, where you look.
+    for (const a of this.db.query("select * from room_agents where session_id is not null").all().map(toAgent)) {
+      const s = this.session(a);
+      if (s?.state !== "interrupted") continue;
+      const said = this.db.query("select 1 from room_messages where task_id = ? and author = 'room' and text like ? and seq > coalesce((select max(seq) from room_messages where task_id = ? and author = ?), 0)").get(a.taskId, `@${a.handle} %`, a.taskId, a.id);
+      if (!said) this.note(a.taskId, `@${a.handle} was cut off when jin restarted. Mention it again to carry on: it keeps its own history; anything you had queued for it did not run.`);
+    }
     deps.sessions.onEvent((e) => {
       if (e.kind === "session.idle" || e.kind === "session.failed") {
         this.live.delete(e.sessionId);
@@ -525,7 +534,13 @@ export class Rooms {
         this.queued.set(agentId, Math.max(0, (this.queued.get(agentId) ?? 1) - 1));
         return this.turn(agentId, trigger);
       })
-      .catch(() => false);
+      .catch((err) => {
+        // A failure of jin's own (not the agent's): said in the room, and kept.
+        const a = this.find(agentId);
+        problems.add(`room ${a?.taskId ?? "?"}: @${a?.handle ?? agentId}'s turn`, err);
+        if (a) this.note(a.taskId, `@${a.handle}'s turn hit a problem in jin: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      });
     this.tails.set(agentId, next);
     return next;
   }

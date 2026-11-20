@@ -274,3 +274,25 @@ test("while an agent works you see what it is writing; a writer's reply says whi
   // What was dirty before the turn and untouched by it is not the turn's.
   expect(rooms.state("T-1").messages.at(-1)).toMatchObject({ text: "Done.", refs: [{ kind: "files", repo: "api", count: 2, files: ["a.ts", "limit.ts"] }] });
 });
+
+test("after a restart, a turn that was cut off says so in its room, once; one you stopped does not", async () => {
+  const { rooms, sessions, act, settle } = setup();
+  const g = gate();
+  act.set("designer", async (r) => (await new Promise((_, no) => r.signal.addEventListener("abort", () => no(new Error("aborted")))), []));
+  act.set("reviewer", async () => (await g.wait, ["never"]));
+  rooms.post("T-1", "@designer one");
+  rooms.post("T-1", "@reviewer two");
+  await Bun.sleep(40);
+  // You stop the designer; the reviewer is still running when jin "restarts".
+  rooms.stop("T-1", rooms.state("T-1").agents[0]!.id);
+  await settle(1);
+  const db = (sessions as unknown as { db: import("bun:sqlite").Database }).db;
+  db.query("update sessions set state = 'interrupted' where state = 'running'").run();
+  const again = () => new Rooms({ db, sessions, tasks: { get: (id: string) => ({ id, state: "ready", dirs: {} }) } as never, docTools: () => [] });
+  again();
+  again();
+  const notes = rooms.state("T-1").messages.filter((m) => m.kind === "note").map((m) => m.text);
+  expect(notes.filter((t) => t.includes("cut off when jin restarted"))).toEqual([expect.stringContaining("@reviewer was cut off")]);
+  expect(notes.some((t) => t.startsWith("@designer was cut off"))).toBe(false);
+  g.open();
+});
