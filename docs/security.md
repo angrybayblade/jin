@@ -29,8 +29,16 @@ that persist (logs, workspace files, model context, workflow history).
   The daemon requires a token from `~/.jin/daemon.json` (mode 0600) and refuses
   browser origins other than the web app's. The web app talks to the daemon
   from its server; the browser never holds the token and opens websockets with
-  one-time tickets (one connection, one path, within a minute). Access to a VM
-  is an SSH tunnel or Tailscale. Being on the machine is the authentication.
+  one-time tickets (one connection, one path, within a minute); the daemon
+  takes its token only from the Authorization header, never from a URL (where
+  it would reach logs). Access to a VM is an SSH tunnel or Tailscale. Being on
+  the machine is the authentication.
+  Binding to loopback is not enough on its own: a web page elsewhere can point
+  a name of its own at 127.0.0.1 (DNS rebinding) and read the web app as if it
+  were jin. The web app therefore answers only requests addressed to
+  127.0.0.1 or localhost (plus names listed in `JIN_WEB_HOSTS`, for jin
+  reached by a Tailscale name); anything else gets 421 (`apps/web/src/proxy.ts`,
+  acceptance S02). The daemon refuses foreign origins and needs its token.
 - **Multi-tenant needs:** a real identity provider (OIDC), sessions, MFA and
   recovery delegated to it; service-to-service auth between UI, API and
   workers; no development bypass outside a dev environment, failing closed.
@@ -97,9 +105,21 @@ that persist (logs, workspace files, model context, workflow history).
 
 - **Single-user today:** the largest real risk even for one user. Slack
   messages, emails, PR comments, issue text and web pages are read by an agent
-  that can push code and send messages. Mitigation: deny hooks for deploys,
-  approvals for every outward action (push, PR, comment, send, Linear update),
-  and feed content treated as data.
+  that can push code and send messages. Mitigation (`apps/daemon/src/policy.ts`):
+  - deny rules for deploys, releases, publishing and secret changes;
+  - approvals for every outward action: push, PR, comment, send, an issue
+    update, and curl or wget sending data to any host but this machine;
+  - agents never reach jin's own credentials (the daemon's token, other
+    machines' tokens, the Composio settings), its database or SSH private keys,
+    and never call jin's approvals API: with the token an agent could approve
+    its own actions, and injected content could ask it to;
+  - every agent that reads outside content (jin's chat, the desks, a doc's
+    chat, room agents, hooks) is told it is data, never instructions; a hook's
+    event (what someone else wrote) is passed as such.
+  Agents run as the user, so these are guardrails against a misled model, not a
+  sandbox: a determined process can do what the user can. Read-only agents in a
+  task's room are held by refusing their file edits and the shell commands that
+  plainly change a worktree, not by the operating system.
 - **Multi-tenant needs:** the same, plus: content from one tenant can never
   reach another tenant's agent; approvals bound to the authenticated user who
   owns the session; approval UIs that show the exact action (diff, recipient,
@@ -164,6 +184,8 @@ that persist (logs, workspace files, model context, workflow history).
   their credentials stay there; jin copies none across. A Doppler service token,
   when used, travels over ssh's stdin, never on a command line. gh on a Linux
   machine without a keyring keeps its token in a plain file, as gh does.
+  A new machine's host key is trusted on first use (`StrictHostKeyChecking=accept-new`),
+  as ssh does for a host you have not connected to; a changed key afterwards is refused.
 - **Multi-tenant needs:** machines are per user and never shared; tunnels
   authenticated per user; no stored daemon tokens outside the user's own
   machine.
