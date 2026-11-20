@@ -119,7 +119,7 @@ test("A15 events stream over a websocket and replay from a cursor without duplic
   const all = await events(s.id);
   const cursor = all[1].seq;
   const received: any[] = [];
-  const ws = new WebSocket(`${d.url.replace("http", "ws")}/api/sessions/${s.id}/stream?after=${cursor}&token=${d.token}`);
+  const ws = new WebSocket(`${d.url.replace("http", "ws")}/api/sessions/${s.id}/stream?after=${cursor}`, { headers: { authorization: `Bearer ${d.token}` } } as never);
   ws.onmessage = (m) => received.push(JSON.parse(String(m.data)));
   await until(() => received.length >= all.length - 2, 5_000, "replayed events");
   await Bun.sleep(300); // anything extra would be a duplicate
@@ -128,7 +128,7 @@ test("A15 events stream over a websocket and replay from a cursor without duplic
 
   // Live: a follow-up message arrives on an open stream.
   const live: any[] = [];
-  const ws2 = new WebSocket(`${d.url.replace("http", "ws")}/api/sessions/${s.id}/stream?after=${all.at(-1).seq}&token=${d.token}`);
+  const ws2 = new WebSocket(`${d.url.replace("http", "ws")}/api/sessions/${s.id}/stream?after=${all.at(-1).seq}`, { headers: { authorization: `Bearer ${d.token}` } } as never);
   ws2.onmessage = (m) => live.push(JSON.parse(String(m.data)));
   await new Promise((r) => (ws2.onopen = r));
   await d.json(`/api/sessions/${s.id}/messages`, { method: "POST", json: { prompt: scripted([{ text: "four" }]) } });

@@ -46,6 +46,8 @@ test("A02 API requires the local token and rejects foreign origins", async () =>
     ws.onclose = () => r("closed");
   });
   expect(outcome).not.toBe("open");
+  // The token never counts in a URL (it would end up in logs): only in the header.
+  expect((await d.api(`/api/status?token=${d.token}`, { noAuth: true })).status).toBe(401);
 });
 
 test("A03 SQLite migrations create the v0 schema", () => {

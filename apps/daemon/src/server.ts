@@ -20,12 +20,13 @@ export interface App {
 
 const sameToken = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-/** The bearer token from the header, or from ?token= for websocket upgrades (browsers cannot set headers there). */
-function presentedToken(req: Request, url: URL): string | undefined {
+/**
+ * The bearer token, from the header only: never from a URL, where it would end up in logs and
+ * history. A browser's websocket (it cannot set headers) presents a one-time ticket instead.
+ */
+function presentedToken(req: Request): string | undefined {
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) return auth.slice(7);
-  if (req.headers.get("upgrade")?.toLowerCase() === "websocket") return url.searchParams.get("token") ?? undefined;
-  return undefined;
+  return auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
 }
 
 /**
@@ -41,7 +42,7 @@ export function guard(app: App, req: Request, url: URL): Response | undefined {
   if (ticket && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
     return app.tickets.redeem(ticket, url.pathname) ? undefined : json({ error: "invalid or expired ticket" }, 401);
   }
-  const token = presentedToken(req, url);
+  const token = presentedToken(req);
   if (!token || !sameToken(token, app.token)) return json({ error: "missing or invalid token" }, 401);
   return undefined;
 }
