@@ -1,11 +1,11 @@
 "use client";
-import { CircleDot, FileText, GitPullRequest, Hash, MessageSquare, X } from "lucide-react";
+import { CircleDot, FileText, GitPullRequest, Hash, Link2, MessageSquare, NotebookPen, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { addTaskLink, getActivity, removeTaskLink } from "@/app/actions";
 import type { TaskActivity, TaskLink } from "@/lib/daemon";
 import { FeedThreads } from "../TodayPanel";
 
-const ICON: Record<TaskLink["kind"], typeof Hash> = { github: GitPullRequest, linear: CircleDot, "slack-thread": MessageSquare, "slack-channel": Hash, notion: FileText };
+const ICON: Record<TaskLink["kind"], typeof Hash> = { github: GitPullRequest, linear: CircleDot, "slack-thread": MessageSquare, "slack-channel": Hash, notion: FileText, doc: NotebookPen };
 
 /**
  * What happened on what the task follows: its PRs and Linear issue (linked by themselves), and
@@ -51,13 +51,14 @@ export function ActivityPanel({ taskId }: { taskId: string }) {
       </form>
       <div className="act-links">
         {(a?.links ?? []).map((l) => {
-          const Icon = ICON[l.kind];
+          // A kind this page does not know yet (a newer daemon) still gets a row.
+          const Icon = ICON[l.kind] ?? Link2;
           const label = l.kind === "slack-channel" ? `${l.label} · threads from ${new Date(l.since ?? l.addedAt).toLocaleDateString()}` : l.label;
           return (
             <span key={l.key} className="act-link" title={`${l.key}${l.how === "manual" ? "" : l.how === "pr" ? " · a PR of this task" : " · this task's issue"}`}>
               <Icon size={11} />
               {l.url ? (
-                <a href={l.url} target="_blank" rel="noreferrer">
+                <a href={l.url} {...(l.url.startsWith("/") ? {} : { target: "_blank", rel: "noreferrer" })}>
                   {label}
                 </a>
               ) : (
