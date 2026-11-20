@@ -7,17 +7,17 @@ import type { ChatSkill, Mention } from "@/lib/daemon";
 
 /**
  * @mentions in chats: a picker while typing `@…` in the composer, and chips for the mentions
- * in a sent message (resolved by jin: PRs, Linear issues, jin tasks on any machine).
+ * in a sent message (resolved by jin: PRs, issues, jin tasks on any machine).
  */
 
 /** `@` then a PR (owner/repo#n, repo#n) or an id (PLEN-1334, REV-111701): as the daemon reads them. */
 export const MENTION = /(^|[\s(])@((?:[\w.-]+\/)?[\w.-]+#\d+|[A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)+)(?=$|[\s),.;:!?])/g;
 
 const ICON = { pr: GitPullRequest, issue: SquareKanban, task: ListChecks } as const;
-const KIND = { pr: "Pull request", issue: "Linear issue", task: "jin task" } as const;
+const KIND = { pr: "Pull request", issue: "Issue", task: "jin task" } as const;
 
 const describe = (m: Mention) =>
-  [`${KIND[m.kind]}${m.kind === "task" && m.machineLabel ? ` on ${m.machineLabel}` : ""}`, m.title, m.state, m.detail].filter(Boolean).join(" · ");
+  [`${m.kind === "issue" && m.noun ? m.noun.replace(/^\w/, (c) => c.toUpperCase()) : KIND[m.kind]}${m.kind === "task" && m.machineLabel ? ` on ${m.machineLabel}` : ""}`, m.title, m.state, m.detail].filter(Boolean).join(" · ");
 
 /** One mention in a message: opens the task in jin, else the PR or issue; a task's issue is a second link. */
 function Chip({ label, found }: { label: string; found: Mention[] }) {
@@ -45,7 +45,7 @@ function Chip({ label, found }: { label: string; found: Mention[] }) {
         <span className="mention-main">{body}</span>
       )}
       {issue?.url && (
-        <a href={issue.url} target="_blank" rel="noreferrer" className="mention-extra" title={describe(issue)} aria-label={`Open ${label} in Linear`}>
+        <a href={issue.url} target="_blank" rel="noreferrer" className="mention-extra" title={describe(issue)} aria-label={`Open the ${issue.noun ?? "issue"} ${label}`}>
           <SquareKanban size={11} />
         </a>
       )}

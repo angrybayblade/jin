@@ -395,7 +395,7 @@ export function Chat(props: ChatProps) {
     [busySending, sessionId, props.taskId, props.kind, props.chats, path, router, choice],
   );
 
-  // Typing @… offers what to mention (PRs, Linear issues, jin tasks).
+  // Typing @… offers what to mention (PRs, issues, jin tasks).
   const input = useRef<HTMLTextAreaElement>(null);
 
   // The desk's Activity asks its agent about a thread: sent now, or left in the box while it works.

@@ -5,10 +5,10 @@ import { addTaskLink, getActivity, removeTaskLink } from "@/app/actions";
 import type { TaskActivity, TaskLink } from "@/lib/daemon";
 import { FeedThreads } from "../TodayPanel";
 
-const ICON: Record<TaskLink["kind"], typeof Hash> = { github: GitPullRequest, linear: CircleDot, "slack-thread": MessageSquare, "slack-channel": Hash, notion: FileText, doc: NotebookPen };
+const ICON: Record<TaskLink["kind"], typeof Hash> = { github: GitPullRequest, "slack-thread": MessageSquare, "slack-channel": Hash, notion: FileText, doc: NotebookPen, issue: CircleDot };
 
 /**
- * What happened on what the task follows: its PRs and Linear issue (linked by themselves), and
+ * What happened on what the task follows: its PRs and its issue (linked by themselves), and
  * Slack threads and channels and Notion pages you link. Exact threads only; nothing is guessed.
  */
 export function ActivityPanel({ taskId }: { taskId: string }) {
@@ -44,7 +44,7 @@ export function ActivityPanel({ taskId }: { taskId: string }) {
   return (
     <div className="act-panel" data-scroll="y">
       <form className="act-add" onSubmit={add}>
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link a Slack thread or channel, or a Notion page (paste its URL)" aria-label="Link to follow" />
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link a Slack thread or channel, a Notion page or an issue (paste its URL)" aria-label="Link to follow" />
         <button type="submit" className="button small" disabled={busy || !url.trim()}>
           Link
         </button>

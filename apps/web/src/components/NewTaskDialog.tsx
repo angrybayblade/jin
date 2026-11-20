@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { listRepos, listTaskKinds, startReview, startTaskJob, taskTitle } from "@/app/actions";
-import type { Repo, TaskKindSpec } from "@/lib/daemon";
+import type { Repo, TaskKindSpec, TrackerView } from "@/lib/daemon";
 import { taskHref } from "@/lib/paths";
 
 type Target = { id: string; label: string };
@@ -47,6 +47,8 @@ function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initi
   const [picked, setPicked] = useState<Set<string>>(new Set());
   // The kinds of task the workspace runs (its provider says), the first by default.
   const [kinds, setKinds] = useState<TaskKindSpec[] | null>(null);
+  // The workspace's issue tracker (null: its tasks have no issues).
+  const [tracker, setTracker] = useState<TrackerView | null>(null);
   const [kind, setKind] = useState<"change" | "review" | "scratch">("change");
   const scratch = kind === "scratch";
   const spec = kinds?.find((k) => k.id === kind);
@@ -84,20 +86,21 @@ function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initi
     setRepos(null);
     setPicked(new Set());
     void listRepos(undefined, machine).then(setRepos, (e) => setError(String(e)));
-    void listTaskKinds(machine).then((k) => {
+    void listTaskKinds(machine).then(({ kinds: k, tracker: t }) => {
       setKinds(k);
+      setTracker(t);
       setKind((cur) => (k.some((x) => x.id === cur) ? cur : (k[0]?.id ?? "change")));
-    }, () => setKinds([]));
+    }, () => (setKinds([]), setTracker(null)));
   }, [machine]);
 
-  // Without a title, the task takes its Linear issue's or its first PR's: shown as you type.
+  // Without a title, the task takes its issue's (when its id is one) or its first PR's: shown as you type.
   const [suggested, setSuggested] = useState<{ title: string; from: "issue" | "pr" } | null>(null);
   const [looking, setLooking] = useState(false);
   useEffect(() => {
     setSuggested(null);
     const tid = id.trim();
     const refs = links.split(/\s+/).filter((l) => /github\.com\/[^/]+\/[^/]+\/pull\/\d+|^[\w.-]+#\d+$/.test(l));
-    if (kind !== "change" || (!/^[A-Za-z][A-Za-z0-9]*-\d+$/.test(tid) && !refs.length)) return;
+    if (kind !== "change" || ((!spec?.idIsIssue || !tid) && !refs.length)) return;
     let live = true;
     setLooking(true);
     const t = setTimeout(() => {
@@ -216,8 +219,8 @@ function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initi
         </div>
         <label className="field">
           <span>Title (optional)</span>
-          <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={suggested ? suggested.title : looking ? "Looking up…" : "From the Linear issue, or a PR in Follow below"} />
-          {suggested && !slug.trim() && <span className="meta">From the {suggested.from === "issue" ? "Linear issue" : "pull request"}. Type to use your own.</span>}
+          <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={suggested ? suggested.title : looking ? "Looking up…" : spec?.idIsIssue && tracker ? `From the ${tracker.noun}, or a PR in Follow below` : "From a PR in Follow below"} />
+          {suggested && !slug.trim() && <span className="meta">From the {suggested.from === "issue" ? (tracker?.noun ?? "issue") : "pull request"}. Type to use your own.</span>}
         </label>
         </>
         )}

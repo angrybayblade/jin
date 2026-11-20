@@ -38,7 +38,7 @@ export interface Task {
   archived: boolean;
   /** The task this one was spawned from (jin-task spawn). */
   parent?: string | null;
-  /** A change from a Linear issue, or a review of pull requests. */
+  /** A change (named after its issue, in a workspace that does that), a review of pull requests, or a scratch experiment. */
   kind?: "change" | "review" | "scratch";
   /** The issue it is for, when its workspace ties tasks to issues. */
   issue?: { tracker: string; id: string; url?: string | null } | null;
@@ -52,7 +52,8 @@ export interface Task {
 export interface TaskLink {
   taskId: string;
   key: string;
-  kind: "github" | "linear" | "slack-thread" | "slack-channel" | "notion" | "doc";
+  /** An issue's key names its tracker: "linear:ENG-1", "github:acme/api#7". */
+  kind: "github" | "issue" | "slack-thread" | "slack-channel" | "notion" | "doc";
   url: string | null;
   label: string;
   since: string | null;
@@ -462,6 +463,8 @@ export interface Mention {
   detail: string | null;
   machine?: string;
   machineLabel?: string;
+  /** An issue: what its tracker calls one ("Linear issue"). */
+  noun?: string;
 }
 
 /** Something a chat talked about: a PR, ticket, task, Slack thread, Notion page, mail or link. */
@@ -485,6 +488,8 @@ export interface TaskKindSpec {
   label: string;
   autoId: boolean;
   idHint?: string;
+  /** Its id is its issue's, in the workspace's tracker (the form looks the issue up). */
+  idIsIssue?: boolean;
   types?: string[];
   prs?: boolean;
   note?: string;
@@ -691,4 +696,13 @@ export interface Problem {
   count: number;
   firstAt: string;
   lastAt: string;
+}
+
+/** A workspace's issue tracker, as forms and labels show it. */
+export interface TrackerView {
+  id: string;
+  label: string;
+  /** "Linear issue". */
+  noun: string;
+  idHint: string;
 }

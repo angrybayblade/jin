@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -145,7 +145,7 @@ export async function openInBobby(pr: string): Promise<{ url: string } | { error
 
 // ---------------------------------------------------------------- new tasks
 
-/** What an @ in a chat could mean (on the home: every machine's tasks, PRs, Linear issues). */
+/** What an @ in a chat could mean (on the home: every machine's tasks, PRs, issues). */
 export async function searchMentions(q: string): Promise<Mention[]> {
   return daemon<Mention[]>(`/api/mentions?q=${encodeURIComponent(q)}`, { timeoutMs: 12_000 });
 }
@@ -156,8 +156,10 @@ export async function chatRefs(sessionId: string): Promise<ChatRef[]> {
 }
 
 /** The kinds of task the (first) workspace runs, for the new-task form. */
-export async function listTaskKinds(machine?: string): Promise<TaskKindSpec[]> {
-  return (await daemon<{ id: string; taskKinds?: TaskKindSpec[] }[]>("/api/workspaces", { machine }))[0]?.taskKinds ?? [];
+/** The kinds of task a machine's workspace runs, and its issue tracker (null: its tasks have no issues). */
+export async function listTaskKinds(machine?: string): Promise<{ kinds: TaskKindSpec[]; tracker: TrackerView | null }> {
+  const w = (await daemon<{ id: string; taskKinds?: TaskKindSpec[]; tracker?: TrackerView | null }[]>("/api/workspaces", { machine }))[0];
+  return { kinds: w?.taskKinds ?? [], tracker: w?.tracker ?? null };
 }
 
 export async function listRepos(workspace?: string, machine?: string): Promise<Repo[]> {
@@ -166,7 +168,7 @@ export async function listRepos(workspace?: string, machine?: string): Promise<R
 }
 
 /** Create a task in the background; its page shows setup progress until it is ready. */
-/** A title for a task given none: its Linear issue's, else its first PR's (looked up on the home). */
+/** A title for a task given none: its issue's, else its first PR's (looked up on the home). */
 export async function taskTitle(id: string, refs: string[] = []): Promise<{ title: string; from: "issue" | "pr" } | null> {
   const q = new URLSearchParams({ id });
   for (const r of refs) q.append("ref", r);
@@ -179,7 +181,7 @@ export async function startTaskJob(input: { id: string; kind?: "change" | "scrat
     // A scratch task needs no title: the workspace numbers it, and it ties to no issue.
     if (json.kind !== "scratch" && !json.slug.trim()) {
       const found = await taskTitle(json.id, json.links);
-      if (!found) return { error: `No title given, and none found for ${json.id} in Linear or a linked PR. Add a title.` };
+      if (!found) return { error: `No title given, and none found for ${json.id} in its issue or a linked PR. Add a title.` };
       json.slug = found.title;
     }
     const job = await daemon<TaskJob>("/api/task-jobs", { method: "POST", json, machine });

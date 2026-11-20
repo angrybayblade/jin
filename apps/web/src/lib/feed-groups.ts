@@ -1,6 +1,6 @@
 import type { FeedItem } from "./daemon";
 
-/** A feed thread with its items, newest first: a PR or issue, a Linear issue, a Slack thread or DM, a Notion page, a mail thread. */
+/** A feed thread with its items, newest first: a PR or issue, a Slack thread or DM, a Notion page, a mail thread. */
 export interface FeedGroup {
   key: string;
   source: string;
