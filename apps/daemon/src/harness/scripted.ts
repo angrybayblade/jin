@@ -17,7 +17,9 @@ export class ScriptedHarness implements Harness {
     const sessionId = run.resume ?? randomUUID();
     let steps: Step[];
     try {
-      steps = (JSON.parse(run.prompt) as { script: Step[] }).script;
+      // The script is the prompt, or a line of it (a room wraps what you wrote in the room's messages: the last script line counts).
+      const line = run.prompt.trim().startsWith("{") ? run.prompt : (run.prompt.split("\n").map((l) => l.replace(/^[^{]*/, "")).filter((l) => l.startsWith('{"script"')).at(-1) ?? run.prompt);
+      steps = (JSON.parse(line) as { script: Step[] }).script;
       if (!Array.isArray(steps)) throw new Error("script must be an array");
     } catch (err) {
       throw new Error(`scripted harness: prompt must be {"script": [...]}: ${(err as Error).message}`);

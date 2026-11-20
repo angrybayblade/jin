@@ -1,0 +1,676 @@
+"use client";
+import { ArrowUp, AtSign, Check, Copy, Eye, FileText, GitCompare, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Square, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { decideRoomApproval, getRoom, modelChoices, pinRoomMessage, postRoomMessage, roomAgentAction, roomAgentEvents, saveRoomAgent } from "@/app/actions";
+import type { ModelChoices, RoomAgent, RoomApproval, RoomMessage, RoomProfile, SessionEvent } from "@/lib/daemon";
+import { openContextMenu, type MenuItem } from "../ContextMenu";
+import { Markdown } from "../Markdown";
+import { ActionMark, StatusMark } from "../ThermalMark";
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const busy = (a: RoomAgent) => a.state === "running" || a.state === "waiting_approval" || a.state === "queued";
+
+/** The agents a message names, in order (as the daemon reads it): @all is everyone. */
+function named(text: string, agents: RoomAgent[]): RoomAgent[] {
+  const out: RoomAgent[] = [];
+  for (const m of text.matchAll(/(^|[^\w@/.])@([a-z][\w-]*)/gi)) {
+    const h = m[2]!.toLowerCase();
+    for (const a of h === "all" || h === "everyone" ? agents : agents.filter((x) => x.handle === h)) if (!out.includes(a)) out.push(a);
+  }
+  return out;
+}
+
+const STATE: Record<RoomAgent["state"], string> = {
+  new: "not started",
+  queued: "queued",
+  running: "working",
+  waiting_approval: "needs your approval",
+  idle: "idle",
+  failed: "failed",
+  interrupted: "stopped",
+};
+
+type Side = { view: "roster" } | { view: "edit"; id: string | null } | { view: "activity"; id: string };
+
+/**
+ * A task's agent room: you and several agents, each with a role. An agent takes a turn only when
+ * you @-mention it; it is given the room since its last turn, and of the others only what they
+ * said last (their steps stay in their own sessions: the eye shows you them).
+ */
+export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: { /** Show the task's diff (what a writer's turn changed). */ onOpenChanges?: () => void; taskId: string; /** Asked from the Room tab's menu: open the new-agent form (n changes each time). */ intent?: { n: number; action: "add-agent" } | null; /** Open a jin doc (as a tab of the task). */ onOpenDoc?: (id: string) => void; /** The last message shown (the tab's unread mark follows it). */ onSeen?: (seq: number) => void }) {
+  const [agents, setAgents] = useState<RoomAgent[]>([]);
+  const [messages, setMessages] = useState<RoomMessage[]>([]);
+  const [pinned, setPinned] = useState<RoomMessage[]>([]);
+  const [approvals, setApprovals] = useState<RoomApproval[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [side, setSide] = useState<Side>({ view: "roster" });
+  const last = useRef(0);
+  const log = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+
+  const refresh = useCallback(async () => {
+    const r = await getRoom(taskId, last.current);
+    if ("error" in r) return setError(r.error);
+    setError(null);
+    setLoaded(true);
+    setAgents(r.agents);
+    setPinned(r.pinned);
+    setApprovals(r.approvals);
+    if (r.messages.length) {
+      last.current = Math.max(last.current, r.lastSeq);
+      setMessages((m) => {
+        const have = new Set(m.map((x) => x.seq));
+        return [...m, ...r.messages.filter((x) => !have.has(x.seq))].sort((a, b) => a.seq - b.seq);
+      });
+    }
+  }, [taskId]);
+
+  useEffect(() => {
+    last.current = 0;
+    setMessages([]);
+    setLoaded(false);
+    void refresh();
+    return undefined;
+  }, [refresh]);
+  // Read again every second and a half while it is on screen; faster while an agent works (its reply forms as you watch).
+  const anyWorking = agents.some((a) => a.state === "running");
+  useEffect(() => {
+    const t = setInterval(() => document.visibilityState === "visible" && void refresh(), anyWorking ? 600 : 1500);
+    return () => clearInterval(t);
+  }, [refresh, anyWorking]);
+
+  // New messages keep the log at its end, unless you scrolled up to read.
+  useEffect(() => {
+    const el = log.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [messages.length, agents.map((a) => `${a.state}${a.draft?.length ?? 0}`).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (intent?.action === "add-agent") setSide({ view: "edit", id: null });
+  }, [intent?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (messages.length) onSeen?.(messages.at(-1)!.seq);
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Esc closes the profile form or the steps view.
+  useEffect(() => {
+    if (side.view === "roster") return;
+    const key = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && setSide({ view: "roster" });
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [side.view]);
+  const [copied, setCopied] = useState<number | null>(null);
+  const copyText = (m: RoomMessage) => {
+    void navigator.clipboard?.writeText(m.text);
+    setCopied(m.seq);
+    setTimeout(() => setCopied((c) => (c === m.seq ? null : c)), 1200);
+  };
+
+  const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const working = agents.filter(busy);
+  const pinnedSeqs = useMemo(() => new Set(pinned.map((p) => p.seq)), [pinned]);
+
+  const togglePin = async (m: RoomMessage) => {
+    const on = !pinnedSeqs.has(m.seq);
+    setPinned((p) => (on ? [...p, m].sort((a, b) => a.seq - b.seq) : p.filter((x) => x.seq !== m.seq)));
+    const r = await pinRoomMessage(taskId, m.seq, on);
+    if ("error" in r) setError(r.error);
+  };
+
+  const act = async (a: RoomAgent, action: "remove" | "stop" | "fresh") => {
+    const r = await roomAgentAction(taskId, a.id, action);
+    if ("error" in r) setError(r.error);
+    void refresh();
+  };
+
+  const composer = useRef<{ insert: (handle: string) => void }>(null);
+  const agentMenu = (a: RoomAgent): MenuItem[] => [
+    { label: `Mention @${a.handle}`, icon: AtSign, run: () => composer.current?.insert(a.handle) },
+    { label: "What it did", icon: Eye, hint: "its own steps", run: () => setSide({ view: "activity", id: a.id }) },
+    { label: "Edit profile", icon: Pencil, run: () => setSide({ view: "edit", id: a.id }) },
+    { divider: true },
+    ...(a.state === "running" || a.state === "waiting_approval" ? [{ label: "Stop its turn", icon: Square, run: () => act(a, "stop") }] : []),
+    { label: "Fresh start", icon: RotateCcw, hint: "a new session", disabled: busy(a), run: () => act(a, "fresh") },
+    { label: "Remove from the room", icon: Trash2, danger: true, confirm: `Remove @${a.handle}? Its messages stay.`, disabled: busy(a), run: () => act(a, "remove") },
+  ];
+
+  return (
+    <div className={`room ${side.view === "activity" ? "is-wide-side" : ""}`}>
+      <div className="room-main">
+        <div
+          className="room-log"
+          data-scroll="y"
+          ref={log}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          }}
+        >
+          {loaded && !messages.length && (
+            <div className="room-empty">
+              <p className="room-empty-title">The agent room</p>
+              <p>
+                Each agent has a role and works in this task. One takes a turn only when you @-mention it, and the others see just its final reply. Name several to hear from each: readers answer at the same time; with a writer they go in the order you name them.
+              </p>
+              <p className="room-empty-handles">
+                {agents.map((a) => (
+                  <button key={a.id} type="button" className="room-handle" data-color={a.color} onClick={() => composer.current?.insert(a.handle)} title={a.brief}>
+                    @{a.handle}
+                  </button>
+                ))}
+              </p>
+            </div>
+          )}
+          {messages.map((m) =>
+            m.kind === "note" ? (
+              <p key={m.seq} className="room-note">
+                <span>{m.text}</span>
+                <Refs refs={m.refs} onOpenDoc={onOpenDoc} onOpenChanges={onOpenChanges} />
+              </p>
+            ) : (
+              <article key={m.seq} id={`room-msg-${m.seq}`} className={`room-msg ${m.author === "you" ? "is-you" : ""}`} data-color={byId.get(m.author)?.color ?? (m.author === "you" ? undefined : "gone")}>
+                <header className="room-msg-head">
+                  <span className="room-dot" aria-hidden="true" />
+                  <span className="room-msg-name">{m.author === "you" ? "You" : m.authorName}</span>
+                  {m.authorHandle && <span className="meta">@{m.authorHandle}</span>}
+                  <span className="meta">{clock(m.at)}</span>
+                  <button type="button" className="room-pin" onClick={() => copyText(m)} title="Copy" aria-label="Copy the message">
+                    {copied === m.seq ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                  <button type="button" className={`room-pin ${pinnedSeqs.has(m.seq) ? "is-on" : ""}`} onClick={() => void togglePin(m)} title={pinnedSeqs.has(m.seq) ? "Unpin" : "Pin as a decision"} aria-label={pinnedSeqs.has(m.seq) ? "Unpin" : "Pin"}>
+                    {pinnedSeqs.has(m.seq) ? <PinOff size={12} /> : <Pin size={12} />}
+                  </button>
+                </header>
+                <div className="room-msg-body">
+                  {m.author === "you" ? <YourText text={m.text} agents={agents} /> : <Markdown content={m.text} />}
+                  <Refs refs={m.refs} onOpenDoc={onOpenDoc} onOpenChanges={onOpenChanges} />
+                </div>
+              </article>
+            ),
+          )}
+          {working.map((a) => (
+            <div key={a.id} className={`room-working ${a.draft ? "has-draft" : ""}`} data-color={a.color}>
+              {a.draft && (
+                <div className="room-draft" title="What it is writing now. Only its final message goes to the room.">
+                  <Markdown content={a.draft} streaming />
+                </div>
+              )}
+              <StatusMark state={a.state === "new" ? "idle" : a.state} />
+              <span className="room-msg-name">{a.name}</span>
+              <span className="meta room-working-what">{a.state === "queued" ? "waiting its turn" : a.state === "waiting_approval" ? "needs your approval" : (a.activity ?? "working")}</span>
+              <button type="button" className="button quiet small" onClick={() => setSide({ view: "activity", id: a.id })}>
+                <Eye size={12} /> Watch
+              </button>
+              {a.state !== "queued" && (
+                <button type="button" className="button quiet small" onClick={() => void act(a, "stop")}>
+                  <Square size={11} /> Stop
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="composer-area">
+          {error && <p className="machine-error">{error}</p>}
+          {approvals.length > 0 && (
+            <section className="approvals approval-drawer" aria-label="Approvals">
+              <ul className="approval-list">
+                {approvals.map((p) => (
+                  <ApprovalRow key={p.id} approval={p} agent={byId.get(p.agentId)} onDecide={async (d) => (await decideRoomApproval(taskId, p.id, d), void refresh())} />
+                ))}
+              </ul>
+            </section>
+          )}
+          <Composer
+            ref={composer}
+            agents={agents}
+            onSend={async (text) => {
+              const r = await postRoomMessage(taskId, text);
+              if ("error" in r) return setError(r.error), false;
+              stick.current = true;
+              await refresh();
+              return true;
+            }}
+          />
+        </div>
+      </div>
+
+      <aside className="room-side" aria-label="Agents">
+        {side.view === "edit" ? (
+          <ProfileForm taskId={taskId} agent={side.id ? (byId.get(side.id) ?? null) : null} onDone={() => (setSide({ view: "roster" }), void refresh())} />
+        ) : side.view === "activity" && byId.get(side.id) ? (
+          <AgentActivity taskId={taskId} agent={byId.get(side.id)!} onClose={() => setSide({ view: "roster" })} />
+        ) : (
+          <>
+            <div className="room-side-head">
+              <span>Agents</span>
+              <button type="button" className="nav-section-action" onClick={() => setSide({ view: "edit", id: null })} title="Add an agent" aria-label="Add an agent">
+                <Plus size={14} />
+              </button>
+            </div>
+            <ul className="room-roster">
+              {agents.map((a) => (
+                <li key={a.id} className="room-agent" data-color={a.color} onContextMenu={(e) => openContextMenu(e, agentMenu(a))}>
+                  <button type="button" className="room-agent-main" onClick={() => composer.current?.insert(a.handle)} title={`Mention @${a.handle}\n\n${a.brief}`}>
+                    <span className="room-dot" aria-hidden="true" />
+                    <span className="room-agent-text">
+                      <span className="room-agent-name">
+                        {a.name} <span className="meta">@{a.handle}</span>
+                      </span>
+                      <span className={`meta room-agent-state is-${a.state}`}>
+                        {a.access === "writer" ? "writes code" : "read-only"} · {STATE[a.state]}
+                        {a.queued > 0 && a.state !== "queued" ? ` · ${a.queued} queued` : ""}
+                      </span>
+                    </span>
+                  </button>
+                  <button type="button" className="button quiet icon-only room-agent-more" onClick={(e) => openContextMenu(e, agentMenu(a))} aria-label={`${a.name}: more`} title="More">
+                    <MoreHorizontal size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {pinned.length > 0 && (
+              <>
+                <div className="room-side-head">
+                  <span>Pinned</span>
+                </div>
+                <ul className="room-pins">
+                  {pinned.map((m) => (
+                    <li key={m.seq}>
+                      <button type="button" onClick={() => document.getElementById(`room-msg-${m.seq}`)?.scrollIntoView({ block: "center", behavior: "smooth" })} title={m.text}>
+                        <span className="meta">{m.author === "you" ? "You" : m.authorName}</span>
+                        <span className="room-pin-text">{m.text}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+/** What a turn made or changed: its docs, one chip each (opens the doc). */
+function Refs({ refs, onOpenDoc, onOpenChanges }: { refs: RoomMessage["refs"]; onOpenDoc?: (id: string) => void; onOpenChanges?: () => void }) {
+  if (!refs?.length) return null;
+  return (
+    <span className="room-refs">
+      {refs.map((r) =>
+        r.kind === "files" ? (
+          <button key={`files:${r.repo}`} type="button" className="room-ref" onClick={onOpenChanges} title={`Changed in this turn:\n${r.files.join("\n")}${r.count > r.files.length ? `\n… and ${r.count - r.files.length} more` : ""}\n\nOpens the task's changes.`}>
+            <GitCompare size={12} />
+            <span className="room-ref-title">{r.repo}</span>
+            <span className="meta">
+              {r.count} file{r.count === 1 ? "" : "s"} changed
+            </span>
+          </button>
+        ) : (
+        <a
+          key={r.id}
+          href={`/docs/${r.id}`}
+          className="room-ref"
+          title={`${r.title || "Untitled"}: ${r.did.join(", ")}`}
+          onClick={(e) => {
+            if (!onOpenDoc || e.metaKey || e.ctrlKey) return;
+            e.preventDefault();
+            onOpenDoc(r.id);
+          }}
+        >
+          <FileText size={12} />
+          <span className="room-ref-title">{r.title || "Untitled"}</span>
+          <span className="meta">{r.did.join(", ")}</span>
+        </a>
+        ),
+      )}
+    </span>
+  );
+}
+
+/** What you wrote, with the agents you named marked. */
+function YourText({ text, agents }: { text: string; agents: RoomAgent[] }) {
+  const parts = text.split(/(@[a-z][\w-]*)/gi);
+  return (
+    <p className="room-you-text">
+      {parts.map((p, i) => {
+        const h = p.startsWith("@") ? p.slice(1).toLowerCase() : null;
+        const a = h ? agents.find((x) => x.handle === h) : null;
+        return a || h === "all" ? (
+          <span key={i} className="room-handle" data-color={a?.color}>
+            {p}
+          </span>
+        ) : (
+          p
+        );
+      })}
+    </p>
+  );
+}
+
+function ApprovalRow({ approval, agent, onDecide }: { approval: RoomApproval; agent?: RoomAgent; onDecide: (d: "approve" | "reject") => Promise<void> }) {
+  const [busyNow, setBusy] = useState(false);
+  const input = approval.action.input;
+  const what = typeof input.command === "string" ? input.command : `${approval.action.tool} ${JSON.stringify(input)}`;
+  const decide = (d: "approve" | "reject") => {
+    setBusy(true);
+    void onDecide(d).finally(() => setBusy(false));
+  };
+  return (
+    <li className="approval-row">
+      <ActionMark tool={approval.action.tool} />
+      <div className="approval-body">
+        <div className="approval-title">
+          {agent ? `${agent.name}: ` : ""}
+          {approval.reason}
+        </div>
+        <code className="approval-command">{what}</code>
+      </div>
+      <div className="approval-actions">
+        <button type="button" className="button quiet" disabled={busyNow} onClick={() => decide("reject")}>
+          Decline
+        </button>
+        <button type="button" className="button primary" disabled={busyNow} onClick={() => decide("approve")}>
+          Approve
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/** The room's composer: @ offers the agents; under it, who will take a turn and how. */
+function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text: string) => Promise<boolean>; ref: React.Ref<{ insert: (handle: string) => void }> }) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [pick, setPick] = useState<{ start: number; q: string; at: number } | null>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+
+  // Where the caret goes once the new draft is in the field (-1: its end).
+  const caret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (caret.current === null || !el) return;
+    const at = caret.current < 0 ? el.value.length : caret.current;
+    caret.current = null;
+    el.focus();
+    el.setSelectionRange(at, at);
+  }, [draft]);
+
+  const draftNow = useRef(draft);
+  draftNow.current = draft;
+  const insert = useCallback((handle: string) => {
+    const d = draftNow.current;
+    setPick(null);
+    input.current?.focus();
+    // Already named: nothing to add.
+    if (new RegExp(`(^|\\s)@${handle}\\b`, "i").test(d)) return;
+    caret.current = -1;
+    setDraft(`${d}${d && !/\s$/.test(d) ? " " : ""}@${handle} `);
+  }, []);
+  useImperativeHandle(ref, () => ({ insert }), [insert]);
+
+  const options = useMemo(() => {
+    if (!pick) return [];
+    const all = [...agents.map((a) => ({ handle: a.handle, label: a.name, hint: a.access === "writer" ? "writes code" : "read-only", color: a.color as string | undefined })), { handle: "all", label: "Everyone", hint: "every agent", color: undefined }];
+    return all.filter((o) => o.handle.startsWith(pick.q.toLowerCase()));
+  }, [pick, agents]);
+
+  const update = (value: string, caret: number) => {
+    setDraft(value);
+    const m = /(^|\s)@([\w-]*)$/.exec(value.slice(0, caret));
+    setPick(m ? { start: caret - m[2]!.length - 1, q: m[2]!, at: 0 } : null);
+  };
+  const choose = (handle: string) => {
+    if (!pick) return;
+    const el = input.current;
+    const from = el?.selectionStart ?? draft.length;
+    caret.current = pick.start + handle.length + 2;
+    setDraft(`${draft.slice(0, pick.start)}@${handle} ${draft.slice(from)}`);
+    setPick(null);
+  };
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    const ok = await onSend(text);
+    setSending(false);
+    if (ok) setDraft("");
+  };
+
+  const going = named(draft, agents);
+  const inOrder = going.some((a) => a.access === "writer") && going.length > 1;
+  const plan = !draft.trim()
+    ? "@ an agent to give it a turn"
+    : !going.length
+      ? "Nobody is mentioned: it is said to the room, and no agent runs"
+      : going.length === 1
+        ? `${going[0]!.name} takes a turn${busy(going[0]!) ? " (after the one it is on)" : ""}`
+        : inOrder
+          ? `In order: ${going.map((a) => a.name).join(" → ")}`
+          : `At the same time: ${going.map((a) => a.name).join(", ")}`;
+
+  return (
+    <form
+      className="composer room-composer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void send();
+      }}
+    >
+      {pick && options.length > 0 && (
+        <ul className="room-pick" role="listbox" aria-label="Agents">
+          {options.map((o, i) => (
+            <li key={o.handle} role="option" aria-selected={i === pick.at}>
+              <button type="button" className={i === pick.at ? "is-active" : ""} onMouseDown={(e) => (e.preventDefault(), choose(o.handle))} data-color={o.color}>
+                <span className="room-dot" aria-hidden="true" />
+                <span>@{o.handle}</span>
+                <span className="meta">
+                  {o.label} · {o.hint}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <textarea
+        ref={input}
+        value={draft}
+        rows={1}
+        aria-label="Message the room"
+        placeholder="Message the room… @designer, @engineer, @reviewer"
+        onChange={(e) => update(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+        onBlur={() => setTimeout(() => setPick(null), 120)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (pick && options.length) {
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              return setPick({ ...pick, at: (pick.at + (e.key === "ArrowDown" ? 1 : options.length - 1)) % options.length });
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              e.preventDefault();
+              return choose(options[Math.min(pick.at, options.length - 1)]!.handle);
+            }
+            if (e.key === "Escape") return setPick(null);
+          }
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void send();
+          }
+        }}
+      />
+      <div className="composer-bottom">
+        <span className="composer-engine">{plan}</span>
+        <button type="submit" className="send-button" aria-label="Send" disabled={!draft.trim() || sending}>
+          <ArrowUp size={16} />
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** An agent's profile: its handle, role, whether it changes the code, and what it runs with. */
+function ProfileForm({ taskId, agent, onDone }: { taskId: string; agent: RoomAgent | null; onDone: () => void }) {
+  const [p, setP] = useState<RoomProfile>({
+    handle: agent?.handle ?? "",
+    name: agent?.name ?? "",
+    brief: agent?.brief ?? "",
+    access: agent?.access ?? "read-only",
+    model: agent?.model ?? "",
+    effort: agent?.effort ?? "default",
+  });
+  const [choices, setChoices] = useState<ModelChoices | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void modelChoices().then(setChoices, () => {});
+  }, []);
+  const set = <K extends keyof RoomProfile>(k: K, v: RoomProfile[K]) => setP((x) => ({ ...x, [k]: v }));
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const r = await saveRoomAgent(taskId, agent?.id ?? null, { ...p, name: p.name.trim() || p.handle });
+    setSaving(false);
+    if ("error" in r) return setError(r.error);
+    onDone();
+  };
+  return (
+    <form className="room-profile" onSubmit={save}>
+      <div className="room-side-head">
+        <span>{agent ? `Edit ${agent.name}` : "New agent"}</span>
+        <button type="button" className="nav-section-action" onClick={onDone} aria-label="Close" title="Close">
+          <X size={14} />
+        </button>
+      </div>
+      <label className="field">
+        <span>Handle</span>
+        <input value={p.handle} onChange={(e) => set("handle", e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))} placeholder="security" required autoFocus={!agent} />
+      </label>
+      <label className="field">
+        <span>Name</span>
+        <input value={p.name} onChange={(e) => set("name", e.target.value)} placeholder="Security reviewer" />
+      </label>
+      <label className="field">
+        <span>Access</span>
+        <select value={p.access} onChange={(e) => set("access", e.target.value as RoomProfile["access"])}>
+          <option value="read-only">Read-only: reads, runs checks, writes docs</option>
+          <option value="writer">Writer: changes the code</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Role</span>
+        <textarea value={p.brief} onChange={(e) => set("brief", e.target.value)} rows={9} placeholder="What this agent is for, how it works, what it must not do." required />
+      </label>
+      <div className="field-row">
+        <label className="field">
+          <span>Model</span>
+          <select value={p.model} onChange={(e) => set("model", e.target.value)}>
+            <option value="">jin's default</option>
+            {choices?.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Effort</span>
+          <select value={p.effort} onChange={(e) => set("effort", e.target.value)}>
+            <option value="default">default</option>
+            {choices?.efforts.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {agent && <p className="meta">A changed role applies from its next turn.</p>}
+      {error && <p className="field-error">{error}</p>}
+      <div className="room-profile-actions">
+        <button type="button" className="button quiet" onClick={onDone}>
+          Cancel
+        </button>
+        <button type="submit" className="button primary" disabled={saving || !p.handle || !p.brief.trim()}>
+          {agent ? "Save" : "Add agent"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+const toolLine = (p: Record<string, any>): string => {
+  const input = (p.input ?? {}) as Record<string, unknown>;
+  const arg = typeof input.file_path === "string" ? input.file_path : typeof input.command === "string" ? input.command : typeof input.pattern === "string" ? input.pattern : typeof input.docId === "string" ? input.docId : "";
+  return `${String(p.tool ?? "").replace(/^mcp__jin__/, "")} ${String(arg)}`.trim();
+};
+
+/** What an agent did, step by step: its own session, which the other agents never see. */
+function AgentActivity({ taskId, agent, onClose }: { taskId: string; agent: RoomAgent; onClose: () => void }) {
+  const [events, setEvents] = useState<SessionEvent[]>([]);
+  const last = useRef(0);
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    last.current = 0;
+    setEvents([]);
+    let live = true;
+    const load = async () => {
+      const more = await roomAgentEvents(taskId, agent.id, last.current);
+      if (!live || !more.length) return;
+      last.current = more.at(-1)!.seq;
+      setEvents((e) => [...e, ...more]);
+      requestAnimationFrame(() => end.current?.scrollIntoView({ block: "end" }));
+    };
+    void load();
+    const t = setInterval(() => document.visibilityState === "visible" && void load(), 2000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [taskId, agent.id, agent.sessionId]);
+  const shown = events.filter((e) => ["prompt", "message", "tool.started", "tool.denied", "session.failed", "result"].includes(e.kind));
+  return (
+    <div className="room-activity">
+      <div className="room-side-head">
+        <span>
+          {agent.name} <span className="meta">its own steps · {STATE[agent.state]}</span>
+        </span>
+        <button type="button" className="nav-section-action" onClick={onClose} aria-label="Close" title="Close">
+          <X size={14} />
+        </button>
+      </div>
+      <div className="room-activity-log" data-scroll="y">
+        {!shown.length && <p className="meta">Nothing yet: it has not taken a turn.</p>}
+        {shown.map((e) =>
+          e.kind === "prompt" ? (
+            <details key={e.seq} className="room-step is-turn">
+              <summary>Turn at {clock(e.at)}: what it was given</summary>
+              <pre>{String(e.payload.text ?? "")}</pre>
+            </details>
+          ) : e.kind === "message" ? (
+            <div key={e.seq} className="room-step is-said">
+              <Markdown content={String(e.payload.text ?? "")} />
+            </div>
+          ) : e.kind === "tool.started" ? (
+            <p key={e.seq} className="room-step is-tool" title={toolLine(e.payload)}>
+              {toolLine(e.payload)}
+            </p>
+          ) : e.kind === "tool.denied" ? (
+            <p key={e.seq} className="room-step is-denied">
+              refused: {toolLine(e.payload)} ({String(e.payload.reason ?? "")})
+            </p>
+          ) : e.kind === "session.failed" ? (
+            <p key={e.seq} className="room-step is-denied">
+              {String(e.payload.error ?? "stopped")}
+            </p>
+          ) : (
+            <p key={e.seq} className="room-step is-result meta">
+              turn done{typeof e.payload.turns === "number" ? ` · ${e.payload.turns} steps` : ""}
+              {typeof e.payload.costUsd === "number" ? ` · $${e.payload.costUsd.toFixed(2)}` : ""}
+            </p>
+          ),
+        )}
+        <div ref={end} />
+      </div>
+    </div>
+  );
+}
