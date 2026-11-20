@@ -1,12 +1,13 @@
+import type { IssueDetails, IssueTracker, Trackers } from "./trackers";
 import type { FeedItem } from "./feed";
 import { HttpError, json, type Router } from "./http";
 import { normKey, parseLink } from "./links";
 
 /**
- * Mentions in a chat: `@platform#133` (a pull request), `@PLEN-1334` (a Linear issue, a jin
+ * Mentions in a chat: `@platform#133` (a pull request), `@PLEN-1334` (an issue in a workspace's tracker, a jin
  * task, or both: a cws change task's id is its issue's), `@REV-111701` (a jin task). Searching
- * offers what jin already knows (every machine's tasks and their PRs, the GitHub and Linear
- * feed); resolving fills in the live state (gh for a PR, Linear through Composio) so the agent
+ * offers what jin already knows (every machine's tasks and their PRs, the feed's PRs and
+ * issues); resolving fills in the live state (gh for a PR, the issue's tracker) so the agent
  * starts from facts, and the chat shows each one as a chip.
  */
 
@@ -28,6 +29,8 @@ export interface Mention {
   /** A task's machine, as this jin names it ("local" for its own), and its name. */
   machine?: string;
   machineLabel?: string;
+  /** An issue: what its tracker calls one ("Linear issue"). */
+  noun?: string;
 }
 
 interface TaskLike {
@@ -71,8 +74,10 @@ export interface MentionDeps {
   feed: () => FeedItem[];
   /** A PR's live state through gh, or null. */
   pr: (repo: string, number: number) => Promise<PrDetails | null>;
-  /** A Linear issue's live state (through Composio), or null. */
-  issue: (id: string) => Promise<IssueDetails | null>;
+  /** Every issue tracker jin knows (to read issue links of any of them). */
+  trackers: Trackers;
+  /** The trackers jin's workspaces use, the first workspace's first: an id written in a message is looked for in these. */
+  inUse: () => IssueTracker[];
 }
 
 export interface PrDetails {
@@ -84,18 +89,11 @@ export interface PrDetails {
   checks: string | null;
   author: string | null;
 }
-export interface IssueDetails {
-  title: string;
-  url?: string | null;
-  state: string | null;
-  assignee: string | null;
-  team: string | null;
-}
+export type { IssueDetails };
 
 /** `@` then a PR (owner/repo#n, repo#n) or an id (PLEN-1334, REV-111701, VIRAJ-CTX). */
 export const MENTION = /(^|[\s(])@((?:[\w.-]+\/)?[\w.-]+#\d+|[A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)+)(?=$|[\s),.;:!?])/g;
 const PR_REF = /^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/;
-const ISSUE_ID = /^[A-Z][A-Z0-9]*-\d+$/;
 
 /** The mentions written in a message (each label once, in order). */
 export function mentionLabels(text: string): string[] {
@@ -124,10 +122,10 @@ export class Mentions {
   constructor(private deps: MentionDeps) {}
 
   /** What jin knows, as mentionable things (PRs, issues, tasks), newest first within each kind. */
-  private async known(): Promise<{ items: Mention[]; repos: Map<string, string>; linearOrg: string | null }> {
+  private async known(): Promise<{ items: Mention[]; repos: Map<string, string> }> {
     const items = new Map<string, Mention>();
     const repos = new Map<string, string>(); // "platform" -> "ComposioHQ/platform"
-    let linearOrg: string | null = null;
+    const { trackers } = this.deps;
     const notePr = (repo: string) => repos.set(lower(repo.split("/")[1] ?? repo), repo);
 
     for (const snap of await this.deps.machines()) {
@@ -146,8 +144,10 @@ export class Mentions {
           machine: snap.machine,
           machineLabel: snap.label,
         });
-        if (t.issue?.tracker === "linear" && !items.has(`linear:${t.issue.id}`)) {
-          items.set(`linear:${t.issue.id}`, { label: t.issue.id, kind: "issue", key: `linear:${t.issue.id}`, title: t.title ?? t.slug, url: t.issue.url ?? null, state: null, detail: null });
+        const key = t.issue ? `${t.issue.tracker}:${t.issue.id}` : null;
+        if (t.issue && key && !items.has(key)) {
+          const tracker = trackers.get(t.issue.tracker);
+          items.set(key, { label: t.issue.id, kind: "issue", key, title: t.title ?? t.slug, url: t.issue.url ?? tracker?.urlOf(t.issue.id) ?? null, state: null, detail: null, noun: tracker?.noun });
         }
       }
       for (const p of snap.prs) {
@@ -166,21 +166,24 @@ export class Mentions {
         if (!items.has(key)) items.set(key, { label: `${gh[1]!.split("/")[1]}#${gh[3]}`, kind: "pr", key, title: th.title, url: th.url, state: null, detail: null });
         continue;
       }
-      const li = /linear\.app\/([\w-]+)\/issue\/([A-Z][A-Z0-9]*-\d+)/.exec(th.url);
-      if (li) {
-        linearOrg ??= li[1]!;
-        const key = `linear:${li[2]}`;
+      // An issue in a tracker jin knows (the link also teaches the tracker: Linear, its workspace).
+      trackers.learn(th.url);
+      const issue = trackers.fromUrl(th.url);
+      if (issue) {
+        const key = `${issue.tracker.id}:${issue.id}`;
         const known = items.get(key);
-        if (!known) items.set(key, { label: li[2]!, kind: "issue", key, title: th.title.replace(new RegExp(`^${li[2]}\\s*`), "") || th.title, url: `https://linear.app/${li[1]}/issue/${li[2]}`, state: null, detail: null });
-        else if (!known.url) known.url = `https://linear.app/${li[1]}/issue/${li[2]}`;
+        if (!known) items.set(key, { label: issue.id, kind: "issue", key, title: th.title.replace(new RegExp(`^${issue.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i"), "") || th.title, url: th.url, state: null, detail: null, noun: issue.tracker.noun });
+        else known.url ??= th.url;
       }
     }
-    return { items: [...items.values()], repos, linearOrg };
+    // Task issues seen before their tracker learned how to link them.
+    for (const m of items.values()) if (m.kind === "issue" && !m.url) m.url = trackers.ofKey(m.key)?.tracker.urlOf(m.label) ?? null;
+    return { items: [...items.values()], repos };
   }
 
   /** Candidates for what is typed after @ (what jin knows; an exact PR or issue it does not, looked up). */
   async search(q: string, limit = 8): Promise<Mention[]> {
-    const { items, repos, linearOrg } = await this.known();
+    const { items, repos } = await this.known();
     const query = lower(q.trim());
     const score = (m: Mention) => {
       const label = lower(m.label);
@@ -199,7 +202,7 @@ export class Mentions {
     const out = hits.slice(0, limit).map((x) => x.m);
     // Typed in full, and nothing jin knows starts with it: look it up (a partial id is not looked up).
     if (query && !items.some((m) => lower(m.label).startsWith(query))) {
-      const found = await this.lookup(q.trim(), repos, linearOrg).catch(() => []);
+      const found = await this.lookup(q.trim(), repos).catch(() => []);
       out.unshift(...found);
     }
     return out.slice(0, limit);
@@ -209,7 +212,7 @@ export class Mentions {
   async resolve(text: string): Promise<Mention[]> {
     const labels = mentionLabels(text);
     if (!labels.length) return [];
-    const { items, repos, linearOrg } = await this.known();
+    const { items, repos } = await this.known();
     const out: Mention[] = [];
     for (const label of labels) {
       const pr = PR_REF.exec(label);
@@ -221,12 +224,13 @@ export class Mentions {
         else if (known) out.push({ ...known, label });
         continue;
       }
-      // An id: the jin task(s) with it, and the Linear issue with it.
+      // An id: the jin task(s) with it, and the issue with it in a tracker jin's workspaces use.
       const tasks = items.filter((m) => m.kind === "task" && m.label === label);
       out.push(...tasks);
-      if (ISSUE_ID.test(label)) {
-        const known = items.find((m) => m.key === `linear:${label}`);
-        const live = await this.lookupIssue(label, linearOrg, known);
+      const issue = this.issueFor(label);
+      if (issue) {
+        const known = items.find((m) => m.key === `${issue.tracker.id}:${issue.id}`);
+        const live = await this.lookupIssue(issue.tracker, issue.id, known);
         if (live) out.push(live);
         else if (known) out.push(known);
       }
@@ -235,7 +239,7 @@ export class Mentions {
   }
 
   /**
-   * What a chat mentioned, newest first: links in its messages (PRs, Linear and GitHub issues,
+   * What a chat mentioned, newest first: links in its messages (PRs, issues,
    * Slack, Notion, mail, other pages), the @mentions jin resolved, and ids written plainly
    * (platform#133, PLEN-1334) that jin knows. Nothing is looked up: this is read after each turn.
    */
@@ -265,7 +269,7 @@ export class Mentions {
       const seen = new Set<string>();
       for (const m of line.mentions ?? []) add(line.seq, line.by, fromMention(m), seen);
       for (const m of line.text.matchAll(LINK)) {
-        const r = refFromUrl(m[2] ?? m[3]!, m[1]);
+        const r = refFromUrl(m[2] ?? m[3]!, m[1], this.deps.trackers);
         if (!r) continue;
         const known = byKey.get(r.key);
         add(line.seq, line.by, known ? { ...fromMention(known), url: known.url ?? r.url } : { ...r, title: r.title ?? threads.get(normKey(r.key)) ?? null, state: null, detail: null }, seen);
@@ -285,16 +289,16 @@ export class Mentions {
   }
 
   /**
-   * A title for a new task given none: its Linear issue's (when the id is an issue id), else
+   * A title for a new task given none: its issue's (when the id is one in a tracker jin's workspaces use), else
    * the first pull request's among `refs` (PR links or repo#123).
    */
   async titleFor(id: string, refs: string[] = []): Promise<{ title: string; from: "issue" | "pr" } | null> {
-    const { items, repos, linearOrg } = await this.known();
-    const issueId = id.trim().toUpperCase();
-    if (ISSUE_ID.test(issueId)) {
-      const known = items.find((m) => m.key === `linear:${issueId}`);
-      const live = await this.lookupIssue(issueId, linearOrg, known);
-      const title = (live?.title ?? known?.title ?? "").replace(new RegExp(`^${issueId}[:\\s-]*`, "i"), "").trim();
+    const { items, repos } = await this.known();
+    const issue = this.issueFor(id);
+    if (issue) {
+      const known = items.find((m) => m.key === `${issue.tracker.id}:${issue.id}`);
+      const live = await this.lookupIssue(issue.tracker, issue.id, known);
+      const title = (live?.title ?? known?.title ?? "").replace(new RegExp(`^${issue.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[:\\s-]*`, "i"), "").trim();
       if (title) return { title, from: "issue" };
     }
     for (const ref of refs) {
@@ -311,15 +315,25 @@ export class Mentions {
     return null;
   }
 
-  private async lookup(q: string, repos: Map<string, string>, linearOrg: string | null): Promise<Mention[]> {
+  /** The issue an id names, in the first tracker in use it fits. */
+  private issueFor(text: string): { tracker: IssueTracker; id: string } | null {
+    for (const tracker of this.deps.inUse()) {
+      const id = tracker.parseId(text);
+      if (id) return { tracker, id };
+    }
+    return null;
+  }
+
+  private async lookup(q: string, repos: Map<string, string>): Promise<Mention[]> {
     const pr = PR_REF.exec(q);
     if (pr) {
       const repo = pr[1] ? `${pr[1]}/${pr[2]}` : repos.get(lower(pr[2]!));
       const m = repo ? await this.lookupPr(repo, Number(pr[3]), q) : null;
       return m ? [m] : [];
     }
-    if (ISSUE_ID.test(q.toUpperCase())) {
-      const m = await this.lookupIssue(q.toUpperCase(), linearOrg);
+    const issue = this.issueFor(q);
+    if (issue) {
+      const m = await this.lookupIssue(issue.tracker, issue.id);
       return m ? [m] : [];
     }
     return [];
@@ -331,11 +345,11 @@ export class Mentions {
     return { label, kind: "pr", key: `github:${lower(repo)}#${number}`, title: p.title, url: p.url, state: prState(p), detail: prDetail(p) };
   }
 
-  private async lookupIssue(id: string, org: string | null, known?: Mention): Promise<Mention | null> {
-    const i = await this.deps.issue(id).catch(() => null);
+  private async lookupIssue(tracker: IssueTracker, id: string, known?: Mention): Promise<Mention | null> {
+    const i = tracker.lookup ? await tracker.lookup(id).catch(() => null) : null;
     if (!i) return null;
     const detail = [i.assignee ? `assigned to ${i.assignee}` : "unassigned", i.team].filter(Boolean).join(" · ");
-    return { label: id, kind: "issue", key: `linear:${id}`, title: i.title, url: i.url ?? known?.url ?? (org ? `https://linear.app/${org}/issue/${id}` : null), state: i.state, detail };
+    return { label: id, kind: "issue", key: `${tracker.id}:${id}`, title: i.title, url: i.url ?? known?.url ?? tracker.urlOf(id), state: i.state, detail, noun: tracker.noun };
   }
 }
 
@@ -372,7 +386,7 @@ const BARE_PR = /(?:^|[\s(@`])((?:[\w.-]+\/)?[A-Za-z][\w.-]*#\d+)(?=$|[\s),.;:!?
 const BARE_ID = /(?:^|[\s(@`\[])([A-Z][A-Z0-9]{1,9}-\d+)(?=$|[\s),.;:!?`\]])/g;
 
 /** A URL as a chat ref (without who or when): what kind of thing it is, and its key. */
-export function refFromUrl(raw: string, text?: string): Pick<ChatRef, "key" | "kind" | "label" | "title" | "url"> | null {
+export function refFromUrl(raw: string, text?: string, trackers?: Trackers): Pick<ChatRef, "key" | "kind" | "label" | "title" | "url"> | null {
   const url = raw.replace(/[.,;:!?]+$/, "");
   let u: URL;
   try {
@@ -389,8 +403,8 @@ export function refFromUrl(raw: string, text?: string): Pick<ChatRef, "key" | "k
     const pr = gh[3] === "pull";
     return { key: `${pr ? "github" : "github-issue"}:${lower(repo)}#${gh[4]}`, kind: pr ? "pr" : "issue", label, title: named && named !== label ? named : null, url: `https://github.com/${repo}/${gh[3]}/${gh[4]}` };
   }
-  const l = parseLink(url);
-  if (l?.kind === "linear") return { key: l.key, kind: "issue", label: l.label, title: named && named !== l.label ? named : null, url };
+  const l = parseLink(url, new Date(), trackers);
+  if (l?.kind === "issue") return { key: l.key, kind: "issue", label: l.label, title: named && named !== l.label ? named : null, url };
   if (l?.kind === "slack-thread" || l?.kind === "slack-channel") return { key: l.key, kind: "slack", label: named ?? (l.kind === "slack-thread" ? "Slack thread" : "Slack channel"), title: null, url };
   if (l?.kind === "notion") return { key: l.key, kind: "notion", label: named ?? l.label, title: null, url };
   u.hash = "";
@@ -403,14 +417,14 @@ export function refFromUrl(raw: string, text?: string): Pick<ChatRef, "key" | "k
 export function mentionContext(mentions: Mention[]): string {
   if (!mentions.length) return "";
   const line = (m: Mention) => {
-    const what = m.kind === "pr" ? "pull request" : m.kind === "issue" ? "Linear issue" : `jin task on ${m.machineLabel ?? m.machine ?? "this machine"}`;
+    const what = m.kind === "pr" ? "pull request" : m.kind === "issue" ? (m.noun ?? "issue") : `jin task on ${m.machineLabel ?? m.machine ?? "this machine"}`;
     const bits = [m.title ? `"${m.title}"` : null, m.state, m.detail].filter(Boolean).join(" — ");
     return `- @${m.label}: ${what}${bits ? ` ${bits}` : ""}${m.url ? ` (${m.url})` : ""}`;
   };
   return [
     "",
     "<mentions>",
-    "The user mentioned these (resolved by jin just now). Read more with gh, the Linear tools, or jin's task tools when you need it:",
+    "The user mentioned these (resolved by jin just now). Read more with gh, the issue tracker's tools, or jin's task tools when you need it:",
     ...mentions.map(line),
     "</mentions>",
   ].join("\n");

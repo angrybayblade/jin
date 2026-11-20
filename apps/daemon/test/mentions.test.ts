@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import type { FeedItem } from "../src/feed";
-import { chatLines, mentionContext, mentionLabels, Mentions, type MachineSnapshot } from "../src/mentions";
+import { chatLines, mentionContext, mentionLabels, Mentions, type IssueDetails, type MachineSnapshot } from "../src/mentions";
+import { Trackers } from "../src/trackers";
+
+/** The workspaces use Linear; `issue` stands in for reaching it. */
+const linear = (issue: (id: string) => Promise<IssueDetails | null> = async () => null) => {
+  const trackers = new Trackers({ linear: issue });
+  return { trackers, inUse: () => [trackers.get("linear")!] };
+};
 
 test("mentions are read from a message: PRs, ids; not emails or a bare @", () => {
   expect(mentionLabels("look at @platform#133 and @PLEN-1334, then (@ComposioHQ/mercury#9).")).toEqual(["platform#133", "PLEN-1334", "ComposioHQ/mercury#9"]);
@@ -36,7 +43,7 @@ test("search offers tasks first, then PRs and issues; a full ref jin does not kn
     machines,
     feed,
     pr: async (repo, n) => (looked.push(`${repo}#${n}`), { title: "new thing", url: `https://github.com/${repo}/pull/${n}`, state: "OPEN", draft: true, review: null, checks: "pending", author: "sam" }),
-    issue: async () => null,
+    ...linear(),
   });
   const plen = await m.search("PLEN-13");
   expect(plen.map((x) => [x.kind, x.label])).toEqual([["task", "PLEN-1334"], ["issue", "PLEN-1334"]]);
@@ -54,7 +61,7 @@ test("resolving a message: live PR state, the task and its Linear issue, and wha
     machines,
     feed,
     pr: async () => ({ title: "fix limiter", url: "https://github.com/ComposioHQ/platform/pull/133", state: "OPEN", draft: false, review: "CHANGES_REQUESTED", checks: "failing", author: "sarah" }),
-    issue: async (id) => (id === "PLEN-1334" ? { title: "Limit per user", state: "In Progress", assignee: "Viraj", team: "Platform" } : null),
+    ...linear(async (id) => (id === "PLEN-1334" ? { title: "Limit per user", state: "In Progress", assignee: "Viraj", team: "Platform" } : null)),
   });
   const found = await m.resolve("why is @platform#133 failing? see @PLEN-1334 and @NOPE-1");
   expect(found.map((x) => [x.kind, x.label])).toEqual([["pr", "platform#133"], ["task", "PLEN-1334"], ["issue", "PLEN-1334"]]);
@@ -67,7 +74,7 @@ test("resolving a message: live PR state, the task and its Linear issue, and wha
 });
 
 test("what a chat mentioned: links of every kind, resolved @mentions, ids jin knows; newest first", async () => {
-  const m = new Mentions({ machines, feed: () => [...feed(), { thread: { key: "slack:C0123ABCD:1731900000.123456", title: "#platform: deploy freeze?" } }] as unknown as FeedItem[], pr: async () => null, issue: async () => null });
+  const m = new Mentions({ machines, feed: () => [...feed(), { thread: { key: "slack:C0123ABCD:1731900000.123456", title: "#platform: deploy freeze?" } }] as unknown as FeedItem[], pr: async () => null, ...linear() });
   const refs = await m.inChat(
     chatLines([
       { seq: 1, kind: "prompt", payload: { text: "what's up with @PLEN-1334? and https://acme.slack.com/archives/C0123ABCD/p1731900000123456" } },
@@ -99,7 +106,7 @@ test("a task without a title takes its Linear issue's, else its first PR's", asy
     machines,
     feed,
     pr: async (repo, n) => (repo === "ComposioHQ/mercury" && n === 9 ? { title: "Add retries", url: `https://github.com/${repo}/pull/${n}`, state: "OPEN", draft: false, review: null, checks: null, author: "sam" } : null),
-    issue: async (id) => (id === "PLEN-1334" ? { title: "Limit per user", state: "In Progress", assignee: null, team: null } : null),
+    ...linear(async (id) => (id === "PLEN-1334" ? { title: "Limit per user", state: "In Progress", assignee: null, team: null } : null)),
   });
   expect(await m.titleFor("plen-1334")).toEqual({ title: "Limit per user", from: "issue" });
   // Linear is not answering: the feed's title for the issue, without its id.
