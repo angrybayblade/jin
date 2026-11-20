@@ -90,9 +90,10 @@ export class LocalSetup {
 
   /** Ask gh, Claude Code and the workspaces' tools who is signed in. */
   async checkAuth() {
-    const proc = this.spawn(["bash", "-s"], { stdin: new Blob([AUTH_STATUS_SCRIPT()]) });
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
+    // As an argument, not on stdin: no tool it runs can read the script, or wait for input.
+    const proc = this.spawn(["bash", "-c", AUTH_STATUS_SCRIPT()], { stdin: "ignore" });
+    // Whatever happens to a tool, the check ends: after a minute it goes on with no answer (signed out).
+    const out = await Promise.race([new Response(proc.stdout).text(), Bun.sleep(60_000).then(() => (proc.kill(), ""))]);
     this.checked = true;
     for (const [tool, s] of Object.entries(readAuthStatus(out)) as [AuthTool, { state: AuthState["state"]; account: string | null }][]) {
       if (this.signIns.has(tool)) continue;

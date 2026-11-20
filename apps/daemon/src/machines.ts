@@ -278,9 +278,12 @@ fi
 
 export const AUTH_STATUS_SCRIPT = () => `
 ${PATH_LINE}
-if command -v gh >/dev/null; then if gh auth status >/dev/null 2>&1; then echo "gh yes $(gh api user -q .login 2>/dev/null)"; else echo "gh no"; fi; else echo "gh missing"; fi
+# A tool that hangs (waiting for a terminal, a keychain, the network) must not hang the check:
+# each question gets twenty seconds and no input (the script itself may be arriving on stdin).
+lim() { "$@" </dev/null & p=$!; ( sleep 20; kill -9 $p 2>/dev/null ) >/dev/null 2>&1 & w=$!; wait $p 2>/dev/null; r=$?; kill $w 2>/dev/null; return $r; }
+if command -v gh >/dev/null; then if lim gh auth status >/dev/null 2>&1; then echo "gh yes $(lim gh api user -q .login 2>/dev/null)"; else echo "gh no"; fi; else echo "gh missing"; fi
 if command -v claude >/dev/null; then
-  s=$(claude auth status 2>/dev/null || true)
+  s=$(lim claude auth status 2>/dev/null || true)
   if echo "$s" | grep -q '"loggedIn": *true'; then echo "claude yes $(echo "$s" | sed -n 's/.*"email": *"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "claude no"; fi
 else echo "claude missing"; fi
 ${providerTools()
