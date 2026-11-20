@@ -8,6 +8,7 @@ import { DocPage } from "../docs/DocPage";
 import { docMenu } from "../docs/docMenu";
 import type { DocFull, Session, SessionEvent } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
+import { act } from "@/lib/notices";
 import type { AgentStatus, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
 import { useTabShortcuts } from "@/lib/shortcuts";
@@ -25,6 +26,7 @@ import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
 import { TerminalView } from "./TerminalView";
 import { RoomPanel } from "./RoomPanel";
+import { Boundary } from "../Boundary";
 
 const MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | "interrupted"> = {
   starting: "running",
@@ -375,7 +377,7 @@ export function TaskWorkspace({
     if (!confirmed && t.kind === "claude" && running(t) && !confirm.ask(termKey(t.id))) return;
     leave(termKey(t.id));
     setClosed((c) => new Set(c).add(t.id));
-    await closeTerminal(t.id).catch(() => {});
+    if ((await act(`Couldn't close ${t.title}`, async () => (await closeTerminal(t.id), true))) === null) unhide(t.id);
     router.refresh();
   };
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -387,7 +389,7 @@ export function TaskWorkspace({
   const archive = async (t: TerminalInfo) => {
     leave(termKey(t.id));
     setClosed((c) => new Set(c).add(t.id));
-    await updateTerminal(t.id, { archived: true }).catch(() => {});
+    if ((await act(`Couldn't archive ${t.title}`, () => updateTerminal(t.id, { archived: true }))) === null) unhide(t.id);
     router.refresh();
   };
 
@@ -723,7 +725,9 @@ export function TaskWorkspace({
       <Panes id="task" defaultSplit={80} minLeft={480} minRight={180} toggle={false} phone={phonePane} onPhone={setPhonePane} phoneSwitch={false} left={<div className="task-body">
         {currentTerm ? (
           running(currentTerm) ? (
-            <TerminalView key={currentTerm.id} terminalId={currentTerm.id} wsBase={wsBase} active autoFocus={!isPhone()} onState={(s) => s === "exited" && remember({ ...currentTerm, status: "exited" })} />
+            <Boundary label="The terminal" resetKey={currentTerm.id}>
+              <TerminalView key={currentTerm.id} terminalId={currentTerm.id} wsBase={wsBase} active autoFocus={!isPhone()} onState={(s) => s === "exited" && remember({ ...currentTerm, status: "exited" })} />
+            </Boundary>
           ) : currentTerm.status === "exited" ? (
             <div className="editor-empty">
               <p>{currentTerm.kind === "claude" ? "Claude Code exited." : "The shell exited."}</p>
@@ -782,18 +786,22 @@ export function TaskWorkspace({
             const d = docData[currentDoc];
             if (!d) return <div className="editor-empty">Loading…</div>;
             if ("error" in d) return <div className="editor-empty">{d.error}</div>;
-            return <DocPage key={currentDoc} embedded initial={d.doc} chat={d.chat} wsBase={d.wsBase} onTitle={(t) => (setDocTitles((x) => ({ ...x, [currentDoc]: t })), relabelSoon(currentDoc))} />;
+            return <Boundary label="The doc" resetKey={currentDoc}><DocPage key={currentDoc} embedded initial={d.doc} chat={d.chat} wsBase={d.wsBase} onTitle={(t) => (setDocTitles((x) => ({ ...x, [currentDoc]: t })), relabelSoon(currentDoc))} /></Boundary>;
           })()
         ) : current === "room" ? (
           <div className="room-box">
+            <Boundary label="The room" resetKey={scope}>
             <RoomPanel key={`${scope}:${roomEpoch}`} taskId={taskId} intent={roomIntent} onOpenDoc={openDocTab} onOpenChanges={showChanges} onSeen={seeRoom} />
+            </Boundary>
           </div>
         ) : current === "changes" ? (
-          <DiffView taskId={taskId} active />
+          <Boundary label="The changes" resetKey={scope}>
+            <DiffView taskId={taskId} active />
+          </Boundary>
         ) : (
           <div className="editor-empty">{error ?? "Open a Claude Code session or a terminal with +, or a file from the tree."}</div>
         )}
-      </div>} right={<TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => (openFile(p), toBody())} />} />
+      </div>} right={<Boundary label={side === "files" ? "Files" : side === "journal" ? "The journal" : "Activity"} resetKey={`${scope}:${side}`}><TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => (openFile(p), toBody())} /></Boundary>} />
     </section>
   );
 }

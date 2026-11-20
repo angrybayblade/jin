@@ -1,4 +1,5 @@
 "use client";
+import { act } from "@/lib/notices";
 import { Archive, ArchiveRestore, MessageSquarePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -60,7 +61,7 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
       const next = tabs[at + 1] ?? tabs[at - 1];
       go(next ? next.id : "new");
     }
-    await (how === "archive" ? updateSession(s.id, { archived: true }) : deleteSession(s.id)).catch(() => {});
+    await act(how === "archive" ? "Couldn't archive the chat" : "Couldn't delete the chat", () => (how === "archive" ? updateSession(s.id, { archived: true }) : deleteSession(s.id)));
     router.refresh();
   };
 

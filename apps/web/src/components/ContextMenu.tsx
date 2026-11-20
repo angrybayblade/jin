@@ -1,4 +1,5 @@
 "use client";
+import { act } from "@/lib/notices";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -7,7 +8,8 @@ export type MenuItem =
       label: string;
       icon?: LucideIcon;
       hint?: string;
-      run: () => void | Promise<void>;
+      /** A failure (thrown, or a server action's `{ error }`) is shown as a notice, with a retry. */
+      run: () => unknown;
       /** Destructive: shown in red, and asks in place ("Remove task?") before running. */
       danger?: boolean;
       confirm?: string;
@@ -122,7 +124,7 @@ export function ContextMenuHost() {
       return;
     }
     set(null);
-    void it.run();
+    void act(`Couldn't ${it.label.replace(/…$/, "").replace(/^\w/, (c) => c.toLowerCase())}`, async () => it.run());
   };
 
   const onKey = (e: React.KeyboardEvent) => {
