@@ -63,7 +63,7 @@ export interface ProviderTask {
   createdAt: string;
   kind?: TaskKind;
   prs?: ReviewedPR[];
-  /** The issue it is for, when the workspace knows. */
+  /** The issue it is for, when the workspace records it (otherwise jin may tie it by its id: taskIdIsIssue). */
   issue?: TaskIssue | null;
 }
 
@@ -175,6 +175,14 @@ export interface WorkspaceProvider {
   readonly description: string;
   /** The kinds of task its workspaces run. */
   readonly taskKinds: TaskKindSpec[];
+  /** The issue tracker its workspaces use unless one says otherwise (a tracker's id), if any. */
+  readonly defaultTracker?: string;
+  /**
+   * Its change tasks are named after their issue (the task's id is the issue's id, as in
+   * `cws task new linear --id ENG-12`): jin then ties such a task to that issue in the
+   * workspace's tracker. Otherwise only an adapter that says so (ProviderTask.issue) ties one.
+   */
+  readonly taskIdIsIssue?: boolean;
   /**
    * POSIX sh that finds workspaces of this kind under $HOME, run on this machine or over SSH:
    * prints `FOUND <root>` per workspace and `PREFERRED <root>` for the one the machine's
@@ -203,8 +211,10 @@ export interface TaskKindSpec {
   label: string;
   /** The workspace picks the id (nextTaskId); otherwise the user gives one. */
   autoId: boolean;
-  /** A hint for the id field, e.g. "ENG-123". */
+  /** A hint for the id field, e.g. "TASK-1" (a kind named after its issue takes the tracker's). */
   idHint?: string;
+  /** Its id is its issue's (a change task in a workspace that names tasks after issues). */
+  idIsIssue?: boolean;
   /** Change types to choose from (feature, bug, …), when the kind has them. */
   types?: string[];
   /** It checks out pull requests (and takes no repos or slug). */

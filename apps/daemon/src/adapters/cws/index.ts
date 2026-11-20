@@ -3,7 +3,6 @@ import { join } from "node:path";
 import type { WorkspaceConfig } from "../../config";
 import { AdapterError, SCRATCH_RULE, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type ToolSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
 
-const LINEAR_ID = /^[A-Z][A-Z0-9]*-\d+$/;
 
 /** Parse .gitmodules into submodule name -> keys (path, url, branch). */
 export function parseGitmodules(text: string): Map<string, Record<string, string>> {
@@ -98,8 +97,6 @@ export class CwsAdapter implements WorkspaceAdapter {
           type: t.type ?? null,
           slug: t.title?.trim() || slugFromBranch(t.branch, t.id ?? id),
           kind: t.kind === "review" ? "review" : t.kind === "scratch" ? "scratch" : "change",
-          // A cws change is `task new linear --id <issue>`: its id is the Linear issue's.
-          issue: t.kind !== "review" && t.kind !== "scratch" && LINEAR_ID.test(t.id ?? id) ? { tracker: "linear", id: t.id ?? id } : null,
           ...(Array.isArray(t.prs) ? { prs: t.prs } : {}),
           branch: t.branch || null,
           repos,
@@ -246,9 +243,11 @@ export const cwsProvider: WorkspaceProvider = {
   id: "cws",
   label: "composio-workspace",
   description: "the composio workspace: every platform repo and its cws tooling",
+  defaultTracker: "linear",
+  taskIdIsIssue: true,
   taskKinds: [
-    // A change is cws's `task new linear`: its id is the Linear issue's.
-    { id: "change", label: "Linear change", autoId: false, idHint: "PLEN-123", types: ["bug", "feature", "enhancement", "refactor", "patch"] },
+    // A change is cws's `task new linear`: its id is its issue's (taskIdIsIssue).
+    { id: "change", label: "Change", autoId: false, idIsIssue: true, types: ["bug", "feature", "enhancement", "refactor", "patch"] },
     { id: "review", label: "Review PRs", autoId: true, prs: true, note: "The task is numbered REV-<month><day><n>, each repo checked out at its PR's head." },
     { id: "scratch", label: "Scratch", autoId: true, note: "An experiment on a scratch/ branch, numbered EXP-<month><day><n>, tied to no issue. Discard it when done: everything goes." },
   ],

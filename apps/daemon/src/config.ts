@@ -1,3 +1,4 @@
+import { TRACKER_IDS } from "./trackers";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,8 @@ export interface WorkspaceConfig {
   adapter: string;
   root: string;
   github: { owners: string[] };
+  /** Where its tasks' issues live: a tracker's id (trackers/: linear, github), or null for none. Unset: its provider's default. */
+  tracker?: string | null;
   /**
    * Harness config per organisation. Unset means the machine's default Claude login;
    * set it to keep one organisation's connectors and logins apart from another's
@@ -74,12 +77,27 @@ export function loadWorkspaces(home = jinHome()): WorkspaceConfig[] {
         root: String(raw.root),
         // Unset: read from the workspace by its provider (cws: its submodules' GitHub owners).
         github: { owners: Array.isArray(raw.github?.owners) ? raw.github.owners.map(String) : ownersOf(String(raw.adapter), String(raw.root)) },
+        tracker: trackerOf(f, raw.tracker, String(raw.adapter)),
         profile: {
           claudeConfigDir: raw.profile?.claudeConfigDir ? String(raw.profile.claudeConfigDir) : undefined,
           codexHome: raw.profile?.codexHome ? String(raw.profile.codexHome) : undefined,
         },
       };
     });
+}
+
+/** The workspace's tracker: as configured ("none" for none), else its provider's default. */
+function trackerOf(file: string, configured: unknown, adapter: string): string | null {
+  if (configured !== undefined && configured !== null) {
+    const id = String(configured);
+    if (!(TRACKER_IDS as readonly string[]).includes(id)) throw new Error(`${file}: tracker must be one of ${TRACKER_IDS.join(", ")}`);
+    return id === "none" ? null : id;
+  }
+  try {
+    return provider(adapter).defaultTracker ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function ownersOf(adapter: string, root: string): string[] {
