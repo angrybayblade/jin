@@ -236,7 +236,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
 export class Composio {
   private dir: string;
   private file: string;
-  private listener: { state: "off" | "starting" | "running" | "down"; since: string | null; error: string | null; backoff: number; timer: ReturnType<typeof setTimeout> | null; stopped: boolean } = {
+  private listener: { state: "off" | "starting" | "running" | "down"; since: string | null; error: string | null; backoff: number; timer: ReturnType<typeof setTimeout> | null; stopped: boolean; /** The current loop (a restart starts the next). */ gen?: number; polling?: boolean } = {
     state: "off",
     since: null,
     error: null,
@@ -506,8 +506,12 @@ export class Composio {
     l.backoff = POLL_MS;
     void this.nameKnownSlackIds();
     let repaired = false;
+    // Each start is one loop: a restart retires the loop before it, even one whose poll is still
+    // running (it would otherwise see the new start's "not stopped" and carry on beside it).
+    const gen = (l.gen = (l.gen ?? 0) + 1);
     const tick = async () => {
-      if (l.stopped) return;
+      if (l.stopped || l.gen !== gen) return;
+      l.polling = true;
       try {
         await this.readLogs();
         if (!repaired) {
@@ -521,8 +525,10 @@ export class Composio {
         l.state = "down";
         l.error = err instanceof Error ? err.message : String(err);
         l.backoff = Math.min(l.backoff * 2, 120_000);
+      } finally {
+        l.polling = false;
       }
-      if (!l.stopped) l.timer = setTimeout(() => void tick(), l.backoff);
+      if (!l.stopped && l.gen === gen) l.timer = setTimeout(() => void tick(), l.backoff);
     };
     l.timer = setTimeout(() => void tick(), 0);
   }
@@ -530,6 +536,7 @@ export class Composio {
   stopListener() {
     const l = this.listener;
     l.stopped = true;
+    l.gen = (l.gen ?? 0) + 1;
     if (l.timer) clearTimeout(l.timer);
     l.timer = null;
     l.state = "off";
@@ -752,6 +759,8 @@ export class Composio {
 
   /** A live event (from Composio, or jin's own GitHub watch): recent list, feed, and a notification when it is for you. */
   deliver(e: LiveEvent, opts: { quiet?: boolean } = {}) {
+    // The same event twice (read again after a restart, or by a second reader) is had once.
+    if (this.recent.some((x) => x.id === e.id && x.toolkit === e.toolkit)) return;
     this.recent.unshift(e);
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     const workspace = this.deps.workspaces[0]?.id ?? "live";
