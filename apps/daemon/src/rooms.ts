@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
+import { UNTRUSTED } from "./chats";
 import { now } from "./db";
 import type { JinTool } from "./harness";
 import { body, HttpError, json, type Router } from "./http";
@@ -662,6 +663,7 @@ export class Rooms {
       "- You take a turn only when the user @-mentions you. With it you are given the room's messages since your last turn: the user's, and the other agents' final replies (never their reasoning or tool calls).",
       "- Only your final message is posted to the room, and it is all the others see of your turn. Make it stand on its own: what you did or concluded, where (file paths, doc ids, commands and their results), and what is still open. Be brief; no preamble.",
       "- Do not take another agent's word for a fact you can check: read the files, the diff or the doc yourself.",
+      `- ${UNTRUSTED}`,
       "- Naming another agent (@handle) in your reply does not run them: the user decides who goes next. You may say who should pick something up.",
       "- room_history reads earlier messages when you need more than you were given.",
       a.access === "writer"
