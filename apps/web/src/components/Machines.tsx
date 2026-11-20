@@ -428,7 +428,6 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
 }
 
 function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: () => void }) {
-  const router = useRouter();
   const [m, setM] = useState(initial);
   const refresh = () => void getMachine(m.id).then(setM, () => {});
   useEffect(() => setM(initial), [initial]);

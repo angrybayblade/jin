@@ -39,7 +39,6 @@ function setIn(settings: Obj, path: string[], value: unknown): Obj {
   else next[k!] = value;
   return next;
 }
-const getIn = (s: Obj, path: string[]): unknown => path.reduce<unknown>((v, k) => (isObj(v) ? v[k] : undefined), s);
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 function Card({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
