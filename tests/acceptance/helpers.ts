@@ -275,6 +275,12 @@ const [host, ...command] = rest;
 // (except the test harness switches, so a daemon started there is scripted like this one)
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("JIN_") || k === "JIN_HARNESS" || k.startsWith("JIN_SCRIPTED")));
 Object.assign(env, { HOME: process.env.FAKE_SSH_HOME, BUN_INSTALL_CACHE_DIR: process.env.REAL_BUN_CACHE });
+// The stand-in machine has no systemd: a test must not install a service on the computer running it
+// (on Linux the real one would answer). jin then starts its daemon there as a plain process.
+const bin = process.env.FAKE_SSH_HOME + "/.stand-in-bin";
+require("node:fs").mkdirSync(bin, { recursive: true });
+require("node:fs").writeFileSync(bin + "/systemctl", ["#!/bin/sh", "exit 1", ""].join(String.fromCharCode(10)), { mode: 0o755 });
+env.PATH = bin + ":" + env.PATH;
 const proxy = (listenPort, targetPort) => Bun.listen({
     hostname: "127.0.0.1",
     port: Number(listenPort),
