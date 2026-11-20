@@ -16,10 +16,10 @@ const run = (cwd: string, ...args: string[]) => {
 };
 
 /** A workspace folder with one clone (api) of a local "origin" that has a pull request ref. */
-function fixture() {
-  const origin = join(base, "origin-api.git");
+function fixture(name = "ws") {
+  const origin = join(base, `${name}-origin-api.git`);
   run(base, "init", "-q", "--bare", "-b", "main", origin);
-  const seed = join(base, "seed");
+  const seed = join(base, `${name}-seed`);
   run(base, "clone", "-q", origin, seed);
   writeFileSync(join(seed, "a.txt"), "one\n");
   run(seed, "add", ".");
@@ -29,7 +29,7 @@ function fixture() {
   run(seed, "commit", "-qam", "two");
   run(seed, "push", "-q", "origin", "HEAD:refs/pull/7/head");
   const pr = run(seed, "rev-parse", "HEAD");
-  const root = join(base, "ws");
+  const root = join(base, name);
   mkdirSync(root);
   run(root, "clone", "-q", origin, "api");
   mkdirSync(join(root, "notes")); // not a repo
@@ -64,4 +64,27 @@ test("a folder of git clones: its repos, a change as a branch worktree per repo,
   expect(adapter.listTasks().map((x) => x.id)).toEqual([id]);
   await expect(adapter.startTask({ id: "ENG-2", kind: "change", repos: ["nope"], slug: "x" })).rejects.toThrow("not a repo of this workspace");
   expect(existsSync(join(root, ".jin-tasks", "ENG-2"))).toBe(false);
+});
+
+test("a scratch task: numbered EXP-, on a scratch/ branch, and discarded whole", async () => {
+  const { root, adapter } = fixture("scratch");
+  const id = await adapter.nextTaskId("scratch");
+  expect(id).toMatch(/^EXP-\d{4}01$/);
+  const t = await adapter.startTask({ id, kind: "scratch", repos: ["api"], slug: "" });
+  expect(run(t.dirs.api!, "branch", "--show-current")).toBe(`scratch/${id}`);
+  expect(adapter.listTasks()).toMatchObject([{ id, kind: "scratch", type: "scratch", issue: null }]);
+  expect(adapter.agentBrief({ id, kind: "scratch", root: t.root, repos: ["api"] }).rules?.[0]).toContain("scratch task");
+
+  // Work that would block a normal removal goes with it.
+  writeFileSync(join(t.dirs.api!, "b.txt"), "b\n");
+  run(t.dirs.api!, "add", ".");
+  run(t.dirs.api!, "commit", "-qm", "try");
+  writeFileSync(join(t.dirs.api!, "wip.txt"), "wip\n");
+  await adapter.removeTask(id, { discard: true });
+  expect(existsSync(t.root)).toBe(false);
+  expect(run(join(root, "api"), "branch", "--list", `scratch/${id}`)).toBe("");
+
+  const c = await adapter.startTask({ id: "ENG-9", kind: "change", type: "fix", repos: ["api"], slug: "keep" });
+  await expect(adapter.removeTask("ENG-9", { discard: true })).rejects.toThrow("only scratch tasks are discarded");
+  expect(existsSync(c.root)).toBe(true);
 });

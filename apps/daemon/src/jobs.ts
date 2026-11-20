@@ -70,12 +70,15 @@ export class TaskJobs {
   /** Once a task exists: the links given with it (Slack threads and channels, Notion pages). */
   addLinks: ((taskId: string, urls: string[]) => string[]) | null = null;
 
-  async start(workspace: string, spec: TaskSpec, opts: { setup?: boolean; prompt?: string; feedItemId?: string; links?: string[] } = {}): Promise<TaskJob> {
-    // A review task is numbered by the workspace (REV-<month><day><n>), unless an id is given.
-    if (spec.kind === "review" && !spec.id) {
+  /** Say the first prompt in the task's agent room (for a task that starts there). */
+  roomPost: ((taskId: string, text: string) => void) | null = null;
+
+  async start(workspace: string, spec: TaskSpec, opts: { setup?: boolean; prompt?: string; feedItemId?: string; links?: string[]; /** Where the first prompt goes: a Claude Code session (the default), or the task's agent room. */ startIn?: "claude" | "room" } = {}): Promise<TaskJob> {
+    // Review and scratch tasks are numbered by the workspace (REV-/EXP-<month><day><n>), unless an id is given.
+    if ((spec.kind === "review" || spec.kind === "scratch") && !spec.id) {
       const adapter = this.tasks.adapter(workspace);
-      if (!adapter.nextTaskId) throw new HttpError(400, "this workspace has no review tasks");
-      spec = { ...spec, id: await adapter.nextTaskId("review") };
+      if (!adapter.nextTaskId) throw new HttpError(400, `this workspace has no ${spec.kind} tasks`);
+      spec = { ...spec, id: await adapter.nextTaskId(spec.kind) };
     }
     if (this.list().some((j) => j.taskId === spec.id && j.state === "running")) throw new HttpError(409, `task ${spec.id} is already being set up`);
     await this.tasks.validate(workspace, spec);
@@ -103,7 +106,10 @@ export class TaskJobs {
         await this.tasks.start(workspace, spec, opts.feedItemId, { setup: job.setup, onOutput: say });
         if (opts.links?.length && this.addLinks) for (const problem of this.addLinks(spec.id, opts.links)) say(`link: ${problem}`);
         if (opts.feedItemId) this.deps.feed.setState(opts.feedItemId, "promoted", { taskId: spec.id });
-        if (opts.prompt?.trim()) {
+        if (opts.prompt?.trim() && opts.startIn === "room" && this.roomPost) {
+          this.roomPost(spec.id, opts.prompt);
+          say("Your prompt was posted to the task's agent room.");
+        } else if (opts.prompt?.trim()) {
           await this.prepare?.(spec.id).catch((err) => say(`skills: ${err instanceof Error ? err.message : err}`));
           job.terminalId = openTerminal(this.deps, { taskId: spec.id, kind: "claude", prompt: opts.prompt }).id;
           say("Claude Code started with your prompt.");
@@ -133,13 +139,16 @@ export function jobRoutes(router: Router, jobs: TaskJobs) {
     .on("GET", "/api/task-jobs", () => json(jobs.list()))
     .on("GET", "/api/task-jobs/:id", (_req, p) => json(jobs.get(p.id!)))
     .on("POST", "/api/task-jobs", async (req) => {
-      const b = await body<{ workspace?: string; id?: string; kind?: string; type?: string; repos?: string[]; prs?: string[]; slug?: string; setup?: boolean; prompt?: string; feedItemId?: string; links?: string[] }>(req);
+      const b = await body<{ workspace?: string; id?: string; kind?: string; type?: string; repos?: string[]; prs?: string[]; slug?: string; setup?: boolean; prompt?: string; feedItemId?: string; links?: string[]; startIn?: string }>(req);
       const workspace = b.workspace ?? jobs.defaultWorkspace;
       if (!workspace) throw new HttpError(400, "no workspace configured");
-      const review = taskKindOf(b.kind) === "review";
+      const kind = taskKindOf(b.kind);
+      const review = kind === "review";
       const spec: TaskSpec = review
         ? { id: b.id ?? "", kind: "review", prs: b.prs ?? [], repos: (b.prs ?? []).map((p) => p.split("#")[0]!), slug: b.slug ?? "" }
-        : { id: b.id ?? "", kind: "change", type: b.type, repos: b.repos ?? [], slug: b.slug ?? "" };
-      return json(await jobs.start(workspace, spec, { setup: review ? b.setup === true : b.setup, prompt: b.prompt, feedItemId: b.feedItemId, links: b.links }), 202);
+        : kind === "scratch"
+          ? { id: b.id ?? "", kind: "scratch", type: "scratch", repos: b.repos ?? [], slug: b.slug ?? "" }
+          : { id: b.id ?? "", kind: "change", type: b.type, repos: b.repos ?? [], slug: b.slug ?? "" };
+      return json(await jobs.start(workspace, spec, { setup: review ? b.setup === true : b.setup, prompt: b.prompt, feedItemId: b.feedItemId, links: b.links, startIn: b.startIn === "room" ? "room" : "claude" }), 202);
     });
 }

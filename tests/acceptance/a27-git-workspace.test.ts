@@ -50,7 +50,7 @@ test("A27 a plain git workspace: set up by path, a task as worktrees, Claude Cod
   await d.json("/api/setup/workspace", { method: "POST", json: { path: ws } });
   const [w] = await d.json<any[]>("/api/workspaces");
   expect(w).toMatchObject({ id: "repos", adapter: "git", root: ws });
-  expect(w.taskKinds.map((k: { id: string }) => k.id)).toEqual(["change", "review"]);
+  expect(w.taskKinds.map((k: { id: string }) => k.id)).toEqual(["change", "review", "scratch"]);
   expect(await d.json<any[]>("/api/workspaces/repos/repos")).toMatchObject([{ name: "web", branch: "main" }]);
 
   // A change: a worktree on its own branch, set up in the background.

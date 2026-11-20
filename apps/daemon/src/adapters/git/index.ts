@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkspaceConfig } from "../../config";
-import { AdapterError, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
+import { AdapterError, SCRATCH_RULE, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
 
 /**
  * A plain git workspace: a folder whose subfolders are git clones. A task gets a git worktree
@@ -95,8 +95,8 @@ export class GitAdapter implements WorkspaceAdapter {
         const root = join(dir, id);
         out.push({
           id: t.id,
-          kind: t.kind === "review" ? "review" : "change",
-          type: t.kind === "review" ? "review" : (t.type ?? null),
+          kind: t.kind === "review" ? "review" : t.kind === "scratch" ? "scratch" : "change",
+          type: t.kind === "review" ? "review" : t.kind === "scratch" ? "scratch" : (t.type ?? null),
           slug: t.title || t.id,
           branch: t.branch,
           repos: t.repos,
@@ -114,15 +114,15 @@ export class GitAdapter implements WorkspaceAdapter {
   }
 
   async nextTaskId(kind: TaskKind): Promise<string> {
-    if (kind !== "review") throw new AdapterError("only review tasks are numbered by the workspace");
+    if (kind === "change") throw new AdapterError("only review and scratch tasks are numbered by the workspace");
     const d = new Date();
-    const prefix = `REV-${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const prefix = `${kind === "scratch" ? "EXP" : "REV"}-${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
     const taken = new Set(this.listTasks().map((t) => t.id));
     for (let n = 1; n < 100; n++) {
       const id = `${prefix}${String(n).padStart(2, "0")}`;
       if (!taken.has(id) && !existsSync(this.taskDir(id))) return id;
     }
-    throw new AdapterError("too many reviews today");
+    throw new AdapterError(`too many ${kind} tasks today`);
   }
 
   async startTask(spec: TaskSpec, opts: { setup?: boolean; onOutput?: (line: string) => void } = {}): Promise<TaskDirs> {
@@ -148,7 +148,7 @@ export class GitAdapter implements WorkspaceAdapter {
           prs.push({ repo: repo!, number: Number(num), head, ...(gh ? { url: `https://github.com/${gh}/pull/${num}` } : {}) });
         }
       } else {
-        branch = `${spec.type || "change"}/${spec.id}${spec.slug ? `-${slugify(spec.slug)}` : ""}`;
+        branch = `${spec.kind === "scratch" ? "scratch" : spec.type || "change"}/${spec.id}${spec.slug ? `-${slugify(spec.slug)}` : ""}`;
         for (const repo of spec.repos) {
           const src = join(this.root, repo);
           if (!existsSync(join(src, ".git"))) throw new AdapterError(`${repo} is not a repo of this workspace`);
@@ -164,7 +164,7 @@ export class GitAdapter implements WorkspaceAdapter {
       this.cleanup(spec.id, Object.keys(dirs));
       throw err;
     }
-    const record: Record_ = { id: spec.id, kind: spec.kind === "review" ? "review" : "change", type: spec.type ?? null, title: spec.slug || spec.id, branch, repos: Object.keys(dirs), created: new Date().toISOString(), ...(prs.length ? { prs } : {}) };
+    const record: Record_ = { id: spec.id, kind: spec.kind === "review" ? "review" : spec.kind === "scratch" ? "scratch" : "change", type: spec.kind === "scratch" ? "scratch" : (spec.type ?? null), title: spec.slug || spec.id, branch, repos: Object.keys(dirs), created: new Date().toISOString(), ...(prs.length ? { prs } : {}) };
     writeFileSync(join(root, "task.json"), `${JSON.stringify(record, null, 2)}\n`);
     say(`task ${spec.id} ready at ${root}`);
     return { root, dirs };
@@ -175,14 +175,19 @@ export class GitAdapter implements WorkspaceAdapter {
     rmSync(this.taskDir(id), { recursive: true, force: true });
   }
 
-  /** Remove the task's worktrees (jin has already checked nothing unsaved is lost) and its folder; its branches stay. */
-  async removeTask(id: string): Promise<void> {
+  /**
+   * Remove the task's worktrees (jin has already checked nothing unsaved is lost) and its folder;
+   * its branches stay, except a discarded scratch task's.
+   */
+  async removeTask(id: string, opts: { discard?: boolean } = {}): Promise<void> {
     const t = this.listTasks().find((x) => x.id === id);
     if (!t) throw new AdapterError(`no task ${id}`);
+    if (opts.discard && t.kind !== "scratch") throw new AdapterError(`only scratch tasks are discarded; ${id} is a ${t.kind} task`);
     for (const r of t.repos) {
       const src = join(this.root, r);
       if (existsSync(join(t.root, r))) git(src, ["worktree", "remove", "--force", join(t.root, r)]);
       tryGit(src, ["worktree", "prune"]);
+      if (opts.discard && t.branch?.startsWith("scratch/")) tryGit(src, ["branch", "-D", t.branch]);
     }
     rmSync(t.root, { recursive: true, force: true });
   }
@@ -191,6 +196,8 @@ export class GitAdapter implements WorkspaceAdapter {
     const where = task.root ? `You start in the task's folder, ${task.root}: a git worktree per repo (${task.repos.join(", ")})` : "";
     return task.kind === "review"
       ? { start: where ? `${where}, each detached at its pull request's head.` : "" }
+      : task.kind === "scratch"
+      ? { start: where ? `${where}, on the task's scratch branch.` : "", rules: [SCRATCH_RULE] }
       : { start: where ? `${where}, on the task's own branch.` : "", readable: `The other clones in ${this.root} are readable for reference; make changes only in this task's worktrees.` };
   }
 
@@ -207,6 +214,7 @@ export const gitProvider: WorkspaceProvider = {
   taskKinds: [
     { id: "change", label: "Change", autoId: false, idHint: "ENG-123" },
     { id: "review", label: "Review PRs", autoId: true, prs: true, note: "The task is numbered REV-<month><day><n>, each repo checked out at its PR's head." },
+    { id: "scratch", label: "Scratch", autoId: true, note: "An experiment on a scratch/ branch, numbered EXP-<month><day><n>. Discard it when done: everything goes." },
   ],
   // Nothing to find on its own: any folder of clones could be one, so it is given by path.
   detectScript: () => "true",

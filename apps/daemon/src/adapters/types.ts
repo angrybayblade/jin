@@ -9,11 +9,11 @@ export interface Repo {
   github?: string;
 }
 
-/** A change to make (the default), or a review of pull requests. */
-export type TaskKind = "change" | "review";
+/** A change to make (the default), a review of pull requests, or a scratch experiment to throw away. */
+export type TaskKind = "change" | "review" | "scratch";
 
 /** Older names for a kind (jin used to call a change "linear"). */
-export const taskKindOf = (k: unknown): TaskKind => (k === "review" ? "review" : "change");
+export const taskKindOf = (k: unknown): TaskKind => (k === "review" ? "review" : k === "scratch" ? "scratch" : "change");
 
 export interface TaskSpec {
   id: string;
@@ -93,7 +93,8 @@ export interface WorkspaceAdapter {
   listTasks(): ProviderTask[];
   /** Create a task; `onOutput` receives the workspace tooling's output line by line (for live progress). */
   startTask(spec: TaskSpec, opts?: { setup?: boolean; onOutput?: (line: string) => void }): Promise<TaskDirs>;
-  removeTask(id: string): Promise<void>;
+  /** Remove a task; `discard` (scratch tasks) throws it away whole: uncommitted changes and its branches too. */
+  removeTask(id: string, opts?: { discard?: boolean }): Promise<void>;
   /** The id the workspace gives the next task of this kind, for kinds it numbers itself. */
   nextTaskId?(kind: TaskKind): Promise<string>;
   /** What Claude Code working in one of its tasks should know about the workspace. */
@@ -213,3 +214,6 @@ export interface TaskKindSpec {
 }
 
 export class AdapterError extends Error {}
+
+/** What an agent in a scratch task is told, whatever the workspace. */
+export const SCRATCH_RULE = "This is a scratch task: an experiment the user will likely throw away. Try things freely in its worktrees, keep what you learn in the notes, and do not push, open pull requests or link it to an issue unless the user asks.";

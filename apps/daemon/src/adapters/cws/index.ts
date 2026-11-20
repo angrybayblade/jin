@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkspaceConfig } from "../../config";
-import { AdapterError, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type ToolSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
+import { AdapterError, SCRATCH_RULE, type AgentBrief, type BriefTask, type PolicyRules, type ProviderTask, type Repo, type ReviewedPR, type TaskDirs, type TaskKind, type TaskSpec, type ToolSpec, type WorkspaceAdapter, type WorkspaceProvider } from "../types";
 
 const LINEAR_ID = /^[A-Z][A-Z0-9]*-\d+$/;
 
@@ -97,9 +97,9 @@ export class CwsAdapter implements WorkspaceAdapter {
           id: t.id ?? id,
           type: t.type ?? null,
           slug: t.title?.trim() || slugFromBranch(t.branch, t.id ?? id),
-          kind: t.kind === "review" ? "review" : "change",
+          kind: t.kind === "review" ? "review" : t.kind === "scratch" ? "scratch" : "change",
           // A cws change is `task new linear --id <issue>`: its id is the Linear issue's.
-          issue: t.kind !== "review" && LINEAR_ID.test(t.id ?? id) ? { tracker: "linear", id: t.id ?? id } : null,
+          issue: t.kind !== "review" && t.kind !== "scratch" && LINEAR_ID.test(t.id ?? id) ? { tracker: "linear", id: t.id ?? id } : null,
           ...(Array.isArray(t.prs) ? { prs: t.prs } : {}),
           branch: t.branch || null,
           repos,
@@ -118,16 +118,23 @@ export class CwsAdapter implements WorkspaceAdapter {
    * Newer cws puts the task's kind first (`task new linear|review`); older ones take
    * `task new <ID> --type`. Read from its help, not its version number.
    */
-  private kinds: boolean | null = null;
+  private help: string | null = null;
+  private async helpText(): Promise<string> {
+    if (this.help === null) this.help = await this.run(["--help"]).catch(() => "");
+    return this.help;
+  }
   private async hasKinds(): Promise<boolean> {
-    if (this.kinds === null) this.kinds = (await this.run(["--help"]).catch(() => "")).includes("task new linear");
-    return this.kinds;
+    return (await this.helpText()).includes("task new linear");
+  }
+  private async hasScratch(): Promise<boolean> {
+    return (await this.helpText()).includes("task new scratch");
   }
 
   async nextTaskId(kind: TaskKind): Promise<string> {
-    if (kind !== "review") throw new AdapterError("only review tasks are numbered by the workspace");
+    if (kind === "change") throw new AdapterError("only review and scratch tasks are numbered by the workspace");
+    if (kind === "scratch" && !(await this.hasScratch())) throw new AdapterError("this workspace's cws has no scratch tasks; update it (cws update)");
     if (!(await this.hasKinds())) throw new AdapterError("this workspace's cws has no review tasks; update it (cws update)");
-    return (await this.run(["task", "next-id", "review"])).trim().split("\n").pop()!.trim();
+    return (await this.run(["task", "next-id", kind])).trim().split("\n").pop()!.trim();
   }
 
   async startTask(spec: TaskSpec, opts: { setup?: boolean; onOutput?: (line: string) => void } = {}): Promise<TaskDirs> {
@@ -136,6 +143,10 @@ export class CwsAdapter implements WorkspaceAdapter {
     if (spec.kind === "review") {
       if (!kinds) throw new AdapterError("this workspace's cws has no review tasks; update it (cws update)");
       args.push("review", "--id", spec.id, ...(spec.prs ?? []).flatMap((p) => ["--pr", p]));
+      if (spec.slug) args.push("--slug", spec.slug);
+    } else if (spec.kind === "scratch") {
+      if (!(await this.hasScratch())) throw new AdapterError("this workspace's cws has no scratch tasks; update it (cws update)");
+      args.push("scratch", "--id", spec.id, "--repos", spec.repos.join(","));
       if (spec.slug) args.push("--slug", spec.slug);
     } else {
       if (kinds) args.push("linear", "--id", spec.id, "--change", spec.type || "feature");
@@ -153,9 +164,10 @@ export class CwsAdapter implements WorkspaceAdapter {
    * uncommitted changes, and leaves tasks/<id>/ behind (task.json, TASK.md), so the task would
    * still be listed. A worktree left in place is an error here; the rest of the folder goes.
    */
-  async removeTask(id: string): Promise<void> {
+  async removeTask(id: string, opts: { discard?: boolean } = {}): Promise<void> {
     const before = this.listTasks().find((t) => t.id === id);
-    await this.run(["task", "rm", id]);
+    if (opts.discard && before?.kind !== "scratch") throw new AdapterError(`only scratch tasks are discarded; ${id} is not one`);
+    await this.run(["task", "rm", id, ...(opts.discard ? ["--discard"] : [])]);
     if (!before) return;
     const left = before.repos.filter((r) => existsSync(join(before.root, r)));
     if (left.length) throw new AdapterError(`kept ${left.join(", ")}: uncommitted changes there (commit or discard them, then remove the task again)`);
@@ -174,7 +186,8 @@ export class CwsAdapter implements WorkspaceAdapter {
     }
     return {
       notes: "TASK.md",
-      start: task.root ? `You start in the task's folder, ${task.root}: one worktree per repo, plus TASK.md (the task's notes: read it first, and keep it up to date).` : "",
+      ...(task.kind === "scratch" ? { rules: [SCRATCH_RULE] } : {}),
+      start: task.root ? `You start in the task's folder, ${task.root}: one worktree per repo${task.kind === "scratch" ? " on its scratch/ branch" : ""}, plus TASK.md (the task's notes: read it first, and keep it up to date).` : "",
       readable: `The whole workspace, ${ws}, is readable: its CLAUDE.md, docs/map/README.md and map/ (how services fit together), skills, and the other repos for reference. Make changes only in this task's worktrees; never edit ${ws}/repos/<repo>, which stays at its pin.`,
     };
   }
@@ -237,6 +250,7 @@ export const cwsProvider: WorkspaceProvider = {
     // A change is cws's `task new linear`: its id is the Linear issue's.
     { id: "change", label: "Linear change", autoId: false, idHint: "PLEN-123", types: ["bug", "feature", "enhancement", "refactor", "patch"] },
     { id: "review", label: "Review PRs", autoId: true, prs: true, note: "The task is numbered REV-<month><day><n>, each repo checked out at its PR's head." },
+    { id: "scratch", label: "Scratch", autoId: true, note: "An experiment on a scratch/ branch, numbered EXP-<month><day><n>, tied to no issue. Discard it when done: everything goes." },
   ],
   detectScript: () => `
 real() { readlink -f "$1" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }

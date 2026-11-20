@@ -58,7 +58,7 @@ const toTask = (r: any): Task => {
     title: null,
     archived: false,
     parent: null,
-    kind: r.type === "review" ? "review" : "change",
+    kind: r.type === "review" ? "review" : r.type === "scratch" ? "scratch" : "change",
     prs: [],
     issue: null,
   };
@@ -79,7 +79,7 @@ const fromProvider = (workspace: string, t: ProviderTask, sourceItem: string | n
   title: null,
   archived: false,
   parent: null,
-  kind: t.kind ?? (t.type === "review" ? "review" : "change"),
+  kind: t.kind ?? (t.type === "review" ? "review" : t.type === "scratch" ? "scratch" : "change"),
   prs: t.prs ?? [],
   issue: t.issue ?? null,
 });
@@ -110,11 +110,12 @@ export class Tasks {
   private removals = new Map<string, { running: boolean; error: string | null }>();
 
   /** Remove a task in the background (the app shows it as removing); a failure is kept on the task. */
-  startRemoval(id: string): Task {
+  startRemoval(id: string, opts: { discard?: boolean } = {}): Task {
     const task = this.get(id);
+    if (opts.discard && task.kind !== "scratch") throw new HttpError(400, `only scratch tasks are discarded; ${id} is a ${task.kind} task`);
     if (task.state === "removed" || this.removals.get(id)?.running) return task;
     this.removals.set(id, { running: true, error: null });
-    void this.remove(id)
+    void this.remove(id, opts)
       .then(() => this.removals.delete(id))
       .catch((err) => this.removals.set(id, { running: false, error: err instanceof Error ? err.message : String(err) }));
     return this.get(id);
@@ -193,7 +194,7 @@ export class Tasks {
       if (!spec.prs?.length) throw new HttpError(400, "a review task needs pull requests, e.g. platform#123");
       const bad = spec.prs.find((p) => !/^[\w.-]+#\d+$/.test(p));
       if (bad) throw new HttpError(400, `"${bad}" is not <repo>#<number>`);
-    } else if (!spec.slug?.trim()) throw new HttpError(400, "slug is required");
+    } else if (spec.kind !== "scratch" && !spec.slug?.trim()) throw new HttpError(400, "slug is required");
     if (!Array.isArray(spec.repos) || !spec.repos.length) throw new HttpError(400, "repos is required");
     const known = new Set((await adapter.repos()).map((r) => r.name));
     const unknown = spec.repos.filter((r) => !known.has(r));
@@ -210,7 +211,7 @@ export class Tasks {
          on conflict (id) do update set workspace = excluded.workspace, type = excluded.type, slug = excluded.slug,
            repos = excluded.repos, dirs = excluded.dirs, state = 'ready', source_item = excluded.source_item, created_at = excluded.created_at`,
       )
-      .run(spec.id, workspace, spec.kind === "review" ? "review" : (spec.type ?? null), spec.slug ?? "", JSON.stringify(spec.repos), JSON.stringify({ root: dirs.root, repos: dirs.dirs }), sourceItem ?? null, now());
+      .run(spec.id, workspace, spec.kind === "review" ? "review" : spec.kind === "scratch" ? "scratch" : (spec.type ?? null), spec.slug ?? "", JSON.stringify(spec.repos), JSON.stringify({ root: dirs.root, repos: dirs.dirs }), sourceItem ?? null, now());
     return this.get(spec.id);
   }
 
@@ -251,11 +252,11 @@ export class Tasks {
     return this.remove(id);
   }
 
-  async remove(id: string): Promise<Task> {
+  async remove(id: string, opts: { discard?: boolean } = {}): Promise<Task> {
     const task = this.get(id);
     if (task.state === "removed") return task;
     try {
-      await this.adapter(task.workspace).removeTask(id);
+      await this.adapter(task.workspace).removeTask(id, opts.discard ? { discard: true } : undefined);
     } catch (err) {
       if (err instanceof AdapterError) throw new HttpError(502, err.message);
       throw err;
@@ -293,7 +294,8 @@ export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, W
       return json({ revealed: root });
     })
     // Removing worktrees can take minutes: it runs in the background, and the task shows as removing.
-    .on("DELETE", "/api/tasks/:id", (_req, p) => json(tasks.startRemoval(p.id!), 202))
+    // ?discard=1 (scratch tasks): throw it away whole, unsaved work and its branch included.
+    .on("DELETE", "/api/tasks/:id", (req, p) => json(tasks.startRemoval(p.id!, { discard: new URL(req.url).searchParams.get("discard") === "1" }), 202))
     .on("GET", "/api/tasks/:id/unsaved", (_req, p) => json(tasks.unsaved(p.id!)))
     .on("POST", "/api/tasks/:id/remove-if-clean", async (_req, p) => json(await tasks.removeIfClean(p.id!)));
 }
