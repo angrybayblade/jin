@@ -168,3 +168,20 @@ test(
   },
   120_000,
 );
+
+test(
+  "S01 smoke in WebKit (the desktop window's engine): the pages load, the main flows work, nothing is wider than the window",
+  async () => {
+    expect(built).toBe(true);
+    // Something to look at: a doc, and a reply in the task's agent room.
+    const doc = await d.json<{ id: string }>("/api/docs", { method: "POST", json: { title: "Smoke spec", body: "# Smoke spec\n\nA line." } });
+    await d.json("/api/tasks/PLEN-7/room/messages", { method: "POST", json: { text: `@reviewer ${scripted([{ text: "smoke reply" }])}` } });
+    await until(async () => (await d.json<{ messages: { authorHandle: string | null }[] }>("/api/tasks/PLEN-7/room")).messages.some((m) => m.authorHandle === "reviewer"), 15_000, "the reviewer's reply");
+
+    const run = Bun.spawn(["node", join(REPO, "tests/smoke/webkit.mjs")], { cwd: REPO, env: { ...process.env, ORIGIN: WEB_ORIGIN, TASK: "PLEN-7", DOC: doc.id }, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+    if (code !== 0) throw new Error(`smoke checks failed:\n${out}\n${err}`);
+    console.log(out.trim());
+  },
+  300_000,
+);
