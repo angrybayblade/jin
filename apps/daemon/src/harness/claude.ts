@@ -81,7 +81,9 @@ export class ClaudeHarness implements Harness {
       prompt,
       options: {
         cwd: run.cwd,
-        env: { ...process.env, ...run.env } as Record<string, string>,
+        ...(run.addDirs?.length ? { additionalDirectories: run.addDirs } : {}),
+        // An added folder's CLAUDE.md is read too (the workspace's, for a chat that started elsewhere).
+        env: { ...process.env, ...(run.addDirs?.length ? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" } : {}), ...run.env } as Record<string, string>,
         resume: run.resume,
         model: run.model,
         effort: run.effort,

@@ -268,13 +268,14 @@ export function notifyRoutes(router: Router, notifier: Notifier) {
 
 // ---------------------------------------------------------------- what is worth a notification
 
-const DESK_LABELS: Record<string, string> = { jin: "jin", github: "GitHub", slack: "Slack", linear: "Linear", notion: "Notion", gmail: "Gmail" };
+const DESK_LABELS: Record<string, string> = { jin: "jin", desk: "Desk", github: "GitHub", slack: "Slack", linear: "Linear", notion: "Notion", gmail: "Gmail" };
 
 /** Where a chat lives in the web app. */
 export function chatPath(s: { kind: string; taskId: string | null }): string {
   if (s.kind === "jin") return "/";
-  if (s.kind === "task" && s.taskId) return `/t/${encodeURIComponent(s.taskId)}`;
-  return `/c/${s.kind}`;
+  if ((s.kind === "task" || s.kind === "room") && s.taskId) return `/t/${encodeURIComponent(s.taskId)}`;
+  // The desk agent, and the chats of the desks it replaced.
+  return "/desk";
 }
 
 /** The last thing Claude Code said in a turn, from the hook input or the end of its transcript. */
@@ -314,7 +315,7 @@ export function watchForNotifications(notifier: Notifier, w: Watched) {
     }
     if (e.kind !== "session.idle" && e.kind !== "session.failed" && e.kind !== "approval.requested") return;
     const s = w.sessions.get(e.sessionId);
-    const title = s.kind === "task" ? `${s.taskId} · agent` : (DESK_LABELS[s.kind] ?? s.kind);
+    const title = s.kind === "task" ? `${s.taskId} · agent` : s.kind === "room" ? `${s.taskId} · room` : (DESK_LABELS[s.kind] ?? s.kind);
     const base = { title, path: chatPath(s), chat: s.id };
     if (e.kind === "session.idle")
       notifier.notify({ ...base, key: `chat:${s.id}:done`, subtitle: plain(s.title, 60) || undefined, body: plain(lastSaid.get(s.id) ?? "") || "Finished" });

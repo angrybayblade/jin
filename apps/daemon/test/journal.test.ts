@@ -55,3 +55,16 @@ test("evidence goes on the latest entry of the same turn; changes with no entry 
   ]);
   expect(v.unjournaled.map((e) => e.refs.map((r) => r.text))).toEqual([["platform/README.md", "platform/x.py"]]);
 });
+
+test("recent: journal entries across tasks since a time, newest first, without unjournaled changes", async () => {
+  const j = setup();
+  j.add("t1", { concern: "rate limiter", kind: "decision", text: "Retry on 429" });
+  const mid = new Date().toISOString();
+  await Bun.sleep(5);
+  j.evidence("sh", "Edit", { file_path: "/x" }); // no task: nothing
+  j.turnStarted("t2");
+  j.evidence("t2", "Edit", { file_path: "/ws/tasks/PLEN-1/a.ts" }); // unjournaled
+  j.add("t2", { concern: "tests", kind: "done", text: "Added limiter tests" });
+  expect(j.recent(mid).map((e) => e.text)).toEqual(["Added limiter tests"]);
+  expect(j.recent("2000-01-01T00:00:00Z").map((e) => e.text)).toEqual(["Added limiter tests", "Retry on 429"]);
+});

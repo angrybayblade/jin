@@ -19,6 +19,8 @@ export interface FeedItem {
   priority: { score: number; why: string } | null;
   thread?: { key: string; title: string; ref: string | null; url: string | null } | null;
   actor?: string | null;
+  /** Why it might concern you: authored, reviewer, team-review, requested, mentioned, dm, mention, person, assigned, comment… */
+  tags?: string[];
 }
 
 export interface Task {
@@ -37,7 +39,7 @@ export interface Task {
   /** The task this one was spawned from (jin-task spawn). */
   parent?: string | null;
   /** A change from a Linear issue, or a review of pull requests. */
-  kind?: "change" | "review";
+  kind?: "change" | "review" | "scratch";
   /** The issue it is for, when its workspace ties tasks to issues. */
   issue?: { tracker: string; id: string; url?: string | null } | null;
   /** Being removed now (in the background), and why the last removal failed. */
@@ -50,7 +52,7 @@ export interface Task {
 export interface TaskLink {
   taskId: string;
   key: string;
-  kind: "github" | "linear" | "slack-thread" | "slack-channel" | "notion";
+  kind: "github" | "linear" | "slack-thread" | "slack-channel" | "notion" | "doc";
   url: string | null;
   label: string;
   since: string | null;
@@ -76,10 +78,92 @@ export interface SkillsStatus {
   everyTask: string;
 }
 
+/** jin docs (on the home): specs, RFCs and notes you and jin work on. */
+export interface DocAnchor {
+  quote: string;
+  prefix?: string | null;
+  suffix?: string | null;
+}
+export interface DocSummary {
+  id: string;
+  title: string;
+  tags: string[];
+  excerpt: string;
+  updatedAt: string;
+  openThreads: number;
+  openSuggestions: number;
+}
+export interface DocComment {
+  id: string;
+  by: string;
+  text: string;
+  at: string;
+}
+export interface DocThread {
+  id: string;
+  anchor: DocAnchor | null;
+  by: string;
+  resolved: boolean;
+  createdAt: string;
+  located: boolean;
+  comments: DocComment[];
+}
+export interface DocSuggestion {
+  id: string;
+  anchor: DocAnchor;
+  replacement: string;
+  why: string | null;
+  by: string;
+  status: "open" | "accepted" | "rejected";
+  createdAt: string;
+  decidedAt: string | null;
+  located: boolean;
+}
+export interface Doc {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  version: number;
+  chatId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archived: boolean;
+}
+export interface DocFull extends Doc {
+  threads: DocThread[];
+  suggestions: DocSuggestion[];
+}
+export interface DocVersion {
+  version: number;
+  title: string;
+  by: string;
+  at: string;
+  size: number;
+}
+
+/** A skill (or custom command) Claude Code offers in a chat. */
+export interface ChatSkill {
+  name: string;
+  description: string;
+  argumentHint: string;
+}
+
+/** ~/.claude/settings.json on a machine, as its daemon reads it. */
+export interface ClaudeSettingsFile {
+  path: string;
+  exists: boolean;
+  text: string;
+  /** null: the file does not parse (see error); fix it in the raw editor. */
+  settings: Record<string, unknown> | null;
+  hash: string;
+  error: string | null;
+}
+
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
 
-export type ChatKind = "jin" | "slack" | "linear" | "notion" | "gmail" | "github";
-export type SessionKind = ChatKind | "task";
+export type ChatKind = "jin" | "desk" | "slack" | "linear" | "notion" | "gmail" | "github" | "doc";
+export type SessionKind = ChatKind | "task" | "room";
 
 export interface Session {
   id: string;
@@ -237,7 +321,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|mentions|models)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|chat-skills|mentions|models|docs)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
@@ -380,9 +464,24 @@ export interface Mention {
   machineLabel?: string;
 }
 
+/** Something a chat talked about: a PR, ticket, task, Slack thread, Notion page, mail or link. */
+export interface ChatRef {
+  key: string;
+  kind: "pr" | "issue" | "task" | "slack" | "notion" | "mail" | "link";
+  label: string;
+  title: string | null;
+  url: string | null;
+  state: string | null;
+  detail: string | null;
+  machineLabel?: string;
+  by: "you" | "jin" | "both";
+  count: number;
+  lastSeq: number;
+}
+
 /** A kind of task a workspace runs (from its provider). */
 export interface TaskKindSpec {
-  id: "change" | "review";
+  id: "change" | "review" | "scratch";
   label: string;
   autoId: boolean;
   idHint?: string;
@@ -511,4 +610,76 @@ export interface JournalEntry {
 export interface JournalView {
   concerns: { name: string; startedAt: string; lastAt: string; entries: JournalEntry[] }[];
   unjournaled: JournalEntry[];
+}
+
+// ---------------------------------------------------------------- a task's agent room
+
+export type RoomAccess = "writer" | "read-only";
+export type RoomAgentState = "new" | "queued" | SessionState;
+
+/** An agent in a task's room: a profile (its role, whether it changes the code, its model) with a session of its own. */
+export interface RoomAgent {
+  id: string;
+  taskId: string;
+  /** What you type after @. */
+  handle: string;
+  name: string;
+  brief: string;
+  access: RoomAccess;
+  model: string | null;
+  effort: Effort | null;
+  color: string;
+  sessionId: string | null;
+  state: RoomAgentState;
+  /** Turns waiting behind the one running. */
+  queued: number;
+  /** While it works: the last thing it did. */
+  activity: string | null;
+  /** While it works: what it is writing now. */
+  draft: string | null;
+}
+
+export interface RoomMessage {
+  seq: number;
+  /** "you", an agent's id, or "room" (a note). */
+  author: string;
+  authorName: string;
+  authorHandle: string | null;
+  kind: "message" | "note";
+  text: string;
+  mentions: string[];
+  /** What the turn behind it made or changed: docs, and the files a writer touched per repo. */
+  refs: ({ kind: "doc"; id: string; title: string; did: string[] } | { kind: "files"; repo: string; count: number; files: string[] })[];
+  pinned: boolean;
+  at: string;
+}
+
+export interface RoomApproval {
+  id: string;
+  agentId: string;
+  action: { tool: string; input: Record<string, unknown> };
+  reason: string;
+  createdAt: string;
+}
+
+export interface RoomState {
+  taskId: string;
+  agents: RoomAgent[];
+  /** Messages after the one asked from. */
+  messages: RoomMessage[];
+  pinned: RoomMessage[];
+  lastSeq: number;
+  approvals: RoomApproval[];
+}
+
+/** What you set on an agent's profile. */
+export interface RoomProfile {
+  handle: string;
+  name: string;
+  brief: string;
+  access: RoomAccess;
+  /** "": jin's default model. */
+  model: string;
+  /** "default": the model's default effort. */
+  effort: string;
 }

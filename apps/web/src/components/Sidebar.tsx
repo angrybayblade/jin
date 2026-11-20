@@ -1,21 +1,19 @@
 "use client";
+import { SidebarDocs } from "./docs/SidebarDocs";
 import {
   Archive,
   ArchiveRestore,
   ArrowRight,
-  BookOpen,
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
+  FlaskConical,
   FolderOpen,
   GitBranch,
   GitPullRequest,
-  Mail,
-  MessageSquare,
-  MessageSquarePlus,
+  Layers,
   Pencil,
   Plus,
-  SquareKanban,
   Trash2,
   Monitor,
   Server,
@@ -23,27 +21,22 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Fragment, Suspense, useState, type ComponentType } from "react";
+import { Fragment, Suspense, useEffect, useState } from "react";
 import { openTerminal, removeTask, revealTask, updateTask } from "@/app/actions";
-import type { AgentStatus, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
+import type { AgentStatus, DocSummary, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
 import { splitPath, taskHref } from "@/lib/paths";
+import { setDrawer } from "@/lib/phone";
 import { SidebarChats } from "./ChatTabs";
 import { contextMenu, type MenuItem } from "./ContextMenu";
 import { NewTaskButton } from "./NewTaskDialog";
 import { NotificationToggle } from "./Notifications";
-import { SettingsMenu } from "./MachineSwitcher";
+import { SettingsLinks, SettingsMenu } from "./MachineSwitcher";
+import { RailTips } from "./RailTips";
 import { RenameInput } from "./RenameInput";
 import { DensityToggle, HistoryButtons, SidebarToggle } from "./ShellControls";
 import { StatusMark } from "./ThermalMark";
 import { ThemeToggle } from "./ThemeToggle";
-
-export const DESKS: { kind: "slack" | "linear" | "notion" | "gmail" | "github"; label: string; icon: ComponentType<{ size?: number }> }[] = [
-  { kind: "github", label: "GitHub", icon: GitPullRequest },
-  { kind: "slack", label: "Slack", icon: MessageSquare },
-  { kind: "linear", label: "Linear", icon: SquareKanban },
-  { kind: "notion", label: "Notion", icon: BookOpen },
-  { kind: "gmail", label: "Gmail", icon: Mail },
-];
+import { ViewSwitch } from "./ViewSwitch";
 
 const AGENT_MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | "interrupted"> = {
   starting: "running",
@@ -76,6 +69,7 @@ export function Sidebar({
   mode,
   notifications,
   machines = [],
+  docs = [],
 }: {
   /** Every connected machine's tasks, this machine's first. */
   groups: MachineTasks[];
@@ -87,6 +81,8 @@ export function Sidebar({
   mode: string;
   notifications: NotificationSettings;
   machines?: Machine[];
+  /** jin docs, most recently changed first. */
+  docs?: DocSummary[];
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -103,18 +99,19 @@ export function Sidebar({
   const several = groups.length > 1;
   // Where a new task can go: machines with a workspace, the page's own first.
   const targets = groups.filter((g) => g.hasWorkspace && !g.down).map((g) => ({ id: g.id, label: g.label }));
+  // The phone drawer closes on navigation (and on a tap on a link to the page already open).
+  useEffect(() => setDrawer(false), [path]);
 
   const taskMenu = (machine: string, t: Task): MenuItem[] => [
-    { header: several ? `${t.id} · ${groups.find((g) => g.id === machine)?.label ?? machine}` : t.id },
     { label: "Open", icon: ArrowRight, run: () => router.push(taskHref(machine, t.id)) },
-    {
-      label: "New Claude Code session",
+    ...(["claude", "shell"] as const).map((kind) => ({
+      label: kind === "claude" ? "Claude" : "Terminal",
       icon: Plus,
       run: async () => {
-        await openTerminal({ taskId: t.id, kind: "claude", machine });
+        await openTerminal({ taskId: t.id, kind, machine });
         router.push(taskHref(machine, t.id));
       },
-    },
+    })),
     { divider: true },
     { label: "Rename", icon: Pencil, run: () => setRenaming(`task:${machine}:${t.id}`) },
     ...(t.branch ? [{ label: "Copy branch", icon: GitBranch, hint: t.branch, run: () => copy(t.branch!) }] : []),
@@ -125,15 +122,15 @@ export function Sidebar({
       ? { label: "Unarchive", icon: ArchiveRestore, run: () => updateTask(t.id, { archived: false }, machine).then(() => router.refresh()) }
       : { label: "Archive", icon: Archive, hint: "hide from the list", run: () => updateTask(t.id, { archived: true }, machine).then(() => router.refresh()) },
     {
-      label: "Remove task",
+      label: t.kind === "scratch" ? "Discard scratch" : "Remove task",
       icon: Trash2,
       danger: true,
-      confirm: "Remove its checkouts (with the workspace's own tooling)?",
+      confirm: t.kind === "scratch" ? "Throw this experiment away? Its checkouts, uncommitted changes and scratch branch are deleted." : "Remove its checkouts (with the workspace's own tooling)?",
       run: async () => {
         const key = `${machine}:${t.id}`;
         setRemoving((s) => new Set(s).add(key));
         if (isOpen(machine, t.id)) router.push("/");
-        const res = await removeTask(t.id, machine);
+        const res = await removeTask(t.id, machine, t.kind === "scratch");
         if ("error" in res) setError(res.error);
         // The daemon now reports it as removing (or, later, why it could not).
         setRemoving((s) => {
@@ -144,13 +141,6 @@ export function Sidebar({
         router.refresh();
       },
     },
-  ];
-
-  /** Jin's chat and each desk: start a chat (each chat's own menu is on its tab). */
-  const chatMenu = (label: string, href: string): MenuItem[] => [
-    { header: label },
-    { label: "Open", icon: ArrowRight, run: () => router.push(href) },
-    { label: "New chat", icon: MessageSquarePlus, run: () => router.push(`${href}?chat=new`) },
   ];
 
   /** Tasks in order, each sub-task right under its parent (jin-task spawn), one level in. */
@@ -217,7 +207,11 @@ export function Sidebar({
             <span className="nav-sub">{title}</span>
           )}
         </span>
-        {t.kind === "review" ? (
+        {t.kind === "scratch" ? (
+          <span className="nav-pr" title="Scratch: an experiment, tied to no issue (Discard scratch throws it away)">
+            <FlaskConical size={12} />
+          </span>
+        ) : t.kind === "review" ? (
           <span className="nav-pr" title={`Reviewing ${(t.prs ?? []).map((p) => `${p.repo}#${p.number}${p.title ? ` ${p.title}` : ""}`).join(", ")}`}>
             <ScanEye size={12} />
           </span>
@@ -241,11 +235,21 @@ export function Sidebar({
         <span className="hide-collapsed">
           <HistoryButtons />
         </span>
+        <span className="hide-collapsed">
+          <ViewSwitch />
+        </span>
+        <span className="only-collapsed">
+          <SidebarToggle shortcut={false} />
+        </span>
       </div>
+      {/* On a phone, the drawer over the page (opened from the top bar); on desktop it is not a box (display: contents). */}
+      <div className="sidebar-drawer" onClick={(e) => (e.target as Element).closest("a") && setDrawer(false)}>
       <nav aria-label="Chats">
         <Suspense fallback={null}>
           <SidebarChats kind="jin" chats={sessions.filter((x) => x.kind === "jin")} base="/" pending={pendingApprovals} />
         </Suspense>
+
+        <SidebarDocs docs={docs} />
 
         <div className="nav-section">
           <span>Tasks</span>
@@ -309,17 +313,17 @@ export function Sidebar({
           );
         })}
 
-        <div className="nav-section">Desks</div>
-        {DESKS.map(({ kind, label, icon: Icon }) => {
-          const s = latest((x) => x.kind === kind);
-          return (
-            <Link key={kind} href={`/c/${kind}`} className={`nav-item ${path === `/c/${kind}` ? "active" : ""}`} {...contextMenu(() => chatMenu(label, `/c/${kind}`))}>
-              <Icon size={15} />
-              <span className="nav-label">{label}</span>
-              {s && (s.state === "running" || s.state === "waiting_approval") && <StatusMark state={s.state} />}
-            </Link>
-          );
-        })}
+        {/* Phone drawer only: the desk (the top bar's stack button on desktop) and the settings menu's pages. */}
+        <div className="phone-only">
+          <div className="nav-section">
+            <span>Views</span>
+          </div>
+          <Link href="/desk" className={`nav-item ${path.startsWith("/desk") ? "active" : ""}`}>
+            <Layers size={14} className="nav-icon" />
+            <span className="nav-label">Desk</span>
+          </Link>
+          <SettingsLinks machines={machines} />
+        </div>
       </nav>
 
       <div className="sidebar-bottom">
@@ -328,11 +332,11 @@ export function Sidebar({
           {mode !== "vm" && <NotificationToggle initial={notifications} />}
           <DensityToggle />
           <ThemeToggle />
-          <span className="only-collapsed">
-            <SidebarToggle shortcut={false} />
-          </span>
         </span>
       </div>
+      </div>
+      <div className="drawer-backdrop" aria-hidden="true" onClick={() => setDrawer(false)} />
+      <RailTips />
     </aside>
   );
 }

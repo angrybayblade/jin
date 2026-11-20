@@ -130,7 +130,7 @@ test("A23 live events: a project, an event switched on, a DM in the feed and a n
   expect(feed.filter((f) => f.source === "slack").map((f) => [f.actor, f.thread.title]).sort()).toEqual([["Cat Lee", "DM with Cat Lee"], ["U_ALEX", "DM with U_ALEX"], ["U_BOB", "Thread in Slack"], ["U_OLD", "DM with U_OLD"]]);
   expect(notices().some((n) => n.title === "Cat Lee")).toBe(true);
   await until(() => notices().some((n) => n.title === "U_ALEX"), 5_000, "notification");
-  expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "Slack · DM with U_ALEX", body: "can you review today?", path: "/c/slack" });
+  expect(notices().find((n) => n.title === "U_ALEX")).toMatchObject({ subtitle: "Slack · DM with U_ALEX", body: "can you review today?", path: "/desk" });
   expect(notices().find((n) => n.title === "U_BOB mentioned you")).toBeDefined();
   expect(notices().some((n) => n.title === "U_OLD")).toBe(false);
   expect(notices().find((n) => n.title === "Dee Park commented")).toMatchObject({ subtitle: "Notion · Launch plan", body: "Can we ship Friday?", url: "https://www.notion.so/Launch-plan-p1?d=d1" });

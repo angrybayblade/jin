@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { DOC_ID, DocAsk, docChatNote, docRoutes, Docs, docTools } from "./docs";
+import { roomRoutes, Rooms } from "./rooms";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createAdapter } from "./adapters";
@@ -13,7 +16,7 @@ import { fileRoutes } from "./files";
 import { Finder, finderRoutes } from "./finder";
 import { jobRoutes, TaskJobs } from "./jobs";
 import { reviewRoutes } from "./reviews";
-import { linkRoutes, ownLinks, TaskLinks, watchRoutes, Watches } from "./links";
+import { linkRoutes, ownLinks, type TaskLink, TaskLinks, watchRoutes, Watches } from "./links";
 import { skillRoutes, Skills, tagsFor, writeTaskPlugin, type SkillBody } from "./skills";
 import { localVersion, machineId, machineRoutes, Machines } from "./machines";
 import { exportHistory, historyRoutes } from "./history";
@@ -21,10 +24,12 @@ import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
 import { subtaskRoutes } from "./subtasks";
 import { type FiredEvent, Hooks, hookRoutes } from "./hooks";
+import { ClaudeSettings, claudeSettingsRoutes } from "./claude-settings";
+import { ChatSkills, chatSkillRoutes } from "./chat-skills";
 import { Composio, composioRoutes, type LiveEvent } from "./composio";
 import { GithubWatch } from "./github-watch";
 import { claudeHarness } from "./harness";
-import { json, Router } from "./http";
+import { HttpError, json, Router } from "./http";
 import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
@@ -79,8 +84,73 @@ bobbyRoutes(app.router);
 // @mentions in chats: every machine's tasks, PRs (gh) and Linear issues (Composio); set up below.
 let mentions: Mentions | null = null;
 // New chats are named by Claude Haiku (a stand-in under the scripted harness, in tests).
-const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle, mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]) });
+// jin docs (on the home, next to the chats): each doc has its own chat with jin.
+const docs = new Docs(db);
+// A task's agent room (set up below, once sessions exist): its agents are sessions with a role.
+let rooms: Rooms | null = null;
+const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle, mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
+  // The scripted harness (tests) has no Claude Code to ask.
+  chatSkills: new ChatSkills(process.env.JIN_HARNESS === "scripted" ? async () => [] : undefined),
+  kindTools: (s) => (s.kind === "room" ? (rooms?.toolsFor(s) ?? []) : s.kind === "jin" || s.kind === "desk" || s.kind === "doc" ? docTools(docs) : []),
+  toolBlock: (s, tool, input) => rooms?.blocked(s, tool, input) ?? null,
+  chatNote: (s) => {
+    if (s.kind === "room") return rooms?.noteFor(s);
+    if (s.kind !== "doc") return undefined;
+    const d = docs.byChat(s.id);
+    return d ? docChatNote(d) : undefined;
+  } });
 sessionRoutes(app.router, sessions, adapters);
+rooms = new Rooms({
+  db,
+  sessions,
+  tasks,
+  // Docs live on the home: from another machine an agent's doc tools run there.
+  docTools: (by) =>
+    docTools(docs, by).map((t) => ({
+      ...t,
+      run: (args: Record<string, unknown>) => {
+        const home = homeLink();
+        return home ? machines.call<unknown>(home.id, "POST", `/api/doc-tools/${t.name}?by=${encodeURIComponent(by)}`, args) : t.run(args);
+      },
+    })),
+  linkDoc: (taskId, docId) => retitle([taskLinks.add(taskId, `doc:${docId}`)]),
+});
+roomRoutes(app.router, rooms);
+tasks.onRemoved((taskId) => rooms?.removeTask(taskId));
+const docAsk = new DocAsk(docs, {
+  start: (d, prompt, choice) => {
+    // The doc names its chat before the chat starts, so the chat's first run knows its doc.
+    const id = randomUUID();
+    docs.setChat(d.id, id);
+    return sessions.startChat("doc", prompt, undefined, d.title, choice, id).id;
+  },
+  send: (chatId, prompt, choice) => {
+    try {
+      sessions.get(chatId);
+    } catch {
+      return false;
+    }
+    sessions.send(chatId, prompt, choice);
+    return true;
+  },
+  busy: (chatId) => {
+    try {
+      const s = sessions.get(chatId).state;
+      return s === "running" || s === "waiting_approval";
+    } catch {
+      return false;
+    }
+  },
+});
+// A deleted doc's chat is archived with it (its history stays, out of the way).
+docRoutes(app.router, docs, docAsk, (chatId) => {
+  try {
+    sessions.update(chatId, { archived: true });
+  } catch {
+    // already gone
+  }
+});
+chatSkillRoutes(app.router, (kind) => sessions.chatPlace(kind), sessions.chatSkills);
 const terminals = new Terminals(db);
 const claude = claudeLaunch(config, writeClaudeSettings(config), writeJinTaskCommand(config));
 // A removed task's terminals close with it.
@@ -91,6 +161,7 @@ tasks.onRemoved((taskId) => {
 // (a review: pr-review) as a plugin, fetched from the home when this machine has one.
 const skills = new Skills(config.home);
 skillRoutes(app.router, skills);
+claudeSettingsRoutes(app.router, new ClaudeSettings());
 const prepareSkills = async (taskId: string) => {
   const tags = tagsFor(tasks.get(taskId).kind);
   const home = homeLink();
@@ -99,12 +170,16 @@ const prepareSkills = async (taskId: string) => {
 };
 terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude, prepare: prepareSkills });
 const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed });
+// A task that starts in its agent room: its first prompt is said there.
+jobs.roomPost = (taskId, text) => void rooms?.post(taskId, text);
 jobs.prepare = prepareSkills;
 jobRoutes(app.router, jobs);
 reviewRoutes(app.router, { tasks, jobs });
 sessions.provideJinTools(() =>
   jinTools({
     feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs, hooks, links: taskLinks,
+    // Defined further down; read when a chat runs.
+    journal: () => journal, linksOf: (id) => linksOf(id),
     machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
   }),
 );
@@ -317,7 +392,11 @@ machines.resume();
 // Live events through Composio (on the always-on home): the listener runs while any event is on.
 // GitHub activity on your PRs is watched with gh here (one call every two minutes), not with triggers.
 let liveDeliver: (e: LiveEvent) => void = () => {};
-const githubWatch = new GithubWatch(config.home, (e) => liveDeliver(e));
+// It also settles the feed: items on PRs no longer open are done, and so is what came before your own comment or review.
+const githubWatch = new GithubWatch(config.home, (e) => liveDeliver(e), undefined, ({ open, mine }) => {
+  feed.settlePrs(open);
+  for (const m of mine) feed.clearThread(m.key, m.at);
+});
 // What tasks follow (links): on the home, the Slack threads and channels they watch.
 const watches = new Watches(config.home);
 watchRoutes(app.router, watches);
@@ -335,10 +414,32 @@ const pushWatches = () => {
   if (!home) return watches.set("local", keys);
   void machines.call(home.id, "PUT", "/api/feed/watches", { machine: machines.identity?.id ?? "local", keys }).catch(() => {});
 };
+// A Notion link's address may not carry its title (app.notion.com/p/<id>): ask Notion, through
+// the connection on the home (or here).
+const linkTitle = async (l: TaskLink): Promise<string | null> => {
+  if (l.kind === "doc") {
+    const home = homeLink();
+    const d = await within(home ? machines.call<{ title: string }>(home.id, "GET", `/api/docs/${l.key.slice(4)}`) : Promise.resolve(docs.get(l.key.slice(4))), 10_000);
+    return d?.title ?? null;
+  }
+  if (l.kind !== "notion") return null;
+  const id = l.key.slice("notion:".length);
+  const home = homeLink();
+  const page = await within(home ? machines.call<{ title: string } | null>(home.id, "GET", `/api/composio/notion-page?id=${id}`) : composio.notionPage(id), 15_000);
+  return page?.title ?? null;
+};
+const retitle = (links: TaskLink[]) =>
+  void (async () => {
+    for (const l of links.filter((x) => x.kind === "notion" || x.kind === "doc")) {
+      const t = await linkTitle(l).catch(() => null);
+      if (t && t !== l.label) taskLinks.setLabel(l.taskId, l.key, t);
+    }
+  })();
 linkRoutes(app.router, {
   links: taskLinks,
   linksOf,
   changed: pushWatches,
+  title: linkTitle,
   context: {
     taskOf: (terminalId) => terminals.get(terminalId).taskId ?? null,
     task: (id) => tasks.get(id),
@@ -360,7 +461,7 @@ jobs.addLinks = (taskId, urls) => {
   const problems: string[] = [];
   for (const u of urls.map((x) => x.trim()).filter(Boolean)) {
     try {
-      taskLinks.add(taskId, u);
+      retitle([taskLinks.add(taskId, u)]);
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
     }
@@ -369,6 +470,16 @@ jobs.addLinks = (taskId, urls) => {
   return problems;
 };
 setTimeout(pushWatches, 10_000);
+// Notion links added before titles were looked up.
+setTimeout(() => retitle(taskLinks.list().filter((l) => (l.kind === "notion" && l.label === "Notion page") || l.kind === "doc")), 20_000);
+// A task's Claude Code reads a linked jin doc here (jin-task doc, read_doc); docs live on the home.
+app.router.on("GET", "/api/task-docs/:id", async (_req, p) => {
+  const id = p.id ?? "";
+  if (!DOC_ID.test(id)) throw new HttpError(404, `no doc ${id}`);
+  const home = homeLink();
+  const d = home ? await machines.call<{ title: string; body: string; version: number }>(home.id, "GET", `/api/docs/${id}`) : docs.get(id);
+  return new Response(`# ${d.title}\n\n(jin doc ${id}, version ${d.version})\n\n${d.body}`, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+});
 const watchTimer = setInterval(pushWatches, 5 * 60_000);
 const composio = new Composio(config, {
   feed,
@@ -418,7 +529,7 @@ mentions = new Mentions({
     return i?.title ? { title: i.title, url: i.url ?? null, state: i.state?.name ?? null, assignee: i.assignee?.displayName ?? null, team: i.team?.name ?? null } : null;
   },
 });
-mentionRoutes(app.router, mentions);
+mentionRoutes(app.router, mentions, (id) => sessions.events(id));
 composio.startListener();
 composio.resumeNative();
 

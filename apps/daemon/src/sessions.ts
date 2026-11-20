@@ -4,16 +4,20 @@ import type { Titler } from "./titles";
 import { type Mention, mentionContext, mentionLabels } from "./mentions";
 import { EFFORTS, type Effort, MODELS, readChoice } from "./models";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import type { WorkspaceAdapter } from "./adapters";
-import { chatInstructions, isChatKind, type ChatKind, type SessionKind } from "./chats";
+import { type ChatSkills, skillContext, skillRefs } from "./chat-skills";
+import { CHAT_KINDS, chatInstructions, isChatKind, type ChatKind, type SessionKind } from "./chats";
 import type { Config, WorkspaceConfig } from "./config";
 import { now } from "./db";
 import type { Harness, JinTool, ToolGate } from "./harness";
 import { body, HttpError, json, type Router } from "./http";
 import { evaluate } from "./policy";
 import type { Tasks } from "./tasks";
+
+/** Sessions that work in a task's folder (not a chat reading the workspace). */
+const inTask = (kind: SessionKind) => kind === "task" || kind === "room";
 
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
 
@@ -99,10 +103,18 @@ export interface SessionDeps {
   harness: () => Harness;
   /** Jin's orchestration tools, for jin's own chat. Set after construction (they need this manager). */
   jinTools?: () => JinTool[];
+  /** More tools for a chat (a doc chat's, a room agent's), beside jin's. */
+  kindTools?: (session: Session) => JinTool[];
+  /** Why this session may not use a tool (a read-only room agent editing files), else null. */
+  toolBlock?: (session: Session, tool: string, input: Record<string, unknown>) => string | null;
+  /** What else a chat is told (a doc chat: which doc). */
+  chatNote?: (session: Session) => string | undefined;
   /** Names a new chat from its first message (Claude Haiku); without it a chat keeps its first words. */
   titler?: Titler;
   /** Resolves the @mentions in a message (PRs, Linear issues, jin tasks). */
   mentions?: (text: string) => Promise<Mention[]>;
+  /** The skills Claude Code offers where a chat runs (the `/skills` a message names). */
+  chatSkills?: ChatSkills;
 }
 
 export class Sessions {
@@ -112,6 +124,11 @@ export class Sessions {
   /** Every recorded event, as it happens (notifications listen here). */
   onEvent(fn: (e: SessionEvent) => void) {
     this.listeners.push(fn);
+  }
+  private liveListeners: ((sessionId: string, kind: string, payload: Record<string, unknown>) => void)[] = [];
+  /** Live-only events too (text as it is written): a room shows an agent's reply while it forms. */
+  onLive(fn: (sessionId: string, kind: string, payload: Record<string, unknown>) => void) {
+    this.liveListeners.push(fn);
   }
   private waiters = new Map<string, (approved: boolean) => void>();
   private running = new Map<string, AbortController>();
@@ -206,6 +223,13 @@ export class Sessions {
 
   /** Live-only event for open streams (no seq, not persisted): readers that reconnect get the completed message instead. */
   publish(sessionId: string, kind: string, payload: Record<string, unknown>) {
+    for (const fn of this.liveListeners) {
+      try {
+        fn(sessionId, kind, payload);
+      } catch {
+        // a listener's failure never breaks the session
+      }
+    }
     const subs = this.subscribers.get(sessionId);
     if (!subs?.size) return;
     const msg = JSON.stringify({ ephemeral: true, sessionId, kind, payload });
@@ -230,7 +254,8 @@ export class Sessions {
     return async (tool, input, signal) => {
       this.emit(sessionId, "tool.requested", { tool, input });
       const rules = workspace ? this.deps.adapters.get(workspace)?.policy() : undefined;
-      const verdict = evaluate(tool, input, rules);
+      const blocked = this.deps.toolBlock?.(this.get(sessionId), tool, input) ?? this.chatEdit(sessionId, tool, input);
+      const verdict = blocked ? { decision: "deny" as const, reason: blocked } : evaluate(tool, input, rules);
       if (verdict.decision === "deny") {
         this.emit(sessionId, "tool.denied", { tool, input, reason: verdict.reason, by: "policy" });
         return { allow: false, reason: verdict.reason };
@@ -252,6 +277,18 @@ export class Sessions {
       this.emit(sessionId, "tool.allowed", { tool, input });
       return { allow: true };
     };
+  }
+
+  /** A chat changing a file in the workspace: why not (changes to its code happen in tasks), else null. */
+  private chatEdit(sessionId: string, tool: string, input: Record<string, unknown>): string | null {
+    if (!/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) return null;
+    const session = this.get(sessionId);
+    const root = inTask(session.kind) ? null : this.rootOf(session.workspace);
+    const path = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : null;
+    if (!root || !path) return null;
+    const full = resolve(session.cwd ?? root, path);
+    if (full !== root && !full.startsWith(root.endsWith(sep) ? root : root + sep)) return null;
+    return `chats read the workspace but do not change it: keep notes in ${this.scratch(session.kind)}, and start a task (jin_start_task) for changes to its code`;
   }
 
   private requestApproval(sessionId: string, tool: string, input: Record<string, unknown>, reason: string): Approval {
@@ -278,10 +315,10 @@ export class Sessions {
     return toApproval(this.db.query("select * from approvals where id = ?").get(approvalId));
   }
 
-  private create(s: { kind: SessionKind; taskId?: string; workspace?: string; title: string; cwd: string }, prompt: string, choice: RunChoice = {}): Session {
+  private create(s: { kind: SessionKind; taskId?: string; workspace?: string; title: string; cwd: string; id?: string }, prompt: string, choice: RunChoice = {}): Session {
     if (!prompt?.trim()) throw new HttpError(400, "prompt is required");
     const harness = this.deps.harness();
-    const id = randomUUID();
+    const id = s.id ?? randomUUID();
     this.db
       .query("insert into sessions (id, kind, task_id, workspace, title, cwd, harness, state, model, effort, created_at) values (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)")
       .run(id, s.kind, s.taskId ?? null, s.workspace ?? null, s.title, s.cwd, harness.id, choice.model ?? null, choice.effort ?? null, now());
@@ -297,14 +334,49 @@ export class Sessions {
     return this.create({ kind: "task", taskId, workspace: task.workspace, title: task.slug, cwd: task.root }, prompt, choice);
   }
 
-  /** Jin's own chat or a knowledge chat, in a scratch directory of its own. */
-  startChat(kind: ChatKind, prompt: string, workspace?: string, name?: string, choice?: RunChoice): Session {
+  /** An agent in a task's room: like a task's agent (its folder, the workspace's own instructions), with its role and the room's tools. */
+  startRoom(taskId: string, prompt: string, title: string, choice?: RunChoice, id?: string): Session {
+    const task = this.deps.tasks.get(taskId);
+    if (task.state !== "ready") throw new HttpError(409, `task ${taskId} is ${task.state}`);
+    return this.create({ kind: "room", taskId, workspace: task.workspace, title, cwd: task.root, id }, prompt, choice);
+  }
+
+  /** A chat's scratch folder: its notes and files (it does not change the workspace). */
+  private scratch(kind: SessionKind): string {
+    const dir = join(this.deps.config.home, "chats", kind);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /** The workspace's folder on this machine, when it is there. */
+  private rootOf(workspace: string | null | undefined): string | null {
+    const root = this.deps.workspaces.find((w) => w.id === workspace)?.root;
+    return root && existsSync(root) ? root : null;
+  }
+
+  get chatSkills(): ChatSkills | undefined {
+    return this.deps.chatSkills;
+  }
+
+  /** Where a new chat of this kind runs, and the environment it runs with (its skills depend on both). */
+  chatPlace(kind: string, workspace?: string): { cwd: string; env: Record<string, string> } {
+    if (!isChatKind(kind)) throw new HttpError(400, `unknown chat kind ${kind}`);
+    const ws = this.deps.workspaces.find((w) => w.id === (workspace ?? this.deps.workspaces[0]?.id));
+    return { cwd: this.rootOf(ws?.id) ?? this.scratch(kind), env: ws?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: ws.profile.claudeConfigDir } : {} };
+  }
+
+  /**
+   * Jin's own chat or a knowledge chat. It starts in the workspace (its CLAUDE.md, skills and
+   * docs load, as for Claude Code there), with a scratch folder of its own for notes; with no
+   * workspace on this machine, in the scratch folder.
+   */
+  startChat(kind: ChatKind, prompt: string, workspace?: string, name?: string, choice?: RunChoice, id?: string): Session {
     const ws = workspace ?? this.deps.workspaces[0]?.id;
     if (ws && !this.deps.workspaces.some((w) => w.id === ws)) throw new HttpError(404, `unknown workspace ${ws}`);
-    const cwd = join(this.deps.config.home, "chats", kind);
-    mkdirSync(cwd, { recursive: true });
+    const scratch = this.scratch(kind);
+    const cwd = this.rootOf(ws) ?? scratch;
     const title = (name?.trim() || prompt.trim()).replace(/\s+/g, " ").slice(0, 80);
-    const session = this.create({ kind, workspace: ws, title, cwd }, prompt, choice);
+    const session = this.create({ kind, workspace: ws, title, cwd, id }, prompt, choice);
     // A short title in the background: it replaces the first words unless the chat was renamed meanwhile.
     if (!name?.trim()) void this.nameFrom(session.id, prompt, title);
     return session;
@@ -348,6 +420,11 @@ export class Sessions {
     const session = this.get(sessionId);
     const workspace = this.deps.workspaces.find((w) => w.id === session.workspace);
     const cwd = session.cwd ?? (session.taskId ? this.deps.tasks.get(session.taskId).root : this.deps.config.home);
+    // A chat reads the workspace and keeps notes in its scratch folder: whichever it did not start
+    // in is added (a chat from before chats started in the workspace keeps its folder, so it resumes).
+    const root = inTask(session.kind) ? null : this.rootOf(session.workspace);
+    const scratch = inTask(session.kind) ? null : this.scratch(session.kind);
+    const addDirs = [root, scratch].filter((d): d is string => Boolean(d) && d !== cwd);
     const env: Record<string, string> = workspace?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: workspace.profile.claudeConfigDir } : {};
     const controller = new AbortController();
     this.running.set(sessionId, controller);
@@ -359,18 +436,28 @@ export class Sessions {
     // @mentions: resolved (a few seconds at most), shown as chips, and told to the agent with the message.
     const mentioned = mentionLabels(prompt).length && this.deps.mentions ? await Promise.race([this.deps.mentions(prompt).catch(() => [] as Mention[]), Bun.sleep(8000).then(() => [] as Mention[])]) : [];
     if (mentioned.length) this.emit(sessionId, "prompt.mentions", { mentions: mentioned });
+    // /skills: shown as chips; the ones named after the first word are told to the agent.
+    const skills = skillRefs(prompt).length && this.deps.chatSkills ? await Promise.race([this.deps.chatSkills.list(cwd, env).catch(() => []), Bun.sleep(5000).then(() => [])]) : [];
+    const { used, context: skillsNote } = skillContext(prompt, skills);
+    if (used.length) this.emit(sessionId, "prompt.skills", { skills: used });
     try {
       const { sessionId: harnessSessionId } = await harness.run({
-        prompt: prompt + mentionContext(mentioned),
+        prompt: prompt + mentionContext(mentioned) + skillsNote,
         cwd,
         env,
         resume,
         model,
         effort,
-        instructions: chatInstructions(session.kind, workspace),
+        addDirs,
+        instructions: [chatInstructions(session.kind, workspace, { root, scratch }), this.deps.chatNote?.(session)].filter(Boolean).join("\n\n") || undefined,
         // These desks work through the user's claude.ai connectors, which connect in the background.
-        needsConnectors: ["gmail", "slack", "linear", "notion"].includes(session.kind),
-        tools: session.kind === "jin" ? this.deps.jinTools?.() : undefined,
+        needsConnectors: ["desk", "gmail", "slack", "linear", "notion"].includes(session.kind),
+        tools:
+          session.kind === "room"
+            ? this.deps.kindTools?.(session)
+            : session.kind === "jin" || session.kind === "desk" || session.kind === "doc"
+              ? [...(this.deps.jinTools?.() ?? []), ...(this.deps.kindTools?.(session) ?? [])]
+              : undefined,
         gate: this.gate(sessionId, session.workspace),
         emit: (kind, payload) => this.emit(sessionId, kind, payload),
         stream: (kind, payload) => this.publish(sessionId, kind, payload),
@@ -412,7 +499,7 @@ export function sessionRoutes(router: Router, sessions: Sessions, adapters: Map<
     })
     .on("POST", "/api/chats", async (req) => {
       const b = await body<{ kind: string; prompt: string; workspace?: string; title?: string; model?: string; effort?: string }>(req);
-      if (!isChatKind(b.kind)) throw new HttpError(400, `kind must be one of jin, slack, linear, notion, gmail, github`);
+      if (!isChatKind(b.kind)) throw new HttpError(400, `kind must be one of ${CHAT_KINDS.join(", ")}`);
       return json(sessions.startChat(b.kind, b.prompt, b.workspace, b.title, readChoice(b)), 201);
     })
     .on("GET", "/api/sessions/:id", (_req, p) => json(sessions.get(p.id!)))

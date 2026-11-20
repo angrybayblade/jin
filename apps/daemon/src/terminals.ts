@@ -27,6 +27,8 @@ export interface TerminalInfo {
   cwd: string;
   title: string;
   status: AgentStatus;
+  /** While waiting: what for, when known. */
+  waitingFor?: string | null;
   exitCode: number | null;
   /** Claude Code's session id (from its hooks), used to resume after a restart. */
   claudeSessionId: string | null;
@@ -43,6 +45,8 @@ interface Live {
   serializer: SerializeAddon;
   clients: Set<AttachSocket>;
   status: AgentStatus;
+  /** While waiting: what for (Claude Code's notice, or why jin asks). */
+  waitingFor?: string | null;
   exitCode: number | null;
 }
 
@@ -93,6 +97,7 @@ export class Terminals {
       cwd: r.cwd,
       title: r.title,
       status: l ? l.status : resumable ? "interrupted" : "exited",
+      waitingFor: l?.status === "waiting" ? (l.waitingFor ?? null) : null,
       exitCode: l?.exitCode ?? null,
       claudeSessionId: r.claude_session_id,
       createdAt: r.created_at,
@@ -186,9 +191,11 @@ export class Terminals {
   }
 
   /** Hooks from Claude Code report what it is doing. */
-  setStatus(id: string, status: AgentStatus) {
+  setStatus(id: string, status: AgentStatus, waitingFor?: string | null) {
     const l = this.live.get(id);
-    if (l && l.status !== "exited") l.status = status;
+    if (!l || l.status === "exited") return;
+    l.status = status;
+    l.waitingFor = status === "waiting" ? (waitingFor?.slice(0, 200) ?? null) : null;
   }
 
   /** Claude Code's session id; it changes on /clear, so the latest one wins. */

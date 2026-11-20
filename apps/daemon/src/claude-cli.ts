@@ -189,7 +189,7 @@ export function claudeHookRoutes(
       // Claude Code's session id (new on /clear) lets the tab resume after a restart.
       if (typeof input.session_id === "string" && input.session_id) terminals.setClaudeSession(terminalId, input.session_id);
       if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse") terminals.setStatus(terminalId, "working");
-      else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting");
+      else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting", typeof input.message === "string" ? input.message : null);
       else if (event === "Stop" || event === "SessionStart") terminals.setStatus(terminalId, "idle");
     }
     if (terminalId && journal) {
@@ -208,7 +208,7 @@ export function claudeHookRoutes(
     const verdict = evaluate(String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>, workspace ? adapters.get(workspace)?.policy() : undefined);
     if (verdict.decision === "deny") return json({ decision: "deny", reason: verdict.reason });
     if (verdict.decision === "ask") {
-      if (terminalId) terminals.setStatus(terminalId, "waiting");
+      if (terminalId) terminals.setStatus(terminalId, "waiting", `approval: ${verdict.reason}`);
       report();
       return json({ decision: "ask", reason: verdict.reason });
     }

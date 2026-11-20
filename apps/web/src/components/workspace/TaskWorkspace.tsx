@@ -1,25 +1,30 @@
 "use client";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FolderTree, GitCompare, NotebookPen, PanelRightClose, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
+import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FileText, FolderTree, GitCompare, GitPullRequest, MoreHorizontal, NotebookPen, PanelRightClose, Users, UserPlus, Square, Trash2, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archivedTerminals, closeTerminal, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
+import { archivedTerminals, clearRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/app/actions";
+import { DocPage } from "../docs/DocPage";
+import { docMenu } from "../docs/docMenu";
+import type { DocFull, Session, SessionEvent } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 import type { AgentStatus, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
 import { useTabShortcuts } from "@/lib/shortcuts";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
 import { readLayout, updateLayout } from "@/lib/layout";
+import { isPhone } from "@/lib/phone";
 import { useResolvedTheme } from "@/lib/theme";
 import { contextMenu, openContextMenu, type MenuItem } from "../ContextMenu";
 import { RenameInput } from "../RenameInput";
 import { StatusMark, ThermalMark } from "../ThermalMark";
-import { Panes } from "../Panes";
+import { Panes, type PhonePane } from "../Panes";
 import { type SideTab, TaskSidePanel } from "./TaskSidePanel";
 import { TaskLabel, TaskPRBadges } from "./TaskPRs";
 import { DiffView } from "./DiffView";
 import { base, defineTheme, language } from "./monaco";
 import { TerminalView } from "./TerminalView";
+import { RoomPanel } from "./RoomPanel";
 
 const MARK: Record<AgentStatus, "running" | "waiting_approval" | "idle" | "interrupted"> = {
   starting: "running",
@@ -52,6 +57,8 @@ interface Doc {
 type Key = string;
 const termKey = (id: string) => `t:${id}`;
 const fileKey = (p: string) => `f:${p}`;
+const docKey = (id: string) => `d:${id}`;
+type DocTab = { doc: DocFull; chat: { session: Session; events: SessionEvent[] } | null; wsBase: string } | { error: string };
 
 /**
  * A task as one row of tabs: Claude Code sessions, terminals, open files and the diff, with
@@ -108,6 +115,12 @@ export function TaskWorkspace({
   const [files, setFiles] = useState<string[]>([]);
   const [docs, setDocs] = useState<Record<string, Doc>>({});
   const [changesOpen, setChangesOpen] = useState(false);
+  // jin docs open as tabs (the task's own docs, made from "+"): their ids, what each needs, their titles.
+  const [docTabs, setDocTabs] = useState<string[]>([]);
+  const [docData, setDocData] = useState<Record<string, DocTab>>({});
+  const [docTitles, setDocTitles] = useState<Record<string, string>>({});
+  // The task's agent room is always a tab (one room per task).
+  const roomOpen = true;
   // The right panel shows files or the work journal (remembered across tasks).
   const [side, setSideState] = useState<SideTab>("files");
   useEffect(() => {
@@ -126,6 +139,9 @@ export function TaskWorkspace({
   };
   const docsRef = useRef(docs);
   docsRef.current = docs;
+  // On a phone the tabs' body and the side panel are one at a time (the switcher under the bar).
+  const [phonePane, setPhonePane] = useState<PhonePane>("left");
+  const toBody = () => setPhonePane("left");
 
   // ---------------------------------------------------------------- the active tab
   const activeKey = `jin-task-tab:${scope}`;
@@ -136,8 +152,9 @@ export function TaskWorkspace({
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(filesKey) ?? "null") as { tabs?: string[] } | null;
+      const saved = JSON.parse(localStorage.getItem(filesKey) ?? "null") as { tabs?: string[]; docs?: string[]; room?: boolean } | null;
       if (saved?.tabs?.length) setFiles(saved.tabs);
+      if (saved?.docs?.length) setDocTabs(saved.docs);
       // ?terminal=<id> (a notification's link) opens that Claude Code tab; else the last one you had open.
       const wanted = new URLSearchParams(window.location.search).get("terminal");
       setActiveState(wanted ? termKey(wanted) : localStorage.getItem(activeKey));
@@ -145,15 +162,155 @@ export function TaskWorkspace({
   }, [filesKey, activeKey]);
   useEffect(() => {
     try {
-      localStorage.setItem(filesKey, JSON.stringify({ tabs: files }));
+      localStorage.setItem(filesKey, JSON.stringify({ tabs: files, docs: docTabs }));
       if (active) localStorage.setItem(activeKey, active);
     } catch {}
-  }, [filesKey, activeKey, files, active]);
+  }, [filesKey, activeKey, files, docTabs, active]);
 
-  const tabs: Key[] = [...terms.map((t) => termKey(t.id)), ...files.map(fileKey), ...(changesOpen ? ["changes"] : [])];
+  const tabs: Key[] = [...terms.map((t) => termKey(t.id)), ...(roomOpen ? ["room"] : []), ...docTabs.map(docKey), ...files.map(fileKey), ...(changesOpen ? ["changes"] : [])];
   const current: Key | null = active && tabs.includes(active) ? active : (tabs[0] ?? null);
   const currentTerm = current?.startsWith("t:") ? (terms.find((t) => termKey(t.id) === current) ?? null) : null;
   const currentFile = current?.startsWith("f:") ? current.slice(2) : null;
+  const currentDoc = current?.startsWith("d:") ? current.slice(2) : null;
+
+  // Every doc tab's title, even before it is shown.
+  useEffect(() => {
+    if (!docTabs.some((id) => !(id in docTitles))) return;
+    void listDocs()
+      .then((all) => setDocTitles((t) => ({ ...Object.fromEntries(all.filter((d) => docTabs.includes(d.id)).map((d) => [d.id, d.title])), ...t })))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docTabs.join(",")]);
+  // A doc tab loads when first shown.
+  useEffect(() => {
+    if (!currentDoc || docData[currentDoc]) return;
+    const id = currentDoc;
+    void docTab(id).then((r) => {
+      setDocData((d) => ({ ...d, [id]: r }));
+      if (!("error" in r)) setDocTitles((t) => ({ ...t, [id]: r.doc.title }));
+    });
+  }, [currentDoc, docData]);
+  const openRoom = () => setActive("room");
+  // The Room tab says what goes on in it: agents working or waiting on you, and messages you have not seen.
+  const [room, setRoom] = useState<{ working: number; waiting: number; lastSeq: number }>({ working: 0, waiting: 0, lastSeq: 0 });
+  const [roomSeen, setRoomSeen] = useState(0);
+  const [roomIntent, setRoomIntent] = useState<{ n: number; action: "add-agent" } | null>(null);
+  const [roomEpoch, setRoomEpoch] = useState(0);
+  const seenKey = `jin-room-seen:${scope}`;
+  useEffect(() => {
+    try {
+      setRoomSeen(Number(localStorage.getItem(seenKey) ?? 0));
+    } catch {}
+    let live = true;
+    const load = () => document.visibilityState === "visible" && void roomStatus(taskId).then((r) => live && r && setRoom(r));
+    load();
+    const t = setInterval(load, 4000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [taskId, seenKey]);
+  const seeRoom = (seq: number) => {
+    setRoomSeen((s) => Math.max(s, seq));
+    try {
+      localStorage.setItem(seenKey, String(seq));
+    } catch {}
+  };
+  const roomMenu = (): MenuItem[] => [
+    { label: "Add an agent", icon: UserPlus, run: () => (openRoom(), setRoomIntent((i) => ({ n: (i?.n ?? 0) + 1, action: "add-agent" }))) },
+    {
+      label: "Copy the conversation",
+      icon: ClipboardCopy,
+      hint: "markdown",
+      run: async () => {
+        const r = await getRoom(taskId, 0);
+        if ("error" in r) return setError(r.error);
+        const text = r.messages.map((m) => (m.kind === "note" ? `_${m.text}_` : `**${m.author === "you" ? "You" : `${m.authorName} (@${m.authorHandle})`}** · ${new Date(m.at).toLocaleString()}\n\n${m.text}`)).join("\n\n---\n\n");
+        void navigator.clipboard?.writeText(`# ${taskId} · agent room\n\n${text}\n`);
+      },
+    },
+    { divider: true },
+    {
+      label: "Stop every agent",
+      icon: Square,
+      disabled: room.working + room.waiting === 0,
+      run: async () => {
+        const r = await getRoom(taskId, Number.MAX_SAFE_INTEGER);
+        if ("error" in r) return setError(r.error);
+        await Promise.all(r.agents.filter((a) => a.state === "running" || a.state === "waiting_approval").map((a) => roomAgentAction(taskId, a.id, "stop")));
+      },
+    },
+    {
+      label: "Clear the room",
+      icon: Trash2,
+      danger: true,
+      confirm: "Clear the room? Its messages go, and every agent starts a new session. The agents stay.",
+      run: async () => {
+        const r = await clearRoom(taskId);
+        if ("error" in r) return setError(r.error);
+        seeRoom(0);
+        setRoom((x) => ({ ...x, lastSeq: 0 }));
+        setRoomEpoch((n) => n + 1);
+      },
+    },
+  ];
+  /** Open a jin doc as a tab of this task (a doc an agent wrote in the room). */
+  const openDocTab = (id: string) => {
+    setDocTabs((t) => (t.includes(id) ? t : [...t, id]));
+    setActive(docKey(id));
+  };
+  /** A new doc for this task: linked to it (its Claude Code can read it) and opened as a tab. */
+  const newDoc = async () => {
+    const d = await createTaskDoc(taskId);
+    if ("error" in d) return setError(d.error);
+    setDocTabs((t) => [...t, d.id]);
+    setActive(docKey(d.id));
+    router.refresh();
+  };
+  // The task's link to a doc takes the doc's title once you stop typing it (after the doc saved it).
+  const relabel = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const relabelSoon = (id: string) => {
+    clearTimeout(relabel.current);
+    relabel.current = setTimeout(() => void relabelTaskDoc(taskId, id), 3000);
+  };
+  const [docRenaming, setDocRenaming] = useState<string | null>(null);
+  const renameDocTab = async (id: string, v: string) => {
+    setDocRenaming(null);
+    const t = v.trim() || "Untitled";
+    setDocTitles((x) => ({ ...x, [id]: t }));
+    const r = await renameDoc(id, t);
+    if ("error" in r) return setError(r.error);
+    void relabelTaskDoc(taskId, id);
+  };
+  const docTabMenu = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    openContextMenu(
+      e,
+      docMenu({
+        doc: { id, title: docTitles[id] || "Untitled" },
+        at: { clientX: e.clientX, clientY: e.clientY },
+        rename: () => setDocRenaming(id),
+        opened: (copy) => {
+          setDocTabs((t) => [...t, copy]);
+          setActive(docKey(copy));
+        },
+        gone: () => {
+          closeDoc(id);
+          router.refresh();
+        },
+        task: { id: taskId, machine, openInDocs: () => router.push(`/docs/${id}`) },
+        onError: setError,
+      }),
+    );
+  };
+  const closeDoc = (id: string) => {
+    leave(docKey(id));
+    setDocTabs((t) => t.filter((x) => x !== id));
+    setDocData((d) => {
+      const { [id]: _, ...rest } = d;
+      return rest;
+    });
+  };
 
   useEffect(() => {
     if (current) touchTab(current);
@@ -187,9 +344,9 @@ export function TaskWorkspace({
 
   // A task always has something open: its first Claude Code session.
   useEffect(() => {
-    if (terminals.length === 0 && terms.length === 0 && files.length === 0) void create("claude");
+    if (terminals.length === 0 && terms.length === 0 && files.length === 0 && docTabs.length === 0) void create("claude");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terms.length, files.length]);
+  }, [terms.length, files.length, docTabs.length]);
 
   // An interrupted tab (daemon restart) starts again when shown, once.
   useEffect(() => {
@@ -360,6 +517,7 @@ export function TaskWorkspace({
         detail: `${taskId} · ${t.kind === "claude" ? `Claude Code · ${t.status}` : "shell"}`,
         activate: () => setActive(termKey(t.id)),
       })),
+      { id: "room", group: "file" as const, label: "Room", detail: `${taskId} · agent room`, activate: () => setActive("room") },
       ...files.map((p) => ({ id: fileKey(p), group: "file" as const, label: base(p), detail: `${taskId} · ${p}`, activate: () => setActive(fileKey(p)) })),
     ]);
   }, [owner, terms, files, taskId]);
@@ -409,6 +567,8 @@ export function TaskWorkspace({
     const items: MenuItem[] = [
       { label: "New Claude Code session", icon: Plus, run: () => void create("claude") },
       { label: "New terminal", icon: SquareTerminal, run: () => void create("shell") },
+      { label: "New document", icon: FileText, run: () => void newDoc() },
+      { label: "Agent room", icon: Users, run: () => openRoom() },
     ];
     const old = (await archivedTerminals(taskId).catch(() => [] as TerminalInfo[])).filter((t) => t.kind === "claude");
     if (old.length) {
@@ -454,17 +614,35 @@ export function TaskWorkspace({
           {terms.map((t) => {
             const k = termKey(t.id);
             return (
-              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={t.kind === "claude" ? `${t.title} · Claude Code · ${t.status}` : `${t.title} · terminal`} onClick={() => setActive(k)} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => termMenu(t))}>
+              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={t.kind === "claude" ? `${t.title} · Claude Code · ${t.status}` : `${t.title} · terminal`} onClick={() => (setActive(k), toBody())} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => termMenu(t))}>
                 {t.kind === "claude" ? <StatusMark state={MARK[t.status]} /> : <SquareTerminal size={13} className="tab-icon" />}
                 {renaming === t.id ? <RenameInput value={t.title} label={`Rename ${t.title}`} onCancel={() => setRenaming(null)} onSave={(v) => void rename(t, v)} /> : <span className="term-tab-name">{t.title}</span>}
                 {closeButton(k, t.title, () => void closeTerm(t), "Click again to close; the Claude Code session ends")}
               </div>
             );
           })}
+          {roomOpen && (
+            <div role="tab" tabIndex={0} aria-selected={current === "room"} className={`term-tab ${current === "room" ? "is-active" : ""}`} title="Agent room: several agents, each with a role, that you direct" onClick={() => (setActive("room"), toBody())} {...contextMenu(roomMenu)}>
+              {room.waiting > 0 ? <StatusMark state="waiting_approval" /> : room.working > 0 ? <StatusMark state="running" /> : <Users size={13} className="tab-icon" />}
+              <span className="term-tab-name">Room</span>
+              {current !== "room" && room.lastSeq > roomSeen && <span className="dirty-dot" aria-label="new messages" title="New messages" />}
+            </div>
+          )}
+          {docTabs.map((id) => {
+            const k = docKey(id);
+            const name = docTitles[id] || "Untitled";
+            return (
+              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={`${name} · jin doc`} onClick={() => (setActive(k), toBody())} onDoubleClick={() => setDocRenaming(id)} onAuxClick={(e) => e.button === 1 && closeDoc(id)} onContextMenu={(e) => docTabMenu(e, id)}>
+                <FileText size={13} className="tab-icon" />
+                {docRenaming === id ? <RenameInput value={name} label="Doc title" onSave={(v) => void renameDocTab(id, v)} onCancel={() => setDocRenaming(null)} /> : <span className="term-tab-name">{name}</span>}
+                {closeButton(k, name, () => closeDoc(id), "Close")}
+              </div>
+            );
+          })}
           {files.map((p) => {
             const k = fileKey(p);
             return (
-              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={p} onClick={() => setActive(k)} onAuxClick={(e) => e.button === 1 && closeFile(p)} {...contextMenu(() => fileMenu(p))}>
+              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={p} onClick={() => (setActive(k), toBody())} onAuxClick={(e) => e.button === 1 && closeFile(p)} {...contextMenu(() => fileMenu(p))}>
                 <File size={13} className="tab-icon" />
                 <span className="term-tab-name">{base(p)}</span>
                 {dirty(p) && <span className="dirty-dot" aria-label="unsaved" />}
@@ -473,14 +651,14 @@ export function TaskWorkspace({
             );
           })}
           {changesOpen && (
-            <div role="tab" tabIndex={0} aria-selected={current === "changes"} className={`term-tab ${current === "changes" ? "is-active" : ""}`} onClick={() => setActive("changes")}>
+            <div role="tab" tabIndex={0} aria-selected={current === "changes"} className={`term-tab ${current === "changes" ? "is-active" : ""}`} onClick={() => (setActive("changes"), toBody())}>
               <GitCompare size={13} className="tab-icon" />
               <span className="term-tab-name">Changes</span>
               {closeButton("changes", "Changes", () => (leave("changes"), setChangesOpen(false)), "Close")}
             </div>
           )}
         </div>
-        <NewTab onClaude={() => void create("claude")} onShell={() => void create("shell")} onRestore={(e) => void restoreMenu(e)} />
+        <NewTab onClaude={() => (void create("claude"), toBody())} onShell={() => (void create("shell"), toBody())} onDoc={() => (void newDoc(), toBody())} onRoom={() => (openRoom(), toBody())} onRestore={(e) => void restoreMenu(e)} />
         <TaskPRBadges taskId={taskId} prs={prs} />
         <TaskLabel taskId={taskId} subtitle={subtitle} />
         <div className="pane-actions">
@@ -500,12 +678,52 @@ export function TaskWorkspace({
           </button>
           <FilesToggle />
         </div>
+        {/* A phone has no room for the label, PRs and icons: they are in this menu. */}
+        <button
+          type="button"
+          className="button quiet icon-only task-more"
+          title="More"
+          aria-label="More"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            openContextMenu({ clientX: r.right - 220, clientY: r.bottom + 4 }, [
+              { header: `${taskId} · ${subtitle}` },
+              { label: "Changes", icon: GitCompare, hint: "uncommitted diff", run: () => (showChanges(), toBody()) },
+              { label: "New Claude Code session", icon: Plus, run: () => (void create("claude"), toBody()) },
+              { label: "New terminal", icon: SquareTerminal, run: () => (void create("shell"), toBody()) },
+              { label: "New document", icon: FileText, run: () => (void newDoc(), toBody()) },
+              { label: "Agent room", icon: Users, run: () => (openRoom(), toBody()) },
+              ...(prs.length ? [{ divider: true } as const, ...prs.map((p) => ({ label: `${p.repo}#${p.number}`, icon: GitPullRequest, hint: p.title ?? undefined, run: () => void window.open(p.url, "_blank", "noopener") }))] : []),
+              { divider: true },
+              { label: "Copy task id", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(taskId) },
+            ]);
+          }}
+        >
+          <MoreHorizontal size={18} />
+        </button>
       </header>
+      <div className="phone-switch task-phone-switch" role="tablist" aria-label="Task panes">
+        <button type="button" role="tab" aria-selected={phonePane === "left"} className={phonePane === "left" ? "is-active" : ""} onClick={toBody}>
+          {currentFile ? "Editor" : current === "changes" ? "Changes" : "Terminal"}
+        </button>
+        {(
+          [
+            ["files", "Files"],
+            ["journal", "Journal"],
+            ["activity", "Activity"],
+          ] as const
+        ).map(([t, label]) => (
+          <button key={t} type="button" role="tab" aria-selected={phonePane === "right" && side === t} className={phonePane === "right" && side === t ? "is-active" : ""} onClick={() => (setSide(t), setPhonePane("right"))}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <Panes id="task" defaultSplit={80} minLeft={480} minRight={180} toggle={false} left={<div className="task-body">
+      <Panes id="task" defaultSplit={80} minLeft={480} minRight={180} toggle={false} phone={phonePane} onPhone={setPhonePane} phoneSwitch={false} left={<div className="task-body">
         {currentTerm ? (
           running(currentTerm) ? (
-            <TerminalView key={currentTerm.id} terminalId={currentTerm.id} wsBase={wsBase} active autoFocus onState={(s) => s === "exited" && remember({ ...currentTerm, status: "exited" })} />
+            <TerminalView key={currentTerm.id} terminalId={currentTerm.id} wsBase={wsBase} active autoFocus={!isPhone()} onState={(s) => s === "exited" && remember({ ...currentTerm, status: "exited" })} />
           ) : currentTerm.status === "exited" ? (
             <div className="editor-empty">
               <p>{currentTerm.kind === "claude" ? "Claude Code exited." : "The shell exited."}</p>
@@ -559,18 +777,29 @@ export function TaskWorkspace({
               <div className="editor-empty">Loading…</div>
             )}
           </div>
+        ) : currentDoc ? (
+          (() => {
+            const d = docData[currentDoc];
+            if (!d) return <div className="editor-empty">Loading…</div>;
+            if ("error" in d) return <div className="editor-empty">{d.error}</div>;
+            return <DocPage key={currentDoc} embedded initial={d.doc} chat={d.chat} wsBase={d.wsBase} onTitle={(t) => (setDocTitles((x) => ({ ...x, [currentDoc]: t })), relabelSoon(currentDoc))} />;
+          })()
+        ) : current === "room" ? (
+          <div className="room-box">
+            <RoomPanel key={`${scope}:${roomEpoch}`} taskId={taskId} intent={roomIntent} onOpenDoc={openDocTab} onOpenChanges={showChanges} onSeen={seeRoom} />
+          </div>
         ) : current === "changes" ? (
           <DiffView taskId={taskId} active />
         ) : (
           <div className="editor-empty">{error ?? "Open a Claude Code session or a terminal with +, or a file from the tree."}</div>
         )}
-      </div>} right={<TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => openFile(p)} />} />
+      </div>} right={<TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => (openFile(p), toBody())} />} />
     </section>
   );
 }
 
-/** "+": a Claude Code session on click; hover to choose a terminal instead; right-click for archived sessions. */
-function NewTab({ onClaude, onShell, onRestore }: { onClaude: () => void; onShell: () => void; onRestore: (e: React.MouseEvent) => void }) {
+/** "+": a Claude Code session on click; hover to choose a terminal or a document instead; right-click for archived sessions. */
+function NewTab({ onClaude, onShell, onDoc, onRoom, onRestore }: { onClaude: () => void; onShell: () => void; onDoc: () => void; onRoom: () => void; onRestore: (e: React.MouseEvent) => void }) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const show = () => {
@@ -587,7 +816,7 @@ function NewTab({ onClaude, onShell, onRestore }: { onClaude: () => void; onShel
   };
   return (
     <div className="tab-new" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
-      <button type="button" className="term-tab-new" onClick={pick(onClaude)} onContextMenu={onRestore} aria-label="New tab" aria-haspopup="menu" aria-expanded={open} title="New Claude Code session (hover for a terminal; right-click for archived sessions)">
+      <button type="button" className="term-tab-new" onClick={pick(onClaude)} onContextMenu={onRestore} aria-label="New tab" aria-haspopup="menu" aria-expanded={open} title="New Claude Code session (hover for a terminal or a document; right-click for archived sessions)">
         <Plus size={14} />
       </button>
       {open && (
@@ -597,6 +826,12 @@ function NewTab({ onClaude, onShell, onRestore }: { onClaude: () => void; onShel
           </button>
           <button type="button" role="menuitem" onClick={pick(onShell)}>
             <SquareTerminal size={13} /> Terminal
+          </button>
+          <button type="button" role="menuitem" onClick={pick(onDoc)} title="A jin doc for this task (a spec, plan or notes); its Claude Code can read it">
+            <FileText size={13} /> Document
+          </button>
+          <button type="button" role="menuitem" onClick={pick(onRoom)} title="The task's agent room: a designer, an engineer and a reviewer (or your own), each taking a turn when you @-mention it">
+            <Users size={13} /> Agent room
           </button>
         </div>
       )}

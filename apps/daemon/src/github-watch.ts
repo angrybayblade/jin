@@ -98,6 +98,28 @@ export function prEvents(data: WatchData): LiveEvent[] {
   return out;
 }
 
+/**
+ * What the watch says about the feed: the PRs still open (their thread keys), and your own
+ * latest comment or review on each (you acted, so what came before it is handled).
+ */
+export function prSettlement(data: WatchData): { open: Set<string>; mine: { key: string; at: string }[] } {
+  const me = data.viewer.login.toLowerCase();
+  const open = new Set<string>();
+  const mine: { key: string; at: string }[] = [];
+  for (const n of [...data.reviewing.nodes, ...data.mine.nodes, ...(data.reviewed?.nodes ?? [])]) {
+    if (!("number" in n)) continue;
+    const pr = n as PR;
+    const key = githubThread(pr.repository.nameWithOwner, pr.number, pr.title, pr.url).key;
+    open.add(key);
+    const times = [
+      ...pr.comments.nodes.filter((c) => c.author?.login?.toLowerCase() === me).map((c) => c.createdAt),
+      ...pr.reviews.nodes.filter((r) => r.state !== "PENDING" && r.author?.login?.toLowerCase() === me).map((r) => r.submittedAt),
+    ].sort();
+    if (times.length) mine.push({ key, at: times.at(-1)! });
+  }
+  return { open, mine };
+}
+
 export class GithubWatch {
   private timer: ReturnType<typeof setInterval> | null = null;
   private seen: Set<string> | null = null;
@@ -108,6 +130,8 @@ export class GithubWatch {
     home: string,
     private deliver: (e: LiveEvent) => void,
     private gh: (args: string[]) => Promise<string> = runGh,
+    /** Tell the feed which PRs are still open, and where you acted last. */
+    private settle?: (s: ReturnType<typeof prSettlement>) => void,
   ) {
     this.file = join(home, "github-watch.json");
   }
@@ -126,6 +150,7 @@ export class GithubWatch {
     const raw = await this.gh(["api", "graphql", "-f", `query=${QUERY}`, "-f", "q1=is:pr is:open review-requested:@me", "-f", `q2=is:pr is:open author:@me updated:>=${since}`, "-f", `q3=is:pr is:open reviewed-by:@me -author:@me updated:>=${since}`]);
     const data = (JSON.parse(raw) as { data: WatchData }).data;
     const events = prEvents(data);
+    this.settle?.(prSettlement(data));
     this.seen ??= this.load();
     const first = this.seen === null;
     const seen = this.seen ?? new Set<string>();

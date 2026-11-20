@@ -183,6 +183,103 @@ const MIGRATIONS: string[] = [
   alter table sessions add column model text;
   alter table sessions add column effort text;
   `,
+  // 11: why an item might concern you (authored, reviewer, dm, mention, assigned, …), for the desk's triage.
+  `
+  alter table feed_items add column tags text;
+  `,
+  // 12: jin docs (specs, RFCs, notes) that you and jin work on: markdown, its versions, comment
+  // threads anchored to a quote, and jin's suggested edits.
+  `
+  create table docs (
+    id text primary key,
+    title text not null,
+    body text not null default '',
+    tags text not null default '[]',
+    version integer not null default 1,
+    chat_id text,
+    created_at text not null,
+    updated_at text not null,
+    archived_at text
+  );
+  create table doc_versions (
+    doc_id text not null,
+    version integer not null,
+    title text not null,
+    body text not null,
+    by text not null,
+    at text not null,
+    primary key (doc_id, version)
+  );
+  create table doc_threads (
+    id text primary key,
+    doc_id text not null,
+    quote text,
+    prefix text,
+    suffix text,
+    by text not null,
+    resolved_at text,
+    created_at text not null
+  );
+  create index doc_threads_doc on doc_threads (doc_id, created_at);
+  create table doc_comments (
+    id text primary key,
+    thread_id text not null,
+    by text not null,
+    text text not null,
+    at text not null
+  );
+  create index doc_comments_thread on doc_comments (thread_id, at);
+  create table doc_suggestions (
+    id text primary key,
+    doc_id text not null,
+    quote text not null,
+    prefix text,
+    suffix text,
+    replacement text not null,
+    why text,
+    by text not null,
+    status text not null default 'open',
+    created_at text not null,
+    decided_at text
+  );
+  create index doc_suggestions_doc on doc_suggestions (doc_id, created_at);
+  `,
+  // 13: a task's agent room: its agents (profiles, each with a session of its own) and the
+  // messages they and you post. An agent has seen the room up to last_seen.
+  `
+  create table rooms (task_id text primary key, created_at text not null);
+  create table room_agents (
+    id text primary key,
+    task_id text not null,
+    handle text not null,
+    name text not null,
+    brief text not null,
+    access text not null,
+    model text,
+    effort text,
+    color text not null,
+    session_id text,
+    last_seen integer not null default 0,
+    position integer not null default 0,
+    created_at text not null,
+    unique (task_id, handle)
+  );
+  create table room_messages (
+    seq integer primary key autoincrement,
+    task_id text not null,
+    author text not null,
+    author_name text not null,
+    author_handle text,
+    kind text not null default 'message',
+    text text not null,
+    mentions text not null default '[]',
+    pinned integer not null default 0,
+    at text not null
+  );
+  create index room_messages_task on room_messages (task_id, seq);
+  `,
+  // 14: what an agent's turn made or changed (docs), shown with its message.
+  `alter table room_messages add column refs text not null default '[]';`,
 ];
 
 export function openDb(home: string): Database {

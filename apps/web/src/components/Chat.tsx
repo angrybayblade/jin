@@ -3,16 +3,19 @@ import { ArrowUp, ChevronRight, FilePen, Search, ShieldAlert, Square, SquareTerm
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createChat, sendMessage, startTaskSession, stopSession, streamTicket } from "@/app/actions";
-import type { Approval, ChatKind, Mention, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
+import type { Approval, ChatKind, ChatSkill, Mention, RunChoice, Session, SessionEvent, SessionKind, SessionState } from "@/lib/daemon";
 import { useMentionPicker, WithMentions } from "./Mentions";
+import { useSkillPicker } from "./SkillPicker";
 import { useModelChoice } from "./ModelPicker";
 import { Approvals } from "./Approvals";
+import { CHAT_EVENT } from "./ChatRefs";
+import { COMPOSE_EVENT } from "@/lib/desk-events";
 import { ChatTabs } from "./ChatTabs";
 import { Markdown } from "./Markdown";
 import { StatusMark, ThermalMark } from "./ThermalMark";
 
 type Item =
-  | { type: "user"; seq: number; text: string; at: string; mentions?: Mention[] }
+  | { type: "user"; seq: number; text: string; at: string; mentions?: Mention[]; skills?: ChatSkill[] }
   | { type: "agent"; seq: number; text: string }
   | { type: "tool"; seq: number; tool: string; input: Record<string, any>; status: "running" | "done" | "denied" | "waiting"; reason?: string }
   | { type: "note"; seq: number; tone: "error" | "meta"; text: string }
@@ -33,6 +36,12 @@ function toItems(events: SessionEvent[]): Item[] {
         // jin resolved the message's @mentions: they show as chips on it.
         const u = items.findLast((x) => x.type === "user");
         if (u && u.type === "user") u.mentions = p.mentions;
+        break;
+      }
+      case "prompt.skills": {
+        // The /skills the message named: chips too.
+        const u = items.findLast((x) => x.type === "user");
+        if (u && u.type === "user") u.skills = p.skills;
         break;
       }
       case "message":
@@ -225,7 +234,7 @@ function TurnView({ turn, live, streaming, waiting }: { turn: Turn; live: boolea
     <div className="turn">
       {turn.user && (
         <div className="message user">
-          <WithMentions text={turn.user.text} mentions={turn.user.mentions} />
+          <WithMentions text={turn.user.text} mentions={turn.user.mentions} skills={turn.user.skills} />
         </div>
       )}
       {hasWork && (
@@ -285,6 +294,8 @@ export interface ChatProps {
   placeholder: string;
   /** Every open chat of this kind, shown as tabs in the top bar (jin's chat and the desks). */
   chats?: Session[];
+  /** Starts the chat with its first message, when it is not an ordinary chat of its kind (a doc's chat). */
+  start?: (prompt: string, choice: RunChoice) => Promise<{ id: string }>;
 }
 
 export function Chat(props: ChatProps) {
@@ -328,6 +339,8 @@ export function Chat(props: ChatProps) {
           // The recorded message (or the end of the turn) replaces the live text.
           if (e.kind === "message" || e.kind === "session.idle" || e.kind === "session.failed" || e.kind === "tool.requested") setStreaming("");
           setEvents((prev) => [...prev, e]);
+          // jin's right pane reads what the chat mentioned again.
+          if (e.kind === "message" || e.kind === "prompt.mentions" || e.kind === "session.idle") window.dispatchEvent(new CustomEvent(CHAT_EVENT, { detail: { sessionId } }));
           if (e.kind === "session.idle" || e.kind === "session.failed" || e.kind === "approval.requested") router.refresh();
         };
         ws.onclose = () => {
@@ -363,7 +376,7 @@ export function Chat(props: ChatProps) {
       setError(null);
       try {
         if (!sessionId) {
-          const s = props.taskId ? await startTaskSession(props.taskId, prompt, choice) : await createChat(props.kind as ChatKind, prompt, choice);
+          const s = props.start ? await props.start(prompt, choice) : props.taskId ? await startTaskSession(props.taskId, prompt, choice) : await createChat(props.kind as ChatKind, prompt, choice);
           lastSeq.current = 0;
           setEvents([]);
           setSessionId(s.id);
@@ -384,7 +397,25 @@ export function Chat(props: ChatProps) {
 
   // Typing @… offers what to mention (PRs, Linear issues, jin tasks).
   const input = useRef<HTMLTextAreaElement>(null);
+
+  // The desk's Activity asks its agent about a thread: sent now, or left in the box while it works.
+  const latestSend = useRef({ send, busy: false });
+  latestSend.current = { send, busy: busySending || working };
+  useEffect(() => {
+    if (props.kind !== "desk") return;
+    const onCompose = (e: Event) => {
+      const text = (e as CustomEvent<{ text: string }>).detail?.text;
+      if (!text) return;
+      if (latestSend.current.busy) {
+        setDraft(text);
+        input.current?.focus();
+      } else void latestSend.current.send(text);
+    };
+    window.addEventListener(COMPOSE_EVENT, onCompose);
+    return () => window.removeEventListener(COMPOSE_EVENT, onCompose);
+  }, [props.kind]);
   const mention = useMentionPicker(draft, setDraft, input);
+  const skill = useSkillPicker(props.kind, draft, setDraft, input);
 
   // The box grows with what is written, up to its max height, then scrolls.
   useLayoutEffect(() => {
@@ -395,7 +426,7 @@ export function Chat(props: ChatProps) {
   }, [draft]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mention.onKey(e)) return;
+    if (mention.onKey(e) || skill.onKey(e)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send(draft);
@@ -462,15 +493,17 @@ export function Chat(props: ChatProps) {
           }}
         >
           {mention.picker}
+          {skill.picker}
           <textarea
             ref={input}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
               mention.update(e.target.value, e.target.selectionStart ?? e.target.value.length);
+              skill.update(e.target.value, e.target.selectionStart ?? e.target.value.length);
             }}
             onKeyDown={onKey}
-            onBlur={() => setTimeout(mention.close, 120)}
+            onBlur={() => setTimeout(() => (mention.close(), skill.close()), 120)}
             placeholder={props.placeholder}
             rows={1}
             aria-label="Message"

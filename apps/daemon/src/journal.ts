@@ -137,6 +137,11 @@ export class Journal {
     this.current.set(terminalId, { entry: null, change: id });
   }
 
+  /** Journal entries (not the unjournaled changes) since a time, across tasks, newest first. */
+  recent(since: string, limit = 200): JournalEntry[] {
+    return (this.db.query("select * from journal where at > ? and concern is not null order by at desc, rowid desc limit ?").all(since, limit) as any[]).map(toEntry);
+  }
+
   /** The task's journal: concerns in the order they started, entries in order within each. */
   view(taskId: string): JournalView {
     const rows = (this.db.query("select * from journal where task_id = ? order by at, rowid").all(taskId) as any[]).map(toEntry);
@@ -162,5 +167,6 @@ export function journalRoutes(router: Router, journal: Journal) {
       const r = journal.add(p.id!, await body<{ concern?: string; kind?: string; text?: string; why?: string }>(req));
       return json(r, 201);
     })
-    .on("GET", "/api/tasks/:id/journal", (_req, p) => json(journal.view(p.id!)));
+    .on("GET", "/api/tasks/:id/journal", (_req, p) => json(journal.view(p.id!)))
+    .on("GET", "/api/journal/recent", (_req, _p, url) => json(journal.recent(url.searchParams.get("since") ?? new Date(Date.now() - 86_400_000).toISOString())));
 }

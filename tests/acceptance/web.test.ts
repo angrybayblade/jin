@@ -35,13 +35,13 @@ async function startWeb() {
 }
 
 test(
-  "A17 the web app builds and the command center shows the daemon's feed",
+  "A17 the web app builds and the desk shows the daemon's feed",
   async () => {
     const build = Bun.spawnSync(["bun", "run", "build"], { cwd: WEB, env: { ...process.env, JIN_HOME: env.home, JIN_WEB_DIST: WEB_DIST }, stdout: "pipe", stderr: "pipe" });
     if (build.exitCode !== 0) throw new Error(`next build failed:\n${build.stderr.toString().slice(-3000)}${build.stdout.toString().slice(-3000)}`);
     built = true;
     await startWeb();
-    const html = await (await fetch(WEB_ORIGIN)).text();
+    const html = await (await fetch(`${WEB_ORIGIN}/desk`)).text();
     for (const title of ["Rate-limit tool router sessions", "Fix thermos webhook retries", "Dashboard shows stale connection state"]) {
       expect(html).toContain(title);
     }

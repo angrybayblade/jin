@@ -1,8 +1,8 @@
 import { Chat } from "@/components/Chat";
-import { TodayPanel } from "@/components/TodayPanel";
+import { ChatRefs } from "@/components/ChatRefs";
 import { Panes } from "@/components/Panes";
 import { redirect } from "next/navigation";
-import { currentMachine, daemon, daemonWsBase, type Status, type Approval, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, type Status, type Approval, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +11,11 @@ const greeting = () => {
   return h < 12 ? "Good morning." : h < 18 ? "Good afternoon." : "Good evening.";
 };
 
-/** Home: a chat with jin, with what is waiting on the right. */
+/** Home: a chat with jin, with what it has talked about on the right (the desk has what is waiting). */
 export default async function Home({ searchParams }: { searchParams: Promise<{ chat?: string }> }) {
-  const [sessions, approvals, feed, status] = await Promise.all([
+  const [sessions, approvals, status] = await Promise.all([
     daemon<Session[]>("/api/sessions?kind=jin"),
     daemon<Approval[]>("/api/approvals?state=pending"),
-    daemon<FeedItem[]>("/api/feed"),
     daemon<Status>("/api/status"),
   ]);
   // First run on this machine (no workspace, no chats yet): set jin up first.
@@ -26,7 +25,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
   const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
-    <Panes id="home" defaultSplit={70} left={<>
+    <Panes id="home" defaultSplit={70} labels={["Chat", "In this chat"]} left={<>
       <Chat
         key={session?.id ?? "new"}
         chats={sessions}
@@ -44,7 +43,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         }}
         placeholder="Ask jin…"
       /></>}
-      right={<TodayPanel items={feed} />}
+      right={<ChatRefs key={session?.id ?? "new"} sessionId={session?.id ?? null} />}
     />
   );
 }

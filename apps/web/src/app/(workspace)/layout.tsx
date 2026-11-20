@@ -6,7 +6,7 @@ import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
-import { currentMachine, daemon, DaemonUnavailable, homeMachine, type MachineTasks, type Machine, type Approval, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, DaemonUnavailable, homeMachine, type MachineTasks, type Machine, type Approval, type DocSummary, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -46,16 +46,17 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
           homeDown = machines.find((m) => m.id === home)?.label ?? home;
           return empty;
         });
-  let shell: { status: Status; sessions: Session[]; approvals: Approval[]; notifications: NotificationSettings; groups: MachineTasks[] };
+  let shell: { status: Status; sessions: Session[]; approvals: Approval[]; notifications: NotificationSettings; groups: MachineTasks[]; docs: DocSummary[] };
   try {
-    const [status, sessions, approvals, notifications, groups] = await Promise.all([
+    const [status, sessions, approvals, notifications, groups, docs] = await Promise.all([
       daemon<Status>("/api/status", { local: true }),
       fromHome(daemon<Session[]>("/api/sessions"), [] as Session[]),
       fromHome(daemon<Approval[]>("/api/approvals?state=pending"), [] as Approval[]),
       daemon<NotificationSettings>("/api/notifications").catch(() => ({ enabled: true, sound: true })),
       Promise.all([tasksOf({ id: "local", label: "This machine" }, true), ...remote.map((m) => tasksOf(m, false))]),
+      fromHome(daemon<DocSummary[]>("/api/docs"), [] as DocSummary[]).catch(() => [] as DocSummary[]),
     ]);
-    shell = { status, sessions, approvals, notifications, groups };
+    shell = { status, sessions, approvals, notifications, groups, docs };
   } catch (err) {
     if (!(err instanceof DaemonUnavailable)) throw err;
     return (
@@ -83,6 +84,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         mode={shell.status.mode}
         notifications={shell.notifications}
         machines={machines}
+        docs={shell.docs}
       />
       <SidebarResizer />
       <Palette tasks={shell.groups.flatMap((g) => g.tasks.map((t) => ({ ...t, machine: g.id, machineLabel: g.label })))} />

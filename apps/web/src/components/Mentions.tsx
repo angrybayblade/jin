@@ -1,9 +1,9 @@
 "use client";
-import { GitPullRequest, ListChecks, SquareKanban } from "lucide-react";
+import { GitPullRequest, ListChecks, Sparkles, SquareKanban } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { searchMentions } from "@/app/actions";
-import type { Mention } from "@/lib/daemon";
+import type { ChatSkill, Mention } from "@/lib/daemon";
 
 /**
  * @mentions in chats: a picker while typing `@…` in the composer, and chips for the mentions
@@ -53,18 +53,45 @@ function Chip({ label, found }: { label: string; found: Mention[] }) {
   );
 }
 
-/** A message's text with its resolved mentions as chips (unresolved ones stay text). */
-export function WithMentions({ text, mentions }: { text: string; mentions?: Mention[] }) {
-  if (!mentions?.length) return <>{text}</>;
-  const out: ReactNode[] = [];
-  let last = 0;
-  for (const m of text.matchAll(MENTION)) {
+/** `/name` as the daemon reads it (at the start or after a space; not a path). */
+const SKILL = /(^|\s)\/([A-Za-z0-9][\w:.-]*)(?=$|[\s),.;!?])/g;
+
+/** A message's text with its resolved @mentions and the /skills it named as chips (the rest stays text). */
+export function WithMentions({ text, mentions, skills }: { text: string; mentions?: Mention[]; skills?: ChatSkill[] }) {
+  if (!mentions?.length && !skills?.length) return <>{text}</>;
+  const marks: { at: number; len: number; node: ReactNode }[] = [];
+  for (const m of mentions?.length ? text.matchAll(MENTION) : []) {
     const label = m[2]!;
-    const found = mentions.filter((x) => x.label === label);
+    const found = mentions!.filter((x) => x.label === label);
     if (!found.length) continue;
     const at = m.index! + m[1]!.length;
-    out.push(text.slice(last, at), <Chip key={at} label={label} found={found} />);
-    last = at + 1 + label.length;
+    marks.push({ at, len: 1 + label.length, node: <Chip key={at} label={label} found={found} /> });
+  }
+  for (const m of skills?.length ? text.matchAll(SKILL) : []) {
+    const name = m[2]!.replace(/[.:]+$/, "");
+    const skill = skills!.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (!skill) continue;
+    const at = m.index! + m[1]!.length;
+    marks.push({
+      at,
+      len: 1 + name.length,
+      node: (
+        <span key={at} className="mention-chip is-skill" title={skill.description}>
+          <span className="mention-main">
+            <Sparkles size={12} />
+            <span>{name}</span>
+          </span>
+        </span>
+      ),
+    });
+  }
+  marks.sort((a, b) => a.at - b.at);
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of marks) {
+    if (m.at < last) continue;
+    out.push(text.slice(last, m.at), m.node);
+    last = m.at + m.len;
   }
   out.push(text.slice(last));
   return <>{out}</>;

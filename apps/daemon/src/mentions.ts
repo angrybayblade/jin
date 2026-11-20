@@ -1,5 +1,6 @@
 import type { FeedItem } from "./feed";
 import { HttpError, json, type Router } from "./http";
+import { normKey, parseLink } from "./links";
 
 /**
  * Mentions in a chat: `@platform#133` (a pull request), `@PLEN-1334` (a Linear issue, a jin
@@ -233,6 +234,83 @@ export class Mentions {
     return out;
   }
 
+  /**
+   * What a chat mentioned, newest first: links in its messages (PRs, Linear and GitHub issues,
+   * Slack, Notion, mail, other pages), the @mentions jin resolved, and ids written plainly
+   * (platform#133, PLEN-1334) that jin knows. Nothing is looked up: this is read after each turn.
+   */
+  async inChat(lines: ChatLine[]): Promise<ChatRef[]> {
+    if (!lines.length) return [];
+    const { items, repos } = await this.known();
+    const byKey = new Map(items.map((m) => [m.key, m]));
+    const threads = new Map<string, string>();
+    for (const f of this.deps.feed()) if (f.thread?.key && f.thread.title) threads.set(normKey(f.thread.key), f.thread.title);
+    const out = new Map<string, ChatRef>();
+    const add = (seq: number, by: ChatLine["by"], r: Omit<ChatRef, "by" | "count" | "lastSeq">, seen: Set<string>) => {
+      const key = normKey(r.key);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const had = out.get(key);
+      if (!had) {
+        out.set(key, { ...r, key, by, count: 1, lastSeq: seq });
+        return;
+      }
+      had.count++;
+      had.lastSeq = Math.max(had.lastSeq, seq);
+      if (had.by !== by) had.by = "both";
+      for (const f of ["title", "url", "state", "detail"] as const) had[f] ??= r[f];
+    };
+    const fromMention = (m: Mention): Omit<ChatRef, "by" | "count" | "lastSeq"> => ({ key: m.key, kind: m.kind, label: m.label, title: m.title, url: m.url, state: m.state, detail: m.detail, machineLabel: m.machineLabel });
+    for (const line of lines) {
+      const seen = new Set<string>();
+      for (const m of line.mentions ?? []) add(line.seq, line.by, fromMention(m), seen);
+      for (const m of line.text.matchAll(LINK)) {
+        const r = refFromUrl(m[2] ?? m[3]!, m[1]);
+        if (!r) continue;
+        const known = byKey.get(r.key);
+        add(line.seq, line.by, known ? { ...fromMention(known), url: known.url ?? r.url } : { ...r, title: r.title ?? threads.get(normKey(r.key)) ?? null, state: null, detail: null }, seen);
+      }
+      // Written plainly: only what jin knows (an id-looking word is not always a ticket).
+      for (const m of line.text.matchAll(BARE_PR)) {
+        const pr = PR_REF.exec(m[1]!);
+        const repo = pr && (pr[1] ? `${pr[1]}/${pr[2]}` : repos.get(lower(pr[2]!)));
+        const known = repo ? byKey.get(`github:${lower(repo)}#${pr![3]}`) : undefined;
+        if (known) add(line.seq, line.by, fromMention(known), seen);
+      }
+      for (const m of line.text.matchAll(BARE_ID)) {
+        for (const known of items.filter((x) => x.label === m[1] && x.kind !== "pr")) add(line.seq, line.by, fromMention(known), seen);
+      }
+    }
+    return [...out.values()].sort((a, b) => b.lastSeq - a.lastSeq);
+  }
+
+  /**
+   * A title for a new task given none: its Linear issue's (when the id is an issue id), else
+   * the first pull request's among `refs` (PR links or repo#123).
+   */
+  async titleFor(id: string, refs: string[] = []): Promise<{ title: string; from: "issue" | "pr" } | null> {
+    const { items, repos, linearOrg } = await this.known();
+    const issueId = id.trim().toUpperCase();
+    if (ISSUE_ID.test(issueId)) {
+      const known = items.find((m) => m.key === `linear:${issueId}`);
+      const live = await this.lookupIssue(issueId, linearOrg, known);
+      const title = (live?.title ?? known?.title ?? "").replace(new RegExp(`^${issueId}[:\\s-]*`, "i"), "").trim();
+      if (title) return { title, from: "issue" };
+    }
+    for (const ref of refs) {
+      const url = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(ref.trim());
+      const short = PR_REF.exec(ref.trim());
+      const repo = url ? url[1]! : short ? (short[1] ? `${short[1]}/${short[2]}` : repos.get(lower(short[2]!))) : undefined;
+      const number = Number(url ? url[2] : short?.[3]);
+      if (!repo || !number) continue;
+      const pr = await this.lookupPr(repo, number, `${repo}#${number}`);
+      const known = items.find((m) => m.key === `github:${lower(repo)}#${number}`);
+      const title = pr?.title ?? known?.title;
+      if (title) return { title, from: "pr" };
+    }
+    return null;
+  }
+
   private async lookup(q: string, repos: Map<string, string>, linearOrg: string | null): Promise<Mention[]> {
     const pr = PR_REF.exec(q);
     if (pr) {
@@ -261,6 +339,66 @@ export class Mentions {
   }
 }
 
+/** What a chat talked about: PRs, tickets, tasks, Slack threads, Notion pages, mail and other links. */
+export type RefKind = MentionKind | "slack" | "notion" | "mail" | "link";
+
+export interface ChatRef {
+  key: string;
+  kind: RefKind;
+  label: string;
+  title: string | null;
+  url: string | null;
+  state: string | null;
+  detail: string | null;
+  machineLabel?: string;
+  /** Who brought it up: you, jin, or both. */
+  by: "you" | "jin" | "both";
+  /** How many messages mention it, and the last one that did (its seq). */
+  count: number;
+  lastSeq: number;
+}
+
+/** One message of a chat, for what it mentions. */
+export interface ChatLine {
+  seq: number;
+  by: "you" | "jin";
+  text: string;
+  /** What jin resolved of the message's @mentions (live state). */
+  mentions?: Mention[];
+}
+
+const LINK = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()\[\]`"']+)/g;
+const BARE_PR = /(?:^|[\s(@`])((?:[\w.-]+\/)?[A-Za-z][\w.-]*#\d+)(?=$|[\s),.;:!?`])/g;
+const BARE_ID = /(?:^|[\s(@`\[])([A-Z][A-Z0-9]{1,9}-\d+)(?=$|[\s),.;:!?`\]])/g;
+
+/** A URL as a chat ref (without who or when): what kind of thing it is, and its key. */
+export function refFromUrl(raw: string, text?: string): Pick<ChatRef, "key" | "kind" | "label" | "title" | "url"> | null {
+  const url = raw.replace(/[.,;:!?]+$/, "");
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (["localhost", "127.0.0.1", "0.0.0.0"].includes(u.hostname)) return null;
+  const named = text && text !== url ? text.replace(/`/g, "") : null;
+  const gh = u.hostname === "github.com" ? /^\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)/.exec(u.pathname) : null;
+  if (gh) {
+    const repo = `${gh[1]}/${gh[2]}`;
+    const label = `${gh[2]}#${gh[4]}`;
+    const pr = gh[3] === "pull";
+    return { key: `${pr ? "github" : "github-issue"}:${lower(repo)}#${gh[4]}`, kind: pr ? "pr" : "issue", label, title: named && named !== label ? named : null, url: `https://github.com/${repo}/${gh[3]}/${gh[4]}` };
+  }
+  const l = parseLink(url);
+  if (l?.kind === "linear") return { key: l.key, kind: "issue", label: l.label, title: named && named !== l.label ? named : null, url };
+  if (l?.kind === "slack-thread" || l?.kind === "slack-channel") return { key: l.key, kind: "slack", label: named ?? (l.kind === "slack-thread" ? "Slack thread" : "Slack channel"), title: null, url };
+  if (l?.kind === "notion") return { key: l.key, kind: "notion", label: named ?? l.label, title: null, url };
+  u.hash = "";
+  if (u.hostname === "mail.google.com") return { key: `mail:${url}`, kind: "mail", label: named ?? "Email", title: null, url };
+  const short = `${u.hostname.replace(/^www\./, "")}${u.pathname === "/" ? "" : u.pathname}`.slice(0, 80);
+  return { key: `link:${u.toString()}`, kind: "link", label: named ?? short, title: null, url };
+}
+
 /** What the agent is told about a message's mentions (appended to the prompt it gets; the chat shows only the message). */
 export function mentionContext(mentions: Mention[]): string {
   if (!mentions.length) return "";
@@ -278,9 +416,25 @@ export function mentionContext(mentions: Mention[]): string {
   ].join("\n");
 }
 
-export function mentionRoutes(router: Router, mentions: Mentions) {
+/** A chat's messages as lines to read mentions from (its prompts, their resolved @mentions, jin's replies). */
+export function chatLines(events: { seq: number; kind: string; payload: Record<string, any> }[]): ChatLine[] {
+  const lines: ChatLine[] = [];
+  for (const e of events) {
+    if (e.kind === "prompt" && typeof e.payload.text === "string") lines.push({ seq: e.seq, by: "you", text: e.payload.text });
+    else if (e.kind === "message" && typeof e.payload.text === "string") lines.push({ seq: e.seq, by: "jin", text: e.payload.text });
+    else if (e.kind === "prompt.mentions") {
+      const u = lines.findLast((l) => l.by === "you");
+      if (u) u.mentions = e.payload.mentions;
+    }
+  }
+  return lines;
+}
+
+export function mentionRoutes(router: Router, mentions: Mentions, events?: (sessionId: string) => { seq: number; kind: string; payload: Record<string, any> }[]) {
   router
+    .on("GET", "/api/sessions/:id/refs", async (_req, p) => json(events ? await mentions.inChat(chatLines(events(p.id!))) : []))
     .on("GET", "/api/mentions", async (_req, _p, url) => json(await mentions.search(url.searchParams.get("q") ?? "")))
+    .on("GET", "/api/mentions/title", async (_req, _p, url) => json(await mentions.titleFor(url.searchParams.get("id") ?? "", url.searchParams.getAll("ref"))))
     .on("POST", "/api/mentions/resolve", async (req) => {
       const { text } = (await req.json().catch(() => ({}))) as { text?: string };
       if (typeof text !== "string") throw new HttpError(400, "text is required");

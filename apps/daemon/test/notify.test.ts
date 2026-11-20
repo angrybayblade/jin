@@ -53,7 +53,8 @@ test("previews are one plain line", () => {
   expect(plain("**Cleaned** the `cache`:\n\n- 9 GB → 1 GB\n```sh\nrm -rf x\n```\n[docs](https://x.y)")).toBe("Cleaned the cache: - 9 GB → 1 GB docs");
   expect(plain("x".repeat(300)).length).toBe(160);
   expect(chatPath({ kind: "jin", taskId: null })).toBe("/");
-  expect(chatPath({ kind: "slack", taskId: null })).toBe("/c/slack");
+  expect(chatPath({ kind: "desk", taskId: null })).toBe("/desk");
+  expect(chatPath({ kind: "slack", taskId: null })).toBe("/desk");
   expect(chatPath({ kind: "task", taskId: "PLEN-1" })).toBe("/t/PLEN-1");
 });
 

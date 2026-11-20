@@ -12,5 +12,5 @@ export default async function SessionRedirect({ params }: { params: Promise<{ id
   } catch {
     notFound();
   }
-  redirect(s.kind === "task" && s.taskId ? `/t/${encodeURIComponent(s.taskId)}` : s.kind === "jin" ? "/" : `/c/${s.kind}`);
+  redirect(s.kind === "task" && s.taskId ? `/t/${encodeURIComponent(s.taskId)}` : s.kind === "jin" ? "/" : "/desk");
 }

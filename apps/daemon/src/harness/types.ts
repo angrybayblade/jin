@@ -14,6 +14,8 @@ export interface JinTool {
 export interface HarnessRun {
   prompt: string;
   cwd: string;
+  /** More folders the agent may read and work in (beside cwd). */
+  addDirs?: string[];
   /** Extra environment for the agent process, e.g. CLAUDE_CONFIG_DIR for the workspace's profile. */
   env: Record<string, string>;
   /** The harness's own session id to continue, when resuming. */

@@ -3,13 +3,10 @@ import { splitPath, taskHref } from "@/lib/paths";
 import {
   ArrowRight,
   Bell,
-  BookOpen,
   File,
   GitCompare,
-  GitPullRequest,
+  Inbox,
   Layers,
-  Mail,
-  MessageSquare,
   Monitor,
   Moon,
   PanelLeft,
@@ -18,7 +15,6 @@ import {
   RefreshCw,
   Rows3,
   Search,
-  SquareKanban,
   SquareTerminal,
   Sun,
   type LucideIcon,
@@ -44,16 +40,8 @@ interface Item {
   run: () => void | Promise<void>;
 }
 
-const DESKS: { kind: string; label: string; icon: LucideIcon }[] = [
-  { kind: "github", label: "GitHub", icon: GitPullRequest },
-  { kind: "slack", label: "Slack", icon: MessageSquare },
-  { kind: "linear", label: "Linear", icon: SquareKanban },
-  { kind: "notion", label: "Notion", icon: BookOpen },
-  { kind: "gmail", label: "Gmail", icon: Mail },
-];
-
 const PLACEHOLDER: Record<Mode, string> = {
-  commands: "Type a command, a task or a desk…",
+  commands: "Type a command or a task…",
   files: "Find a file in this task…",
   search: "Search text in this task's files…",
   tabs: "Switch to an open tab…",
@@ -72,7 +60,7 @@ export function Palette({ tasks }: { tasks: (Task & { machine: string; machineLa
   const at = splitPath(path);
   const taskId = at.path.startsWith("/t/") ? decodeURIComponent(at.path.slice(3).split("/")[0]!) : null;
   const several = new Set(tasks.map((t) => t.machine)).size > 1;
-  const pageId = taskId ? "task" : path.startsWith("/c/") ? "desk" : "home";
+  const pageId = taskId ? "task" : path.startsWith("/desk") ? "desk" : "home";
   const tabs = useTabs();
   const [mode, setMode] = useState<Mode | null>(null);
   const [query, setQuery] = useState("");
@@ -110,7 +98,7 @@ export function Palette({ tasks }: { tasks: (Task & { machine: string; machineLa
     const go = (href: string) => () => router.push(href);
     const items: Item[] = [{ id: "go:home", title: "Go to Jin", detail: "your orchestrator", icon: Layers, run: go("/") }];
     for (const t of tasks.filter((x) => x.state === "ready")) items.push({ id: `go:task:${t.machine}:${t.id}`, title: `${t.id} ${t.title ?? t.slug}`, detail: `task · ${t.repos.join(", ")}${several ? ` · ${t.machineLabel}` : ""}`, icon: ArrowRight, run: go(taskHref(t.machine, t.id)) });
-    for (const d of DESKS) items.push({ id: `go:desk:${d.kind}`, title: `${d.label} desk`, icon: d.icon, run: go(`/c/${d.kind}`) });
+    items.push({ id: "go:desk", title: "Go to the desk", detail: "activity and your desk agent", icon: Inbox, run: go("/desk") });
     items.push({ id: "task:new", title: "New task…", detail: "⌘⇧N", icon: Plus, run: openNewTaskDialog });
     items.push({ id: "notify:test", title: "Send a test notification", detail: "desktop notification and sound", icon: Bell, run: () => void testNotification() });
     if (taskId) {

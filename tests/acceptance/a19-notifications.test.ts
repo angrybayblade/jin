@@ -29,15 +29,15 @@ test("A19 a finished chat turn notifies with its answer, unless you are watching
   await Bun.sleep(300);
   expect(log()).toHaveLength(1);
 
-  // Turned off: nothing; a desk's turn is labelled with the desk.
+  // Turned off: nothing; the desk agent's turn is labelled Desk.
   await d.json("/api/presence", { method: "POST", json: { path: "/", focused: false } });
   await d.json("/api/notifications", { method: "PATCH", json: { enabled: false } });
   const off = await d.json("/api/chats", { method: "POST", json: { kind: "jin", prompt: scripted([{ text: "quiet" }]) } });
   await until(async () => (await d.json(`/api/sessions/${off.id}`)).state === "idle", 15000, "turn");
   await d.json("/api/notifications", { method: "PATCH", json: { enabled: true, sound: false } });
-  await d.json("/api/chats", { method: "POST", json: { kind: "slack", prompt: scripted([{ text: "2 threads need you" }]) } });
+  await d.json("/api/chats", { method: "POST", json: { kind: "desk", prompt: scripted([{ text: "2 threads need you" }]) } });
   await until(() => log().length === 2, 15000, "desk notification");
-  expect(log()[1]).toMatchObject({ title: "Slack", body: "2 threads need you", path: "/c/slack", sound: false });
+  expect(log()[1]).toMatchObject({ title: "Desk", body: "2 threads need you", path: "/desk", sound: false });
 });
 
 test("A19 a task setup notifies when it is ready", async () => {

@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -34,6 +34,20 @@ export async function feedAction(form: FormData) {
     }),
   );
   revalidatePath("/", "layout");
+}
+
+/** Done with, or later for, every item of a thread (the desk's Focus mode). */
+export async function feedSet(ids: string[], action: "done" | "snooze") {
+  const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await Promise.all(ids.map((id) => daemon(`/api/feed/${encodeURIComponent(id)}/${action}`, { method: "POST", ...(action === "snooze" ? { json: { until } } : {}) })));
+  revalidatePath("/", "layout");
+}
+
+/** A fresh start: everything still open from before `before` is done (kept, not deleted). */
+export async function sweepFeed(before: string): Promise<number> {
+  const r = await daemon<{ cleared: number }>("/api/feed/sweep", { method: "POST", json: { before } });
+  revalidatePath("/", "layout");
+  return r.cleared;
 }
 
 // ---------------------------------------------------------------- chats
@@ -136,6 +150,11 @@ export async function searchMentions(q: string): Promise<Mention[]> {
   return daemon<Mention[]>(`/api/mentions?q=${encodeURIComponent(q)}`, { timeoutMs: 12_000 });
 }
 
+/** What a chat mentioned: PRs, tickets, tasks, Slack threads, Notion pages, links. */
+export async function chatRefs(sessionId: string): Promise<ChatRef[]> {
+  return daemon<ChatRef[]>(`/api/sessions/${encodeURIComponent(sessionId)}/refs`, { timeoutMs: 8_000 });
+}
+
 /** The kinds of task the (first) workspace runs, for the new-task form. */
 export async function listTaskKinds(machine?: string): Promise<TaskKindSpec[]> {
   return (await daemon<{ id: string; taskKinds?: TaskKindSpec[] }[]>("/api/workspaces", { machine }))[0]?.taskKinds ?? [];
@@ -147,9 +166,22 @@ export async function listRepos(workspace?: string, machine?: string): Promise<R
 }
 
 /** Create a task in the background; its page shows setup progress until it is ready. */
-export async function startTaskJob(input: { id: string; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string; links?: string[]; machine?: string }): Promise<{ job: TaskJob } | { error: string }> {
+/** A title for a task given none: its Linear issue's, else its first PR's (looked up on the home). */
+export async function taskTitle(id: string, refs: string[] = []): Promise<{ title: string; from: "issue" | "pr" } | null> {
+  const q = new URLSearchParams({ id });
+  for (const r of refs) q.append("ref", r);
+  return daemon<{ title: string; from: "issue" | "pr" } | null>(`/api/mentions/title?${q}`, { timeoutMs: 20_000 }).catch(() => null);
+}
+
+export async function startTaskJob(input: { id: string; kind?: "change" | "scratch"; type?: string; repos: string[]; slug: string; setup: boolean; prompt?: string; links?: string[]; machine?: string; /** Where the first prompt goes: a Claude Code session, or the task's agent room. */ startIn?: "claude" | "room" }): Promise<{ job: TaskJob } | { error: string }> {
   try {
     const { machine, ...json } = input;
+    // A scratch task needs no title: the workspace numbers it, and it ties to no issue.
+    if (json.kind !== "scratch" && !json.slug.trim()) {
+      const found = await taskTitle(json.id, json.links);
+      if (!found) return { error: `No title given, and none found for ${json.id} in Linear or a linked PR. Add a title.` };
+      json.slug = found.title;
+    }
     const job = await daemon<TaskJob>("/api/task-jobs", { method: "POST", json, machine });
     revalidatePath("/", "layout");
     return { job };
@@ -180,9 +212,10 @@ export async function updateTask(id: string, patch: { title?: string | null; arc
 }
 
 /** Remove a task with the workspace's own tooling. */
-export async function removeTask(id: string, machine?: string): Promise<{ ok: true } | { error: string }> {
+/** Remove a task's checkouts; `discard` (scratch tasks) throws it away whole, unsaved work and its branch included. */
+export async function removeTask(id: string, machine?: string, discard = false): Promise<{ ok: true } | { error: string }> {
   try {
-    await daemon(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE", machine });
+    await daemon(`/api/tasks/${encodeURIComponent(id)}${discard ? "?discard=1" : ""}`, { method: "DELETE", machine });
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {
@@ -565,17 +598,17 @@ export async function getActivity(taskId: string): Promise<TaskActivity | { erro
   }
 }
 
-export async function addTaskLink(taskId: string, url: string): Promise<TaskLink | { error: string }> {
+export async function addTaskLink(taskId: string, url: string, machine?: string): Promise<TaskLink | { error: string }> {
   try {
-    return await daemon<TaskLink>(`/api/tasks/${encodeURIComponent(taskId)}/links`, { method: "POST", json: { url } });
+    return await daemon<TaskLink>(`/api/tasks/${encodeURIComponent(taskId)}/links`, { method: "POST", json: { url }, machine });
   } catch (err) {
     return fail(err);
   }
 }
 
-export async function removeTaskLink(taskId: string, key: string): Promise<{ removed: boolean } | { error: string }> {
+export async function removeTaskLink(taskId: string, key: string, machine?: string): Promise<{ removed: boolean } | { error: string }> {
   try {
-    return await daemon<{ removed: boolean }>(`/api/tasks/${encodeURIComponent(taskId)}/links?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+    return await daemon<{ removed: boolean }>(`/api/tasks/${encodeURIComponent(taskId)}/links?key=${encodeURIComponent(key)}`, { method: "DELETE", machine });
   } catch (err) {
     return fail(err);
   }
@@ -622,5 +655,289 @@ export async function getJournal(taskId: string): Promise<JournalView | { error:
       return { error: `jin on ${machine === "local" ? "this machine" : machine} is older and has no journal yet. Update jin there (Machines → Update jin).` };
     }
     return { error: message };
+  }
+}
+
+/** Claude Code's user settings on a machine ("local": this one). */
+export async function getClaudeSettings(machine: string): Promise<ClaudeSettingsFile | { error: string }> {
+  try {
+    return await daemon<ClaudeSettingsFile>("/api/claude-settings", { machine });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Write them, if the file is still the version `base` names. */
+export async function saveClaudeSettings(machine: string, settings: Record<string, unknown>, base: string): Promise<ClaudeSettingsFile | { error: string }> {
+  try {
+    return await daemon<ClaudeSettingsFile>("/api/claude-settings", { machine, method: "PUT", json: { settings, base } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** The skills a chat of this kind can run (for the composer's / picker). */
+export async function chatSkills(kind: string): Promise<ChatSkill[]> {
+  return daemon<ChatSkill[]>(`/api/chat-skills?kind=${encodeURIComponent(kind)}`, { timeoutMs: 30_000 }).catch(() => []);
+}
+
+// ---------------------------------------------------------------- jin docs (on the home)
+
+const docPath = (id: string) => `/api/docs/${encodeURIComponent(id)}`;
+
+export async function listDocs(q?: string, tag?: string): Promise<DocSummary[]> {
+  const qs = new URLSearchParams();
+  if (q) qs.set("q", q);
+  if (tag) qs.set("tag", tag);
+  return daemon<DocSummary[]>(`/api/docs${qs.size ? `?${qs}` : ""}`);
+}
+
+export async function createDoc(title?: string, body?: string): Promise<Doc | { error: string }> {
+  try {
+    const d = await daemon<Doc>("/api/docs", { method: "POST", json: { title: title ?? "", body: body ?? "" } });
+    revalidatePath("/", "layout");
+    return d;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function getDoc(id: string): Promise<DocFull | { error: string }> {
+  try {
+    return await daemon<DocFull>(docPath(id), { timeoutMs: 8_000 });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Save a doc's text, title or tags; `base` is the version the change was made on (409 when it moved). */
+export async function saveDoc(id: string, patch: { title?: string; body?: string; tags?: string[] }, base: number): Promise<Doc | { error: string; conflict?: boolean }> {
+  try {
+    return await daemon<Doc>(docPath(id), { method: "PUT", json: { ...patch, base } });
+  } catch (err) {
+    const f = fail(err);
+    return { ...f, conflict: /changed since you opened it/.test(f.error) };
+  }
+}
+
+export async function archiveDoc(id: string, archived = true): Promise<void> {
+  await daemon(docPath(id), { method: "PATCH", json: { archived } });
+  revalidatePath("/", "layout");
+}
+
+export async function commentDoc(id: string, text: string, anchor: DocAnchor | null): Promise<DocThread | { error: string }> {
+  try {
+    return await daemon<DocThread>(`${docPath(id)}/threads`, { method: "POST", json: { text, anchor } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function replyDoc(id: string, threadId: string, text: string): Promise<DocThread | { error: string }> {
+  try {
+    return await daemon<DocThread>(`${docPath(id)}/threads/${encodeURIComponent(threadId)}/comments`, { method: "POST", json: { text } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function resolveDocThread(id: string, threadId: string, resolved: boolean): Promise<DocThread | { error: string }> {
+  try {
+    return await daemon<DocThread>(`${docPath(id)}/threads/${encodeURIComponent(threadId)}`, { method: "PATCH", json: { resolved } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function decideDocSuggestion(id: string, suggestionId: string, accept: boolean, base: number): Promise<{ doc: Doc; suggestion: DocSuggestion } | { error: string }> {
+  try {
+    return await daemon<{ doc: Doc; suggestion: DocSuggestion }>(`${docPath(id)}/suggestions/${encodeURIComponent(suggestionId)}/${accept ? "accept" : "reject"}`, { method: "POST", json: { base } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Ask jin in the doc's chat (it starts on first use). */
+export async function askDoc(id: string, prompt: string, choice: RunChoice = {}): Promise<{ id: string }> {
+  const r = await daemon<{ chatId: string }>(`${docPath(id)}/ask`, { method: "POST", json: { prompt, ...choice } });
+  return { id: r.chatId };
+}
+
+/** A doc chat's session and its events (when jin's chat for a doc started from a comment). */
+export async function docChat(chatId: string): Promise<{ session: Session; events: SessionEvent[] } | null> {
+  try {
+    const [session, events] = await Promise.all([daemon<Session>(`/api/sessions/${encodeURIComponent(chatId)}`), daemon<SessionEvent[]>(`/api/sessions/${encodeURIComponent(chatId)}/events`)]);
+    return { session, events };
+  } catch {
+    return null;
+  }
+}
+
+export async function docVersions(id: string): Promise<DocVersion[]> {
+  return daemon<DocVersion[]>(`${docPath(id)}/versions`);
+}
+
+export async function docVersion(id: string, version: number): Promise<{ version: number; title: string; body: string; by: string; at: string }> {
+  return daemon(`${docPath(id)}/versions/${version}`);
+}
+
+export async function restoreDocVersion(id: string, version: number, base: number): Promise<Doc | { error: string }> {
+  try {
+    return await daemon<Doc>(`${docPath(id)}/versions/${version}/restore`, { method: "POST", json: { base } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** A doc for a task (from its "+" menu): tagged with the task, linked to it, so its Claude Code can read it. */
+export async function createTaskDoc(taskId: string): Promise<Doc | { error: string }> {
+  try {
+    const d = await daemon<Doc>("/api/docs", { method: "POST", json: { title: "", body: "", tags: [taskId.toLowerCase()] } });
+    // The link lives with the task, on the task's machine (the doc lives on jin's home).
+    await daemon(`/api/tasks/${encodeURIComponent(taskId)}/links`, { method: "POST", json: { url: `doc:${d.id}` } }).catch(() => {});
+    revalidatePath("/", "layout");
+    return d;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** What a doc tab in a task needs: the doc, its chat with jin, and where the chat streams from. */
+export async function docTab(id: string): Promise<{ doc: DocFull; chat: { session: Session; events: SessionEvent[] } | null; wsBase: string } | { error: string }> {
+  try {
+    const doc = await daemon<DocFull>(docPath(id));
+    const chat = doc.chatId ? await docChat(doc.chatId) : null;
+    return { doc, chat, wsBase: await daemonWsBase({ home: true }) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Name a task's doc link after the doc's title (linking again looks the title up). */
+export async function relabelTaskDoc(taskId: string, docId: string): Promise<void> {
+  await daemon(`/api/tasks/${encodeURIComponent(taskId)}/links`, { method: "POST", json: { url: `doc:${docId}` } }).catch(() => {});
+}
+
+export async function renameDoc(id: string, title: string): Promise<Doc | { error: string }> {
+  try {
+    const d = await daemon<Doc>(docPath(id), { method: "PATCH", json: { title } });
+    revalidatePath("/", "layout");
+    return d;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function duplicateDoc(id: string): Promise<Doc | { error: string }> {
+  try {
+    const d = await daemon<Doc>(`${docPath(id)}/duplicate`, { method: "POST" });
+    revalidatePath("/", "layout");
+    return d;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Delete a doc for good (its versions, comments and suggestions too). */
+export async function deleteDoc(id: string): Promise<{ deleted: true } | { error: string }> {
+  try {
+    await daemon(docPath(id), { method: "DELETE" });
+    revalidatePath("/", "layout");
+    return { deleted: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Every open task on every machine that answers, for "move to task". */
+export async function taskTargets(): Promise<{ id: string; title: string; machine: string; machineLabel: string }[]> {
+  const machines = await daemon<Machine[]>("/api/machines", { local: true }).catch(() => [] as Machine[]);
+  const places = [{ id: "local", label: "This machine" }, ...machines.filter((m) => m.connected).map((m) => ({ id: m.id, label: m.label }))];
+  const lists = await Promise.all(
+    places.map((m) =>
+      daemon<{ id: string; title: string | null; slug: string; state: string; archived?: boolean }[]>("/api/tasks", { machine: m.id, timeoutMs: 4000 })
+        .then((ts) => ts.filter((t) => t.state === "ready" && !t.archived).map((t) => ({ id: t.id, title: t.title ?? t.slug, machine: m.id, machineLabel: m.label })))
+        .catch(() => []),
+    ),
+  );
+  return lists.flat();
+}
+
+// ---------------------------------------------------------------- a task's agent room
+
+const roomPath = (taskId: string, rest = "") => `/api/tasks/${encodeURIComponent(taskId)}/room${rest}`;
+
+/** The room: its agents and what they do now, messages after `after`, what waits on you. */
+export async function getRoom(taskId: string, after = 0): Promise<RoomState | { error: string }> {
+  try {
+    return await daemon<RoomState>(roomPath(taskId, `?after=${after}`));
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Say something in the room: the agents you @-mention take a turn. */
+export async function postRoomMessage(taskId: string, text: string): Promise<RoomMessage | { error: string }> {
+  try {
+    return await daemon<RoomMessage>(roomPath(taskId, "/messages"), { method: "POST", json: { text } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function pinRoomMessage(taskId: string, seq: number, pinned: boolean): Promise<RoomMessage | { error: string }> {
+  try {
+    return await daemon<RoomMessage>(roomPath(taskId, `/messages/${seq}`), { method: "PATCH", json: { pinned } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Add an agent to the room (no id), or change one's profile. */
+export async function saveRoomAgent(taskId: string, id: string | null, profile: RoomProfile): Promise<RoomAgent | { error: string }> {
+  try {
+    return await daemon<RoomAgent>(roomPath(taskId, id ? `/agents/${encodeURIComponent(id)}` : "/agents"), { method: id ? "PATCH" : "POST", json: profile });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Remove an agent, stop its turn, or start it over with a new session ("fresh"). */
+export async function roomAgentAction(taskId: string, id: string, action: "remove" | "stop" | "fresh"): Promise<{ ok: true } | { error: string }> {
+  try {
+    const path = roomPath(taskId, `/agents/${encodeURIComponent(id)}`);
+    await daemon(action === "remove" ? path : `${path}/${action}`, { method: action === "remove" ? "DELETE" : "POST" });
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** An agent's own steps (its session's events): for you to look at, never shown to the other agents. */
+export async function roomAgentEvents(taskId: string, id: string, after = 0): Promise<SessionEvent[]> {
+  return daemon<SessionEvent[]>(roomPath(taskId, `/agents/${encodeURIComponent(id)}/events?after=${after}`)).catch(() => []);
+}
+
+export async function decideRoomApproval(taskId: string, approvalId: string, decision: "approve" | "reject"): Promise<{ ok: true } | { error: string }> {
+  try {
+    await daemon(roomPath(taskId, `/approvals/${encodeURIComponent(approvalId)}`), { method: "POST", json: { decision } });
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** For the task's Room tab: agents working, agents waiting on you, the last message. */
+export async function roomStatus(taskId: string): Promise<{ working: number; waiting: number; lastSeq: number } | null> {
+  return daemon<{ working: number; waiting: number; lastSeq: number }>(roomPath(taskId, "/status")).catch(() => null);
+}
+
+/** Start the room over: its messages go, every agent begins a new session (the agents stay). */
+export async function clearRoom(taskId: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    await daemon(roomPath(taskId, "/messages"), { method: "DELETE" });
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
   }
 }
