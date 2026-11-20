@@ -16,7 +16,8 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Pinned: Playwright's WebKit download for a newer Ubuntu stalled.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +29,14 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - name: WebKit for the smoke checks
-        run: node node_modules/playwright-core/cli.js install --with-deps webkit
+        timeout-minutes: 12
+        # The download can stall: each try gets four minutes.
+        run: |
+          for try in 1 2 3; do
+            timeout 240 node node_modules/playwright-core/cli.js install --with-deps webkit && exit 0
+            echo "try $try did not finish"
+          done
+          exit 1
       - name: Checks
         run: scripts/check.sh
         env:
