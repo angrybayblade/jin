@@ -282,6 +282,8 @@ const MIGRATIONS: string[] = [
   `alter table room_messages add column refs text not null default '[]';`,
   // 15: task setups (jobs), kept across restarts.
   `create table task_jobs (id text primary key, started_at text not null, body text not null);`,
+  // 16: an issue link is an issue from whichever tracker its key names ("linear:ENG-1").
+  `update task_links set kind = 'issue' where kind = 'linear';`,
 ];
 
 export function openDb(home: string): Database {

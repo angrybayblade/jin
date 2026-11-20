@@ -4,20 +4,21 @@ import { join } from "node:path";
 import { now } from "./db";
 import { githubThread, type FeedItem } from "./feed";
 import { body, HttpError, json, type Router } from "./http";
+import type { Trackers } from "./trackers";
 
 /**
- * What a task follows, so events from GitHub, Linear, Slack and Notion land in its Activity:
- * exact thread keys, never guesses. A task's PRs and (for a Linear task) its issue link by
- * themselves; Slack threads, Slack channels and Notion pages are linked by hand (a URL).
+ * What a task follows, so events from GitHub, an issue tracker, Slack and Notion land in its
+ * Activity: exact thread keys, never guesses. A task's PRs and its issue (when its workspace ties
+ * tasks to issues) link by themselves; the rest are linked by hand (a URL).
  *
  *   github:owner/repo#12          a PR attached to the task          (how: pr)
- *   linear:ENG-244                the issue the task is for           (how: issue, from its workspace)
+ *   <tracker>:<id>                an issue: the task's, or linked     (how: issue, or manual) e.g. linear:ENG-244
  *   slack:C123:1700000000.123456  a Slack thread                     (how: manual)
  *   slack-channel:C123            threads started in it after `since` (how: manual)
  *   notion:<32 hex>               comments on a Notion page          (how: manual)
  */
 
-export type LinkKind = "github" | "linear" | "slack-thread" | "slack-channel" | "notion" | "doc";
+export type LinkKind = "github" | "issue" | "slack-thread" | "slack-channel" | "notion" | "doc";
 
 export interface TaskLink {
   taskId: string;
@@ -38,8 +39,8 @@ export function normKey(key: string): string {
   return key;
 }
 
-/** A link from what you paste: a Slack thread or channel, a Notion page, a Linear issue, a jin doc. */
-export function parseLink(raw: string, at = new Date()): Pick<TaskLink, "key" | "kind" | "label" | "since" | "url"> | null {
+/** A link from what you paste: a Slack thread or channel, a Notion page, an issue (any tracker jin knows), a jin doc. */
+export function parseLink(raw: string, at = new Date(), trackers?: Trackers): Pick<TaskLink, "key" | "kind" | "label" | "since" | "url"> | null {
   const url = raw.trim();
   // A jin doc: doc:<id>, or its page in jin (…/docs/<id>, on any of jin's addresses).
   const doc = /^doc:(d[0-9a-f]{10})$/.exec(url)?.[1] ?? /^(?:https?:\/\/[^/]+)?\/docs\/(d[0-9a-f]{10})(?:[/?#]|$)/.exec(url)?.[1];
@@ -65,9 +66,10 @@ export function parseLink(raw: string, at = new Date()): Pick<TaskLink, "key" | 
     const words = decodeURIComponent(u.pathname.split("/").pop() ?? "").replace(new RegExp(`-?${id}$`, "i"), "").replace(/-/g, " ").trim();
     return { key: normKey(`notion:${id}`), kind: "notion", label: words || "Notion page", since: null, url };
   }
-  if (u.hostname === "linear.app") {
-    const m = /\/issue\/([A-Z][A-Z0-9]*-\d+)/.exec(u.pathname);
-    return m ? { key: `linear:${m[1]}`, kind: "linear", label: m[1]!, since: null, url } : null;
+  const issue = trackers?.fromUrl(url);
+  if (issue) {
+    trackers!.learn(url);
+    return { key: `${issue.tracker.id}:${issue.id}`, kind: "issue", label: issue.id, since: null, url };
   }
   return null;
 }
@@ -87,7 +89,10 @@ export function belongs(item: Pick<FeedItem, "thread">, link: Pick<TaskLink, "ke
 const toLink = (r: any): TaskLink => ({ taskId: r.task_id, key: r.key, kind: r.kind, url: r.url, label: r.label, since: r.since, how: "manual", addedAt: r.added_at });
 
 export class TaskLinks {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private trackers?: Trackers,
+  ) {}
 
   /** Links added by hand (the PR and issue links come with the task). */
   list(taskId?: string): TaskLink[] {
@@ -96,8 +101,9 @@ export class TaskLinks {
   }
 
   add(taskId: string, raw: string): TaskLink {
-    const l = parseLink(raw);
-    if (!l) throw new HttpError(400, `not a Slack thread or channel, Notion page, Linear issue or jin doc link: ${raw}`);
+    const l = parseLink(raw, new Date(), this.trackers);
+    const issues = this.trackers?.list().map((t) => t.noun).join(", ") ?? "";
+    if (!l) throw new HttpError(400, `not a Slack thread or channel, Notion page, ${issues ? `${issues} ` : ""}or jin doc link: ${raw}`);
     this.db
       .query("insert into task_links (task_id, key, kind, url, label, since, added_at) values (?, ?, ?, ?, ?, ?, ?) on conflict (task_id, key) do update set url = excluded.url, label = excluded.label")
       .run(taskId, l.key, l.kind, l.url, l.label, l.since, now());
@@ -122,7 +128,7 @@ export class TaskLinks {
 export function ownLinks(task: { id: string; createdAt: string; issue?: { tracker: string; id: string; url?: string | null } | null }, prs: { repo: string; number: number; url: string; title: string | null }[]): TaskLink[] {
   const out: TaskLink[] = prs.map((p) => ({ taskId: task.id, key: githubThread(p.repo, p.number, "", p.url).key, kind: "github", url: p.url, label: `${p.repo.split("/")[1] ?? p.repo}#${p.number}${p.title ? ` ${p.title}` : ""}`, since: null, how: "pr", addedAt: task.createdAt }));
   const issue = task.issue;
-  if (issue && issue.tracker === "linear") out.unshift({ taskId: task.id, key: `linear:${issue.id}`, kind: "linear", url: issue.url ?? null, label: issue.id, since: null, how: "issue", addedAt: task.createdAt });
+  if (issue) out.unshift({ taskId: task.id, key: `${issue.tracker}:${issue.id}`, kind: "issue", url: issue.url ?? null, label: issue.id, since: null, how: "issue", addedAt: task.createdAt });
   return out;
 }
 
@@ -181,6 +187,8 @@ export function linkRoutes(
     changed: () => void;
     /** A link's real name where its address has none (a Notion page's title), or null. */
     title?: (l: TaskLink) => Promise<string | null>;
+    /** How an agent reads an issue link (its tracker says). */
+    trackers?: Trackers;
     /** For a terminal's Claude Code: its task, and the task's PRs with their state. */
     context?: { taskOf: (terminalId: string) => string | null; task: (id: string) => { id: string; kind: string; title: string | null; slug: string }; prs: (taskId: string) => { url: string; title: string | null; state: string | null; draft: boolean; checks: string | null; review: string | null }[] };
   },
@@ -191,7 +199,7 @@ export function linkRoutes(
       const c = deps.context;
       const taskId = c?.taskOf(p.id!);
       if (!c || !taskId) throw new HttpError(404, "this terminal is not in a task");
-      const text = renderContext(c.task(taskId), deps.linksOf(taskId), c.prs(taskId), await deps.feedItems());
+      const text = renderContext(c.task(taskId), deps.linksOf(taskId), c.prs(taskId), await deps.feedItems(), { trackers: deps.trackers });
       return new Response(text, { headers: { "content-type": "text/plain; charset=utf-8" } });
     })
     .on("GET", "/api/tasks/:id/links", (_req, p) => json(deps.linksOf(p.id!)))
@@ -219,12 +227,14 @@ export function linkRoutes(
 }
 
 /** How Claude Code reads a link in full (with the tools it has). */
-export function howToRead(l: Pick<TaskLink, "kind" | "key" | "url" | "since">): string {
+export function howToRead(l: Pick<TaskLink, "kind" | "key" | "url" | "since">, trackers?: Trackers): string {
   switch (l.kind) {
     case "github":
       return `gh pr view ${l.url ?? ""} --comments (and gh pr diff, gh pr checks)`.replace("  ", " ");
-    case "linear":
-      return `the Linear tools: the issue ${l.key.slice(7)} and its comments`;
+    case "issue": {
+      const of = trackers?.ofKey(l.key);
+      return of ? of.tracker.howToRead(of.id) : `the issue tracker's tools: ${l.key} and its comments${l.url ? ` (${l.url})` : ""}`;
+    }
     case "slack-thread": {
       const [, channel, ts] = l.key.split(":");
       return `the Slack tools: read the thread (channel ${channel}, thread ts ${ts})`;
@@ -253,7 +263,7 @@ export function renderContext(
   links: TaskLink[],
   prs: { url: string; title: string | null; state: string | null; draft: boolean; checks: string | null; review: string | null }[],
   items: FeedItem[],
-  opts: { perThread?: number; at?: number } = {},
+  opts: { perThread?: number; at?: number; trackers?: Trackers } = {},
 ): string {
   const per = opts.perThread ?? 5;
   const out: string[] = [`Task ${task.id} (${task.kind}): ${task.title ?? task.slug}`];
@@ -264,7 +274,7 @@ export function renderContext(
   const rest = links.filter((l) => l.kind !== "github");
   if (rest.length) {
     out.push("", "Follows:");
-    for (const l of rest) out.push(`- ${l.label}${l.url ? `  ${l.url}` : ""}\n  read: ${howToRead(l)}`);
+    for (const l of rest) out.push(`- ${l.label}${l.url ? `  ${l.url}` : ""}\n  read: ${howToRead(l, opts.trackers)}`);
   }
   const mine = activity(links, items);
   out.push("", mine.length ? "Latest (newest first, one line each):" : "Nothing has happened on these yet (since jin started following them).");

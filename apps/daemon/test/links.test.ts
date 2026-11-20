@@ -1,3 +1,4 @@
+import { Trackers } from "../src/trackers";
 import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,11 @@ test("links are read from the URLs you paste", () => {
   expect(parseLink("https://app.notion.com/p/41df261a6dfe811aa43fd320af6e1b2c", at)).toMatchObject({ key: "notion:41df261a6dfe811aa43fd320af6e1b2c", kind: "notion", label: "Notion page" });
   expect(parseLink("https://www.notion.com/acme/Launch-plan-1a2b3c4d5e6f40718293a4b5c6d7e8f9", at)?.label).toBe("Launch plan");
   expect(parseLink("https://notnotion.com/p/41df261a6dfe811aa43fd320af6e1b2c", at)).toBeNull();
-  expect(parseLink("https://linear.app/acme/issue/PLEN-244/fix-it", at)).toMatchObject({ key: "linear:PLEN-244", kind: "linear" });
+  // An issue from any tracker jin knows (with none known, an issue link is not one).
+  const trackers = new Trackers({ owners: () => ["acme"] });
+  expect(parseLink("https://linear.app/acme/issue/PLEN-244/fix-it", at, trackers)).toMatchObject({ key: "linear:PLEN-244", kind: "issue" });
+  expect(parseLink("https://github.com/acme/api/issues/7", at, trackers)).toMatchObject({ key: "github:acme/api#7", kind: "issue", label: "acme/api#7" });
+  expect(parseLink("https://linear.app/acme/issue/PLEN-244/fix-it", at)).toBeNull();
   expect(parseLink("https://example.com/x", at)).toBeNull();
   expect(parseLink("not a url", at)).toBeNull();
 });
@@ -76,12 +81,14 @@ test("the context Claude Code asks for: PRs, what the task follows with how to r
     links,
     [{ url: "https://github.com/ComposioHQ/platform/pull/12", title: "Retry", state: "OPEN", draft: false, checks: "failing", review: "CHANGES_REQUESTED" }],
     [item("slack:C1:1700000000.123456", "wrote", "Bob", "we agreed on 100 rps", 30), item("linear:PLEN-244", "commented", "Bea", "scope is personal routes only", 120), item("slack:C9:1.0", "wrote", "X", "unrelated", 5)],
-    { at },
+    { at, trackers: new Trackers() },
   );
   expect(text).toContain("Task PLEN-244 (change): limiter");
   expect(text).toContain("https://github.com/ComposioHQ/platform/pull/12  open, checks failing, changes requested  Retry");
   expect(text).toContain("read: the Slack tools: read the thread (channel C1, thread ts 1700000000.123456)");
   expect(text).toContain("read: the Linear tools: the issue PLEN-244 and its comments");
+  // Without its tracker the issue is still named, with a generic way to read it.
+  expect(renderContext({ id: "PLEN-244", kind: "change", title: null, slug: "limiter" }, links, [], [], { at })).toContain("read: the issue tracker's tools: linear:PLEN-244");
   expect(text).toContain("30m  Bob wrote: we agreed on 100 rps");
   expect(text).toContain("2h  Bea commented: scope is personal routes only");
   expect(text).not.toContain("unrelated");
