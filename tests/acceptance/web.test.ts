@@ -170,6 +170,20 @@ test(
 );
 
 test(
+  "S02 the web app answers only requests addressed to this machine (DNS rebinding gets nothing)",
+  async () => {
+    expect(built).toBe(true);
+    const status = async (host: string, path = "/desk") => (await fetch(`${WEB_ORIGIN}${path}`, { headers: { host } })).status;
+    expect(await status(`127.0.0.1:${WEB_PORT}`)).toBe(200);
+    expect(await status(`localhost:${WEB_PORT}`)).toBe(200);
+    expect(await status("evil.example")).toBe(421);
+    expect(await status(`127.0.0.1.evil.example:${WEB_PORT}`)).toBe(421);
+    expect(await status("evil.example", "/favicon.ico")).toBe(421);
+  },
+  60_000,
+);
+
+test(
   "S01 smoke in WebKit (the desktop window's engine): the pages load, the main flows work, nothing is wider than the window",
   async () => {
     expect(built).toBe(true);
