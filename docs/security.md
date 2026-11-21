@@ -37,7 +37,7 @@ that persist (logs, workspace files, model context, workflow history).
   a name of its own at 127.0.0.1 (DNS rebinding) and read the web app as if it
   were jin. The web app therefore answers only requests addressed to
   127.0.0.1 or localhost (plus names listed in `JIN_WEB_HOSTS`, for jin
-  reached by a Tailscale name); anything else gets 421 (`apps/web/src/proxy.ts`,
+  reached by a Tailscale name: see 8c); anything else gets 421 (`apps/web/src/proxy.ts`,
   acceptance S02). The daemon refuses foreign origins and needs its token.
 - **Multi-tenant needs:** a real identity provider (OIDC), sessions, MFA and
   recovery delegated to it; service-to-service auth between UI, API and

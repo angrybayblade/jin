@@ -7,7 +7,7 @@ import { type NextRequest, NextResponse } from "next/server";
  *   page elsewhere can point a name of its own at 127.0.0.1 (DNS rebinding) and then read jin's
  *   pages and call its actions as if it were jin's own. Such a request still names that other
  *   host, so anything not addressed to loopback (or a name listed in JIN_WEB_HOSTS, for jin
- *   reached over Tailscale) is refused.
+ *   reached over Tailscale; docs/security.md 8c) is refused.
  * - Pages under /m/<machine>/ (another machine's tasks) talk to that machine: the machine goes
  *   in an `x-jin-machine` header the server reads, for the page and the server actions it posts
  *   alike. Next hands the proxy's response headers to the page it renders; acceptance A17 checks
