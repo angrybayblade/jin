@@ -605,6 +605,8 @@ export class Machines {
     t.stopped = false;
     this.tunnels.set(id, t);
     const port = await this.freePort(m.localPort);
+    // Closed (the machine removed) while a port was found: opening now would bring it back.
+    if (t.stopped || this.tunnels.get(id) !== t) return;
     if (port !== m.localPort) this.update(id, { localPort: port });
     t.state = "connecting";
     const proc = this.spawn(["ssh", ...SSH_OPTS, "-N", "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${m.remotePort}`, m.host]);
@@ -673,6 +675,8 @@ export class Machines {
   private async probe(id: string) {
     const t = this.tunnels.get(id);
     if (!t || (!t.proc && !t.attached)) return;
+    // Forgotten behind the tunnel's back (its record gone): drop the line, never throw from a timer.
+    if (!existsSync(this.file(id))) return this.closeTunnel(id);
     const m = this.record(id);
     const wasUp = t.state === "up";
     for (let i = 0; i < (t.state === "connecting" ? 20 : 1); i++) {

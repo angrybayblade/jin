@@ -63,3 +63,32 @@ test("reads the workspaces found on a machine, and the ones jin there uses", () 
   });
   expect(readDetections("")).toEqual({ found: [], using: [] });
 });
+
+test("a machine removed while its tunnel opens stays gone, and its health check never throws", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { Machines } = await import("../src/machines");
+  const home = mkdtempSync(join(tmpdir(), "jin-mach-"));
+  mkdirSync(join(home, "machines"));
+  const record = { id: "gone", host: "gone.example", label: "gone", remotePort: 7317, localPort: null, token: "t", createdAt: new Date().toISOString(), version: null, workspace: null, system: null };
+  const file = join(home, "machines", "gone.json");
+  writeFileSync(file, JSON.stringify(record));
+  const spawned: string[][] = [];
+  const never = new Promise<number>(() => {});
+  const spawn = ((cmd: string[]) => (spawned.push(cmd), { exited: never, kill() {}, stdout: new ReadableStream(), stderr: new ReadableStream() })) as never;
+  const m = new Machines({ home } as never, [], spawn);
+  // Removed while the tunnel looks for a free port: no ssh starts afterwards.
+  const opening = m.openTunnel("gone");
+  await m.remove("gone");
+  await opening;
+  expect(spawned).toEqual([]);
+  // Open, then its record vanishes behind jin's back: the next health check drops the line.
+  writeFileSync(file, JSON.stringify(record));
+  await m.openTunnel("gone");
+  rmSync(file);
+  await (m as unknown as { probe(id: string): Promise<void> }).probe("gone");
+  expect((m as unknown as { tunnels: Map<string, unknown> }).tunnels.size).toBe(0);
+  m.closeTunnel("gone");
+  rmSync(home, { recursive: true, force: true });
+});
