@@ -190,10 +190,53 @@ that persist (logs, workspace files, model context, workflow history).
   authenticated per user; no stored daemon tokens outside the user's own
   machine.
 
+### 8c. Reaching jin from another device (Tailscale)
+
+jin's web app (3917) and daemon (7317) listen on loopback, so another device
+(a phone, a second laptop) cannot reach them directly. There are two ways in,
+and only the first works fully today.
+
+**1. An SSH tunnel over the tailnet (recommended).** Forward both ports and
+open jin at 127.0.0.1 on the device:
+
+```sh
+ssh -N -L 3917:127.0.0.1:3917 -L 7317:127.0.0.1:7317 <machine>.<tailnet>.ts.net
+# then open http://127.0.0.1:3917
+```
+
+The browser still talks to 127.0.0.1, so the Host check, the daemon's origin
+check and the live connections (below) all work unchanged, and nothing needs
+configuring. Tailscale only carries the SSH connection.
+
+**2. Opening the web app by its Tailscale name** (for example with
+`tailscale serve 3917`, which proxies the tailnet name to the loopback port).
+The name must be in `JIN_WEB_HOSTS` (comma-separated, no port) in the **web
+server's** environment, for example `JIN_WEB_HOSTS=jin-mac.example.ts.net`;
+without it every request gets 421, by design (`apps/web/src/proxy.ts`). The
+desktop app starts the web server with its own environment, so an app opened
+from the Dock or Finder never sees a variable set in your shell: start the web
+server yourself
+(`cd ~/.jin/release/app/apps/web && JIN_WEB_HOSTS=… bun run start -p 3917`)
+before opening the app, and the app uses that one.
+
+Even then, **live views do not work this way yet.** Terminals and live chat
+streams open a websocket from the browser straight to the daemon at
+`ws://127.0.0.1:7317`, which from another device is that device's own
+loopback, and the daemon accepts only the origins in its `webOrigins`. Pages,
+lists and actions work (they go through the web server); terminals, chat
+streams and room drafts do not. Use the SSH tunnel until the web server
+proxies those websockets itself.
+
+Either way, the tailnet is the authentication: anyone who can reach the port
+can use jin as you. Keep the machine out of shared tailnet ACLs, and never use
+`tailscale funnel`, which puts it on the public internet. A name in
+`JIN_WEB_HOSTS` is trusted as fully as 127.0.0.1, so list only names that
+resolve to your own machine.
+
 ### 9. Network
 
 - **Single-user today:** jin listens on loopback only, on your Mac and on each
-  machine; machines are reached over SSH. Agents have the machine's outbound
+  machine; machines are reached over SSH (other devices: 8c). Agents have the machine's outbound
   access.
 - **Multi-tenant needs:** egress policy per sandbox (deny by default, allow
   package registries and required APIs), no access to cloud metadata
