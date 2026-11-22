@@ -223,12 +223,8 @@ archive) · `task_prs` · `sessions` (kind: jin, a desk, or task) · `events` ·
 
 ## Status and next
 
-Built: everything above. The acceptance suite (`bun run acceptance`) passes 22/22 next to a
-running dev server; unit tests with `bun run test`.
+Released as 0.1.0 (see [CHANGELOG.md](../CHANGELOG.md)). `bun run check` runs the type
+checks, the daemon tests, the acceptance suite and WebKit smoke checks, locally and on every
+push.
 
-Before a release candidate: nothing open. Each desk says whether its connection is there
-(`/api/desks`); the app re-renders when the daemons' change stamp (`/api/stamp`) moves, not on
-a timer.
-
-Later: feed (snoozed items coming back, Linear, a ranking pass); a plain-git workspace
-adapter; scheduled briefs and PR watches on an always-on machine.
+What it does not do yet, and what to do instead: [limitations.md](limitations.md).
