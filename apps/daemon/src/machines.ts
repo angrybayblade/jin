@@ -88,11 +88,11 @@ const STEPS: { id: StepId; label: string }[] = [
 const LOG_LINES = 300;
 
 let headCache: { at: number; sha: string | null } | null = null;
-/** This jin's commit (short), as onboarding records it on a machine; cached for a few seconds. */
+/** This jin's version (`git describe`: v0.1.0 on a tag, v0.1.0-3-gabc1234 after it), as onboarding records it on a machine; cached for a few seconds. */
 export function localVersion(): string | null {
   if (headCache && Date.now() - headCache.at < 5000) return headCache.sha;
   const root = resolve(import.meta.dir, "../../..");
-  const r = Bun.spawnSync(["git", "-C", root, "rev-parse", "--short", "HEAD"]);
+  const r = Bun.spawnSync(["git", "-C", root, "describe", "--tags", "--always", "--abbrev=7", "HEAD"]);
   // A jin copied to a machine has no git: onboarding left its commit in VERSION.
   const fromFile = () => {
     try {

@@ -8,7 +8,7 @@ HOST=${1:-d-jin.exe.xyz}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 # JIN_REF: deploy another commit than HEAD (a snapshot of uncommitted work, to try it).
 REF=${JIN_REF:-HEAD}
-SHA=$(git -C "$REPO" rev-parse --short "$REF")
+SHA=$(git -C "$REPO" describe --tags --always --abbrev=7 "$REF")
 if [ -z "${JIN_REF:-}" ] && [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no -- apps/daemon package.json bun.lock)" ]; then
   echo "note: uncommitted daemon changes are not deployed; deploying $SHA"
 fi

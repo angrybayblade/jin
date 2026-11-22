@@ -12,7 +12,7 @@ export interface App {
   workspaces: WorkspaceConfig[];
   router: Router;
   tickets: Tickets;
-  /** This jin's commit (a checkout's HEAD, or the VERSION a machine was given). */
+  /** This jin's version (`git describe` of a checkout, or the VERSION a machine was given). */
   version?: () => string | null;
   /** Timers registered by the scheduler; always 0 in local mode. */
   jobs(): number;

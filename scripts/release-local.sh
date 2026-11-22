@@ -26,7 +26,8 @@ fi
 say "jin $(git -C "$REPO" rev-parse --short "$REF") → $DEST"
 mkdir -p "$(dirname "$DEST")"
 [ -d "$DEST/.git" ] || git clone -q --no-local "$REPO" "$DEST"
-git -C "$DEST" fetch -q "$REPO" "$SHA"
+# Tags too: the version jin reports is `git describe`, the same here as on the machines.
+git -C "$DEST" fetch -q --tags "$REPO" "$SHA"
 git -C "$DEST" checkout -q --detach "$SHA"
 
 say "dependencies"
@@ -55,7 +56,7 @@ for _ in $(seq 1 40); do lsof -tiTCP:7317 -sTCP:LISTEN >/dev/null 2>&1 || lsof -
 mkdir -p "$HOME/Applications"
 rm -rf "$HOME/Applications/jin.app"
 cp -R "$APP" "$HOME/Applications/jin.app"
-echo "$SHA" > "$JIN_HOME/release/VERSION"
+git -C "$REPO" describe --tags --always --abbrev=7 "$SHA" > "$JIN_HOME/release/VERSION"
 # Register the app (its jin:// links) and the notifier with Launch Services.
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/jin.app" "$JIN_HOME/notifier/jin.app" >/dev/null 2>&1 || true
