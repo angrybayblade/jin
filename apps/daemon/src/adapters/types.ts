@@ -195,14 +195,35 @@ export interface WorkspaceProvider {
    * Installing a workspace of this kind: where by default (relative to $HOME), and POSIX sh
    * that installs it into $ROOT, or updates one already there. Absent: it can only be used.
    */
-  install?: { defaultRoot: string; script: string };
+  install?: {
+    defaultRoot: string;
+    script: string;
+    /**
+     * What it installs from, when that is the user's to say (a repo to clone): asked for in
+     * setup and given to the script as $SOURCE. `parse` reads what was typed: the source as
+     * the script takes it (plain: no spaces or shell characters), where it goes (relative to
+     * $HOME, instead of defaultRoot) and the workspace's id; null when it is not one.
+     */
+    source?: { label: string; hint: string; parse(text: string): InstallSource | null };
+  };
   /** The id a new workspace of this kind gets in jin. */
   readonly defaultId: string;
+  /** The id for the workspace at `root`, when it has a better one than defaultId (a repo: its name). */
+  idFor?(root: string): string | null;
   /** GitHub owners of a workspace's repos (to tell its pull requests apart), read from the workspace at `root`. */
   owners(root: string): string[];
   /** Tools its workspaces need on a machine. */
   tools(): ToolSpec[];
   create(config: WorkspaceConfig): WorkspaceAdapter;
+}
+
+/** What a provider installs a workspace from, as its installer takes it. */
+export interface InstallSource {
+  source: string;
+  /** Where it goes, relative to $HOME. */
+  root: string;
+  /** The workspace's id in jin. */
+  id: string;
 }
 
 /** A kind of task, as the new-task form and jin's chat offer it. */

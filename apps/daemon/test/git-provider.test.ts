@@ -88,3 +88,52 @@ test("a scratch task: numbered EXP-, on a scratch/ branch, and discarded whole",
   await expect(adapter.removeTask("ENG-9", { discard: true })).rejects.toThrow("only scratch tasks are discarded");
   expect(existsSync(c.root)).toBe(true);
 });
+
+test("one clone is a workspace of that repo: tasks live next to it, never inside", async () => {
+  const { root: folder, pr } = fixture("solo");
+  const root = join(folder, "api");
+  expect(isWorkspaceAt(gitProvider, root)).toBe(true);
+  expect(gitProvider.idFor?.(root)).toBe("api");
+  expect(gitProvider.idFor?.(folder)).toBeNull();
+  const adapter = new GitAdapter({ id: "api", adapter: "git", root, github: { owners: [] }, profile: {} });
+  expect(await adapter.repos()).toMatchObject([{ name: "api", path: root, branch: "main" }]);
+
+  const change = await adapter.startTask({ id: "T-1", kind: "change", repos: ["api"], slug: "Fix it" });
+  expect(change.root).toBe(join(folder, ".jin-tasks", "api", "T-1"));
+  expect(run(change.dirs.api!, "branch", "--show-current")).toBe("change/T-1-fix-it");
+  expect(run(root, "status", "--porcelain")).toBe(""); // nothing appeared in the clone
+  await expect(adapter.startTask({ id: "T-2", kind: "change", repos: ["notes"], slug: "" })).rejects.toThrow("not a repo of this workspace");
+
+  const review = await adapter.startTask({ id: await adapter.nextTaskId("review"), kind: "review", repos: [], slug: "", prs: ["api#7"] });
+  expect(run(review.dirs.api!, "rev-parse", "HEAD")).toBe(pr);
+  expect(adapter.listTasks().map((t) => t.id).sort()).toEqual(["T-1", review.root.split("/").pop()!].sort());
+  expect(adapter.agentBrief({ id: "T-1", kind: "change", root: change.root, repos: ["api"] } as never).readable).toContain(`The clone at ${root}`);
+
+  await adapter.removeTask("T-1");
+  expect(existsSync(change.root)).toBe(false);
+  expect(run(root, "worktree", "list").split("\n").length).toBe(2); // the clone and the review
+});
+
+test("a repo to clone, as typed: GitHub in any spelling goes to gh, other URLs to git, nothing else passes", async () => {
+  const { parseRepo } = await import("../src/adapters/git");
+  for (const t of ["acme/web", "https://github.com/acme/web", "https://github.com/acme/web.git/", "git@github.com:acme/web.git", " acme/web "]) {
+    expect(parseRepo(t)).toEqual({ source: "acme/web", root: "repos/web", id: "web" });
+  }
+  expect(parseRepo("https://gitlab.com/acme/tools/My.Api.git")).toEqual({ source: "https://gitlab.com/acme/tools/My.Api.git", root: "repos/My.Api", id: "my-api" });
+  expect(parseRepo("git@example.com:team/web.git")).toMatchObject({ source: "git@example.com:team/web.git", id: "web" });
+  for (const bad of ["", "web", "-oProxyCommand=x/y", "acme/web; rm -rf ~", "acme/$(id)", "acme/`id`", "a b/c", "acme/web'", "https://x.com/..", "../../etc"]) expect(parseRepo(bad)).toBeNull();
+});
+
+test("the installer clones a repo into its folder, and reuses a clone already there", () => {
+  const { root: folder } = fixture("inst");
+  const origin = join(base, "inst-origin-api.git");
+  const src = `file://${origin}`;
+  const install = (root: string) => spawnSync("sh", ["-c", `set -e\n${gitProvider.install!.script}`], { env: { ...process.env, ROOT: root, SOURCE: src }, encoding: "utf8" });
+  const root = join(folder, "cloned", "api");
+  const first = install(root);
+  expect(first.status).toBe(0);
+  expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("one\n");
+  expect(install(root).stdout).toContain("using the clone already at");
+  const notClone = join(folder, "notes");
+  expect(install(notClone).status).toBe(1);
+});
