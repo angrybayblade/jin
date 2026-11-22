@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **A repo as a workspace.** The git provider takes one clone as well as a folder of them.
+  Setup (and a machine's Workspace card) clones a repo you name (`owner/repo` or a git URL)
+  into `~/repos/<name>` and uses it, next to any workspace already there; tasks are worktrees
+  beside the clone.
+
 ## 0.1.0 (2026-11-22)
 
 The first tagged version of jin: a single-user orchestrator that catches you up, helps you

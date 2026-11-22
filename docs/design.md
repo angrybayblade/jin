@@ -59,8 +59,9 @@ interface WorkspaceProvider {           // a kind of workspace, before one is in
   taskKinds: TaskKindSpec[];            // change / review: id hints, change types, notes
   detectScript(): string;               // sh, here or over SSH: FOUND/PREFERRED <root>
   check: string;                        // sh: is $ROOT one of these?
-  install?: { defaultRoot; script };    // sh installer (absent: point jin at one)
-  defaultId; owners(root);              // its config
+  install?: { defaultRoot; script;      // sh installer (absent: point jin at one)
+              source? };                // what it installs from, asked of the user (a repo): $SOURCE
+  defaultId; idFor?(root); owners(root); // its config
   tools(): ToolSpec[];                  // extra machine tools: install, status, sign-in, token
   create(config): WorkspaceAdapter;
 }
@@ -78,9 +79,12 @@ interface WorkspaceAdapter {            // one configured workspace
   workspace's own `bin/cws` (a change is `task new linear`, its id the Linear issue's, which
   becomes the task's `issue`). Its brief names TASK.md, the map and `cws install`/`up`; it
   declares Doppler as a tool and installs with its own `install.sh`.
-- **git**: any folder whose subfolders are git clones; a task is a worktree per repo under
-  `.jin-tasks/<id>/` (a branch for a change, detached at the PR head for a review). Nothing to
-  install, no extra tools. It is what proves the core stands alone (acceptance A27).
+- **git**: one git clone, or a folder whose subfolders are clones; a task is a worktree per
+  repo (a branch for a change, detached at the PR head for a review), kept outside the clones:
+  `<folder>/.jin-tasks/<id>/` for a folder, `<clone>/../.jin-tasks/<repo>/<id>/` for one
+  clone. Its installer clones a repo the user names (`owner/repo` with gh, or a git URL) into
+  `~/repos/<name>`, as a workspace named after it. No tooling of its own, no extra tools. It
+  is what proves the core stands alone (acceptance A27, A28).
 - A task's issue (`task.issue`) comes from its workspace, never from the shape of its id.
 - Jin's `tasks` table keeps only Jin's metadata (the feed item a task came from) and records
   of removed tasks. `listTasks()` is synchronous for local files and would serve a cached

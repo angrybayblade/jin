@@ -48,15 +48,22 @@ port: 7317               # the daemon's port
 webOrigin: http://127.0.0.1:3917   # the only browser origin the daemon accepts
 ```
 
-Workspaces are `$JIN_HOME/workspaces/<id>.yaml` (the setup page writes one). `adapter` names
-the workspace provider: `cws` (composio-workspace) or `git` (a folder of git clones); GitHub
-owners are read from the workspace when left out:
+Workspaces are `$JIN_HOME/workspaces/<id>.yaml` (the setup page writes one; jin can use
+several). `adapter` names the workspace provider: `cws` (composio-workspace) or `git` (one
+git clone, or a folder of them); GitHub owners are read from the workspace when left out:
 
 ```yaml
-id: repos
+id: web
 adapter: git
-root: /Users/you/code
+root: /Users/you/repos/web   # a clone, or a folder whose subfolders are clones
+tracker: github              # optional: linear, github or none
 ```
+
+**A repo as a workspace** (Settings → Set up jin → Add another, or a machine's Workspace
+card): type `owner/repo` or a git URL. jin clones it into `~/repos/<name>` (with `gh` for
+GitHub, so private repos work with your sign-in) and uses it; a clone you already have is
+used by its path. Tasks are git worktrees beside the clone, in `~/repos/.jin-tasks/<name>/`,
+never inside it.
 
 ## Layout
 
