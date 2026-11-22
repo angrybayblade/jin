@@ -60,9 +60,20 @@ export interface ProviderView {
   description: string;
   /** Where it installs one (under the home folder), when it can. */
   installsTo: string | null;
+  /** What it installs from, when that is asked (a repo to clone): the field's label and hint. */
+  source: { label: string; hint: string } | null;
 }
 
-export const providerViews = (): ProviderView[] => PROVIDERS.map((p) => ({ id: p.id, label: p.label, description: p.description, installsTo: p.install ? `~/${p.install.defaultRoot}` : null }));
+export const providerViews = (): ProviderView[] => PROVIDERS.map((p) => ({ id: p.id, label: p.label, description: p.description, installsTo: p.install ? `~/${p.install.defaultRoot}` : null, source: p.install?.source ? { label: p.install.source.label, hint: p.install.source.hint } : null }));
+
+/** What a provider's installer is given: where it installs, from what, and the workspace's id. */
+export function installPlan(p: WorkspaceProvider, typed?: string): { root: string; source: string | null; id: string | null } {
+  if (!p.install) throw new Error(`jin cannot install a ${p.label}`);
+  if (!p.install.source) return { root: p.install.defaultRoot, source: null, id: null };
+  const s = p.install.source.parse(typed ?? "");
+  if (!s) throw new Error(`${typed?.trim() ? `"${typed.trim()}" is not` : "give"} ${p.install.source.hint}`);
+  return { root: s.root, source: s.source, id: s.id };
+}
 
 /** The tools workspaces jin knows may need on a machine, beyond git, gh and Claude Code (each once). */
 export function providerTools(): ToolSpec[] {

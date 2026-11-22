@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { type Detected, detectionScript, isWorkspaceAt, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
+import { type Detected, detectionScript, installPlan, isWorkspaceAt, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 import { AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, authTools, defaultSpawn, describeTool, driveSignIn, lines, PATH_LINE, readAuthStatus, signInCommand, type SignIn, type Spawn, type Step } from "./machines";
@@ -140,8 +140,9 @@ export class LocalSetup {
     if (!p || !isWorkspaceAt(p, root)) throw new HttpError(400, `${root} is not a workspace jin can use (${PROVIDERS.map((x) => x.label).join(", ")})`);
     if (this.workspaces.some((w) => real(w.root) === real(root))) throw new HttpError(409, `jin already uses the workspace at ${root}`);
     const taken = new Set(this.workspaces.map((w) => w.id));
-    let id = p.defaultId;
-    for (let n = 2; taken.has(id); n++) id = `${p.defaultId}-${n}`;
+    const base = p.idFor?.(root) ?? p.defaultId;
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
     const w: WorkspaceConfig = { id, adapter: p.id, root, github: { owners: p.owners(root) }, profile: {} };
     const dir = join(this.config.home, "workspaces");
     mkdirSync(dir, { recursive: true });
@@ -150,19 +151,26 @@ export class LocalSetup {
     return w;
   }
 
-  /** Install a workspace of this kind with its provider's installer, then use it. */
-  install(providerId?: string) {
+  /** Install a workspace of this kind with its provider's installer (from `source`, when it takes one: a repo), then use it. */
+  install(providerId?: string, source?: string) {
     if (this.installStep?.state === "running") throw new HttpError(409, "a workspace is already being installed");
     const p = providerId ? provider(providerId) : PROVIDERS.find((x) => x.install);
     if (!p?.install) throw new HttpError(400, `jin cannot install a ${p?.label ?? "workspace"}; point it at one instead`);
-    const root = join(this.home, p.install.defaultRoot);
+    let plan: ReturnType<typeof installPlan>;
+    try {
+      plan = installPlan(p, source);
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
+    const root = join(this.home, plan.root);
+    if (this.workspaces.some((w) => real(w.root) === real(root))) throw new HttpError(409, `jin already uses the workspace at ${root}`);
     const step: Step = { id: "workspace", label: `Install ${p.label}`, state: "running", log: [], error: null };
     this.installStep = step;
     const say = (l: string) => {
       step.log.push(l);
       if (step.log.length > LOG_LINES) step.log.splice(0, step.log.length - LOG_LINES);
     };
-    const script = `set -e\n${PATH_LINE}\nROOT=${JSON.stringify(root)}\n${p.install.script}`;
+    const script = `set -e\n${PATH_LINE}\nROOT=${JSON.stringify(root)}\nSOURCE=${JSON.stringify(plan.source ?? "")}\n${p.install.script}`;
     void (async () => {
       try {
         const proc = this.spawn(["bash", "-s"], { stdin: new Blob([script]) });
@@ -215,7 +223,8 @@ export function setupRoutes(router: Router, setup: LocalSetup) {
       return json(await setup.view(), 201);
     })
     .on("POST", "/api/setup/install", async (req) => {
-      setup.install((await body<{ provider?: string }>(req).catch(() => ({}) as { provider?: string })).provider);
+      const b = await body<{ provider?: string; source?: string }>(req).catch(() => ({}) as { provider?: string; source?: string });
+      setup.install(b.provider, b.source);
       return json(await setup.view(), 202);
     });
 }

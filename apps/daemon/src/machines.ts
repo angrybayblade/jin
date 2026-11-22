@@ -1,7 +1,7 @@
 import { problems } from "./problems";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Detected, detectionScript, provider, PROVIDERS, providerTools, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
+import { type Detected, detectionScript, installPlan, provider, PROVIDERS, providerTools, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -1004,7 +1004,7 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
    * Give the machine's jin a workspace: one already on the machine (at `path`), or a new one
    * installed with the provider's own installer (with the machine's gh and tools).
    */
-  setupWorkspace(id: string, opts: { provider: string; path?: string }) {
+  setupWorkspace(id: string, opts: { provider: string; path?: string; source?: string }) {
     const m = this.record(id);
     if (!m.token) throw new HttpError(409, "finish setting up the machine first");
     if (this.busy.has(id)) throw new HttpError(409, "this machine is busy");
@@ -1014,12 +1014,21 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
     if (!path && !p.install) throw new HttpError(400, `jin cannot install a ${p.label}; give the path of one on the machine`);
     // The same GitHub owners as this machine's workspace of that kind, when it has one; else the machine's jin reads them.
     const owners = this.workspaces.find((w) => w.adapter === p.id)?.github.owners ?? [];
-    const root = path ? (path.startsWith("~/") ? `$HOME/${path.slice(2)}` : path) : `$HOME/${p.install!.defaultRoot}`;
-    const yaml = workspaceYaml({ id: p.defaultId, adapter: p.id, root: "$ROOT", owners });
+    // Installing: where, from what (a repo to clone) and under which id, as its provider says.
+    let plan: ReturnType<typeof installPlan> | null = null;
+    try {
+      plan = path ? null : installPlan(p, opts.source);
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
+    const root = path ? (path.startsWith("~/") ? `$HOME/${path.slice(2)}` : path) : `$HOME/${plan!.root}`;
+    const wid = plan?.id ?? p.defaultId;
+    const yaml = workspaceYaml({ id: wid, adapter: p.id, root: "$ROOT", owners: plan?.source ? [] : owners });
     const script = `
 set -e
 ${PATH_LINE}
 ROOT="${root}"
+SOURCE="${plan?.source ?? ""}"
 if [ -n "${path ?? ""}" ]; then
   ( ${p.check} ) || { echo "no ${p.label} at $ROOT"; exit 1; }
   echo "using the workspace at $ROOT"
@@ -1027,7 +1036,7 @@ else
 ${p.install?.script ?? ""}
 fi
 mkdir -p ~/.jin/workspaces
-cat > ~/.jin/workspaces/${p.defaultId}.yaml <<EOF
+cat > ~/.jin/workspaces/${wid}.yaml <<EOF
 ${yaml}EOF
 echo "jin's daemon there now has the workspace; restarting it"
 ${RESTART_SCRIPT}
@@ -1121,8 +1130,8 @@ export function machineRoutes(router: Router, machines: Machines, exportHistory?
       return json(machines.view(p.id!));
     })
     .on("POST", "/api/machines/:id/workspace", async (req, p) => {
-      const { path, provider: kind } = await body<{ path?: string; provider?: string }>(req);
-      machines.setupWorkspace(p.id!, { provider: kind ?? PROVIDERS[0]!.id, path });
+      const { path, provider: kind, source } = await body<{ path?: string; provider?: string; source?: string }>(req);
+      machines.setupWorkspace(p.id!, { provider: kind ?? PROVIDERS[0]!.id, path, source });
       return json(machines.view(p.id!), 202);
     });
 }
