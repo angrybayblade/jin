@@ -6,6 +6,8 @@ your organisation's workspace. Single-user; runs locally or on a private VM.
 - [Design](docs/design.md): what jin is and how it fits together, and what is next.
 - [Security surfaces](docs/security.md): what the single-user version relies on, and
   everything a hosted, multi-tenant jin would have to handle.
+- [Known limitations](docs/limitations.md): what jin does not do yet, and what to do instead.
+- [Changelog](CHANGELOG.md).
 
 ## Install (macOS)
 
@@ -30,10 +32,10 @@ what it needs there, runs its own daemon, and switches the whole app to it throu
 Run a development copy next to the installed app, with its own home and ports:
 
 ```bash
-export JIN_HOME=/tmp/jin-dev && mkdir -p $JIN_HOME
+export JIN_HOME=$HOME/.jin-dev && mkdir -p $JIN_HOME   # not /tmp: macOS cleans it
 printf 'port: 7417\nwebOrigin: http://127.0.0.1:3937\n' > $JIN_HOME/config.yaml
 bun run --cwd apps/daemon start                                   # daemon on 7417
-(cd apps/web && JIN_WEB_DIST=.next-dev bunx next dev -H 127.0.0.1 -p 3937)
+(cd apps/web && JIN_WEB_DIST=.next-dev bunx next dev --webpack -H 127.0.0.1 -p 3937)
 # desktop window against it: (cd apps/desktop && JIN_URL=http://127.0.0.1:3937 hutch electrobun dev)
 ```
 
