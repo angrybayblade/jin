@@ -509,6 +509,8 @@ export interface WorkspaceProviderView {
   label: string;
   description: string;
   installsTo: string | null;
+  /** What it installs from, when it asks (a repo to clone). */
+  source: { label: string; hint: string } | null;
 }
 
 /** First-run setup for this machine (always this machine's daemon). */

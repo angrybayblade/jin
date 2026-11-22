@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cancelSetupSignIn, checkSetupAuth, getSetup, installSetupWorkspace, startSetupSignIn, submitSetupSignInCode, adoptSetupWorkspace } from "@/lib/actions";
 import type { SetupState } from "@/lib/daemon";
-import { SignIn, type SignInActions, Steps } from "./Machines";
+import { InstallOptions, SignIn, type SignInActions, Steps } from "./Machines";
 
 const actions: SignInActions = {
   where: "this machine",
@@ -21,6 +21,8 @@ export function Setup({ initial }: { initial: SetupState }) {
   const [s, setS] = useState(initial);
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // With a workspace already: adding another one (a repo, a folder).
+  const [adding, setAdding] = useState(false);
   const refresh = () => void getSetup().then(setS, () => {});
   useEffect(() => {
     const t = setInterval(() => {
@@ -31,6 +33,7 @@ export function Setup({ initial }: { initial: SetupState }) {
   const use = (p: string, provider?: string) =>
     void adoptSetupWorkspace(p, provider).then((r) => {
       setError(r?.error ?? null);
+      if (!r?.error) setAdding(false), setPath("");
       refresh();
       router.refresh();
     });
@@ -56,7 +59,12 @@ export function Setup({ initial }: { initial: SetupState }) {
             </p>
           ))}
           {s.install && <Steps steps={[s.install]} />}
-          {s.workspaces.length === 0 && !installing && (
+          {s.workspaces.length > 0 && !adding && !installing && (
+            <button type="button" className="button small quiet setup-other" onClick={() => setAdding(true)}>
+              Add another…
+            </button>
+          )}
+          {(s.workspaces.length === 0 || adding) && !installing && (
             <div className="setup-options">
               {s.candidates.map((c) => (
                 <div key={c.root} className="setup-option">
@@ -75,30 +83,22 @@ export function Setup({ initial }: { initial: SetupState }) {
                   use(path);
                 }}
               >
-                <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={s.candidates.length ? "or another folder: ~/path/to/workspace" : "~/path/to/workspace"} spellCheck={false} />
+                <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={s.candidates.length ? "or another: ~/path/to/a/workspace or repo" : "~/path/to/a/workspace or repo"} spellCheck={false} />
                 <button type="submit" className="button small" disabled={!path.trim()}>
                   Use
                 </button>
               </form>
-              {s.providers
-                .filter((p) => p.installsTo)
-                .map((p) => (
-                  <div key={p.id} className="machine-workspace-actions">
-                    <button
-                      type="button"
-                      className="button small"
-                      onClick={() =>
-                        void installSetupWorkspace(p.id).then((r) => {
-                          setError(r?.error ?? null);
-                          refresh();
-                        })
-                      }
-                    >
-                      Install {p.label} into {p.installsTo}
-                    </button>
-                    <span className="meta">{p.description}</span>
-                  </div>
-                ))}
+              <InstallOptions
+                // One a workspace is already made from is not offered again, unless it takes a source (another repo).
+                providers={s.providers.filter((p) => p.source || !s.workspaces.some((w) => w.adapter === p.id))}
+                onInstall={(id, source) =>
+                  void installSetupWorkspace(id, source).then((r) => {
+                    setError(r?.error ?? null);
+                    if (!r?.error) setAdding(false);
+                    refresh();
+                  })
+                }
+              />
             </div>
           )}
           {error && <p className="machine-error">{error}</p>}

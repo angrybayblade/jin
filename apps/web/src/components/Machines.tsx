@@ -19,7 +19,7 @@ import {
   startMachineSignIn,
   submitMachineSignInCode,
 } from "@/lib/actions";
-import type { Machine, MachineAuth, MachineStep } from "@/lib/daemon";
+import type { Machine, MachineAuth, MachineStep, WorkspaceProviderView } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 
 
@@ -224,14 +224,17 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [other, setOther] = useState(false);
+  // With a workspace there already: adding another one.
+  const [adding, setAdding] = useState(false);
   const step = machine.workspaceStep;
   const found = machine.workspaceCandidates ?? [];
   const looking = machine.workspaceCandidates === null;
   const label = (id: string) => machine.providers.find((p) => p.id === id)?.label ?? id;
   const [kind, setKind] = useState(machine.providers[0]?.id ?? "");
-  const go = (provider: string, p?: string) =>
-    void setupMachineWorkspace(machine.id, { provider, path: p }).then((r) => {
+  const go = (provider: string, p?: string, source?: string) =>
+    void setupMachineWorkspace(machine.id, { provider, path: p, source }).then((r) => {
       setError(r?.error ?? null);
+      if (!r?.error) setAdding(false);
       refresh();
     });
   const pathForm = (
@@ -251,7 +254,7 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
           ))}
         </select>
       )}
-      <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/path/to/workspace" spellCheck={false} />
+      <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/path/to/a/workspace or repo" spellCheck={false} />
       <button type="submit" className="button small" disabled={!path.trim() || machine.busy}>
         Use
       </button>
@@ -275,7 +278,12 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
         </p>
       )}
       {step && <Steps steps={[step]} />}
-      {!machine.workspace && step?.state !== "running" && (
+      {machine.workspace && !adding && step?.state !== "running" && (
+        <button type="button" className="button small quiet setup-other" onClick={() => setAdding(true)}>
+          Add another…
+        </button>
+      )}
+      {(!machine.workspace || adding) && step?.state !== "running" && (
         <div className="setup-options">
           {looking && (
             <p className="meta setup-done">
@@ -292,18 +300,7 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
               </button>
             </div>
           ))}
-          {!looking &&
-            found.length === 0 &&
-            machine.providers
-              .filter((p) => p.installsTo)
-              .map((p) => (
-                <div key={p.id} className="machine-workspace-actions">
-                  <button type="button" className="button small primary" disabled={machine.busy} onClick={() => go(p.id)}>
-                    Install {p.label} into {p.installsTo}
-                  </button>
-                  <span className="meta">None found in the usual places.</span>
-                </div>
-              ))}
+          {!looking && <InstallOptions providers={machine.providers.filter((p) => p.source || found.length === 0)} disabled={machine.busy} onInstall={(id, source) => go(id, undefined, source)} />}
           {!looking && (other || found.length === 0 ? pathForm : (
             <button type="button" className="button small quiet setup-other" onClick={() => setOther(true)}>
               Somewhere else…
@@ -314,6 +311,44 @@ function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void
       {error && <p className="machine-error">{error}</p>}
       </div>
     </section>
+  );
+}
+
+/**
+ * The workspaces jin can install: a button each, or a field and a button for one installed
+ * from something the user names (a repo to clone).
+ */
+export function InstallOptions({ providers, disabled, onInstall }: { providers: WorkspaceProviderView[]; disabled?: boolean; onInstall: (provider: string, source?: string) => void }) {
+  const [sources, setSources] = useState<Record<string, string>>({});
+  return (
+    <>
+      {providers
+        .filter((p) => p.installsTo)
+        .map((p) =>
+          p.source ? (
+            <form
+              key={p.id}
+              className="machine-inline-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                onInstall(p.id, sources[p.id]?.trim());
+              }}
+            >
+              <input className="machine-input" value={sources[p.id] ?? ""} onChange={(e) => setSources((s) => ({ ...s, [p.id]: e.target.value }))} placeholder={`${p.label}: ${p.source.hint}`} aria-label={p.source.label} spellCheck={false} />
+              <button type="submit" className="button small" disabled={disabled || !sources[p.id]?.trim()} title={`Clones it into ${p.installsTo}/<name> and uses it`}>
+                Clone
+              </button>
+            </form>
+          ) : (
+            <div key={p.id} className="machine-workspace-actions">
+              <button type="button" className="button small" disabled={disabled} onClick={() => onInstall(p.id)}>
+                Install {p.label} into {p.installsTo}
+              </button>
+              <span className="meta">{p.description}</span>
+            </div>
+          ),
+        )}
+    </>
   );
 }
 

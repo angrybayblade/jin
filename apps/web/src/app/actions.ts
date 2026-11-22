@@ -464,9 +464,9 @@ export async function detectMachineWorkspaces(id: string): Promise<void> {
   });
 }
 
-export async function setupMachineWorkspace(id: string, opts: { provider: string; path?: string }): Promise<{ error: string } | null> {
+export async function setupMachineWorkspace(id: string, opts: { provider: string; path?: string; source?: string }): Promise<{ error: string } | null> {
   try {
-    await daemon(machinePath(id, "/workspace"), { method: "POST", json: { provider: opts.provider, path: opts.path || undefined }, local: true });
+    await daemon(machinePath(id, "/workspace"), { method: "POST", json: { provider: opts.provider, path: opts.path || undefined, source: opts.source || undefined }, local: true });
     return null;
   } catch (err) {
     return fail(err);
@@ -526,9 +526,9 @@ export async function adoptSetupWorkspace(path: string, provider?: string): Prom
   }
 }
 
-export async function installSetupWorkspace(provider: string): Promise<{ error: string } | null> {
+export async function installSetupWorkspace(provider: string, source?: string): Promise<{ error: string } | null> {
   try {
-    await daemon("/api/setup/install", { method: "POST", json: { provider }, local: true });
+    await daemon("/api/setup/install", { method: "POST", json: { provider, source: source || undefined }, local: true });
     return null;
   } catch (err) {
     return fail(err);
