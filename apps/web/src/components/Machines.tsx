@@ -1,7 +1,7 @@
 "use client";
-import { AgentPicker } from "@/components/AgentPicker";
+import { HarnessSettings } from "@/components/HarnessSettings";
 import { Empty } from "@/components/States";
-import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -578,10 +578,36 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
             </ul>
           </section>
           <Workspace machine={m} refresh={refresh} />
-          <AgentPicker machine={m.id} name={m.label} />
+          <HarnessSettings machine={m.id} name={m.label} />
           <Home machine={m} refresh={refresh} />
         </>
       )}
+    </article>
+  );
+}
+
+/** This machine: its coding agents and their settings, and the way to its setup. */
+function LocalMachine() {
+  const router = useRouter();
+  return (
+    <article className="machine-detail">
+      <header className="md-head">
+        <span className="md-icon">
+          <Monitor size={16} />
+        </span>
+        <div className="md-title">
+          <div className="md-name">
+            <h2>This machine</h2>
+          </div>
+          <span className="meta">where this app and its daemon run</span>
+        </div>
+        <div className="md-actions">
+          <button type="button" className="button small" onClick={() => router.push("/setup")}>
+            <Wrench size={12} /> Set up jin
+          </button>
+        </div>
+      </header>
+      <HarnessSettings machine="local" name="this machine" />
     </article>
   );
 }
@@ -592,7 +618,8 @@ export function Machines({ machines, selected }: { machines: Machine[]; selected
   const [host, setHost] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [pick, setPick] = useState<string | null>(selected ?? machines[0]?.id ?? null);
+  // "local": this machine (its own page: its coding agents and their settings).
+  const [pick, setPick] = useState<string | null>(selected ?? machines[0]?.id ?? "local");
   const chosen = machines.find((m) => m.id === pick) ?? null;
   return (
     <div className="machines">
@@ -604,7 +631,7 @@ export function Machines({ machines, selected }: { machines: Machine[]; selected
       </header>
       <div className="machines-body" data-scroll="y">
         <aside className="machines-list">
-          <button type="button" className="machines-item" onClick={() => router.push("/setup")} title="This machine's setup">
+          <button type="button" className={`machines-item ${pick === "local" ? "is-selected" : ""}`} onClick={() => setPick("local")}>
             <Monitor size={14} />
             <span className="machines-item-name">This machine</span>
           </button>
@@ -649,7 +676,9 @@ export function Machines({ machines, selected }: { machines: Machine[]; selected
           </form>
         </aside>
         <main className="machines-main">
-          {chosen ? (
+          {pick === "local" ? (
+            <LocalMachine />
+          ) : chosen ? (
             <MachineDetail key={chosen.id} initial={chosen} onRemoved={() => (setPick(null), router.refresh())} />
           ) : (
             <Empty place="pane" icon={Server} title="Add a machine you reach with ssh">

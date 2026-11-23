@@ -1,6 +1,6 @@
 "use client";
 import { RetrySoon } from "./AutoRefresh";
-import { AlertTriangle, Bell, Radio, Server, Settings2, SlidersHorizontal, Sparkles, Webhook, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, Radio, Server, Settings2, Sparkles, Webhook, Wrench } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { Machine } from "@/lib/daemon";
@@ -12,7 +12,6 @@ const SETTINGS = [
   { label: "Live events", icon: Radio, href: "/live" },
   { label: "Hooks", icon: Webhook, href: "/hooks" },
   { label: "Skills", icon: Sparkles, href: "/skills" },
-  { label: "Claude Code", icon: SlidersHorizontal, href: "/claude" },
   { label: "Notifications", icon: Bell, href: "/notifications" },
   { label: "Problems", icon: AlertTriangle, href: "/problems" },
 ] as const;

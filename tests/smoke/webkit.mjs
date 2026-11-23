@@ -102,7 +102,7 @@ await visit("a doc", `/docs/${DOC}`, {
   },
 });
 
-for (const path of ["/desk", "/machines", "/claude", "/hooks", "/skills", "/notifications", "/problems", "/setup"]) await visit(path, path);
+for (const path of ["/desk", "/machines", "/machines?m=local", "/hooks", "/skills", "/notifications", "/problems", "/setup"]) await visit(path, path);
 
 // A task that is not there: the page says so inside the app (the sidebar stays), not a blank error.
 await visit("a task that is not there", "/t/NOPE-404", {

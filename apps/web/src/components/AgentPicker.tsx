@@ -72,13 +72,6 @@ export function AgentPicker({ machine, name }: { machine?: string; name: string 
           Each agent uses its own setup and sign-in on {name}; tabs and chats already open keep theirs. Whichever runs, jin checks every tool call and asks before anything outward: Claude Code, pi and
           opencode in their own prompt, Codex through its sandbox. A task&apos;s chats and agent rooms use it too; jin&apos;s chat and desks stay on Claude.
         </p>
-        {agents?.agents
-          .filter((a) => a.installed && a.problem)
-          .map((a) => (
-            <p key={a.id} className="meta">
-              {a.label}: {a.problem}
-            </p>
-          ))}
         {error && <p className="machine-error">{error}</p>}
       </div>
     </section>
