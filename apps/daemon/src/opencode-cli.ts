@@ -7,22 +7,18 @@ import { taskRules } from "./claude-cli";
 import type { Config } from "./config";
 
 /**
- * opencode in a terminal tab. Everything jin adds goes in OPENCODE_CONFIG_CONTENT for that
- * launch (nothing is written to ~/.config/opencode): jin's plugin (`hooks/opencode-plugin.ts`),
- * which checks every tool call with the daemon; every tool set to "ask", so a call jin asks
- * about shows opencode's own permission prompt (the plugin answers the rest itself); jin's
- * tools as an MCP server; and the task's rules as an instructions file. opencode keeps its own
- * models and sign-ins.
+ * opencode 2 in a terminal tab. Everything jin adds goes in OPENCODE_CONFIG_CONTENT for that
+ * launch (nothing is written to ~/.config/opencode): jin's plugin (`hooks/opencode-plugin/`),
+ * which checks every tool call with the daemon and sends the ones jin asks about to opencode's
+ * own approval prompt; jin's tools as an MCP server; and the task's rules as an instructions
+ * file. opencode runs --standalone: by default every client shares one background server, which
+ * runs the tools with its own configuration and would never load jin's plugin. opencode keeps its
+ * own models and sign-ins.
  */
 
-export const OPENCODE_PLUGIN = join(import.meta.dir, "hooks", "opencode-plugin.ts");
-
-/** Every tool asks (the plugin answers what jin allows), named ones too, so a user's own "allow" cannot skip jin's ask. */
-const ASK_ALL = { "*": "ask", bash: "ask", edit: "ask", write: "ask", read: "ask", glob: "ask", grep: "ask", list: "ask", webfetch: "ask", websearch: "ask", task: "ask", patch: "ask", external_directory: "ask" };
+export const OPENCODE_PLUGIN = join(import.meta.dir, "hooks", "opencode-plugin");
 
 export interface OpencodeConfig {
-  /** A terminal tab: every tool asks (see ASK_ALL). A chat leaves permissions alone; its gate decides in the plugin. */
-  ask: boolean;
   /** jin's tools, as an MCP server opencode starts. */
   mcp?: { command: string[]; environment: Record<string, string> };
   /** A file with the rules and context the agent is told. */
@@ -31,9 +27,9 @@ export interface OpencodeConfig {
 
 export function opencodeConfig(c: OpencodeConfig): string {
   return JSON.stringify({
-    plugin: [`file://${OPENCODE_PLUGIN}`],
-    ...(c.ask ? { permission: ASK_ALL } : {}),
-    ...(c.mcp ? { mcp: { jin: { type: "local", command: c.mcp.command, environment: c.mcp.environment, enabled: true } } } : {}),
+    plugins: [OPENCODE_PLUGIN],
+    // codemode: false puts jin's tools on the model's own tool list (opencode 2 otherwise reaches MCP tools only through code-mode scripts).
+    ...(c.mcp ? { mcp: { servers: { jin: { type: "local", command: c.mcp.command, environment: c.mcp.environment, codemode: false } } } } : {}),
     ...(c.instructions ? { instructions: [c.instructions] } : {}),
   });
 }
@@ -47,7 +43,7 @@ export function writeInstructions(home: string, id: string, text: string): strin
   return file;
 }
 
-/** opencode keeps sessions in its database; a session there can be continued. */
+/** opencode keeps sessions in its database (`session_v2` since opencode 2); a session there can be continued. */
 export function opencodeHasSession(sessionId: string, dataDir = join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "opencode")): boolean {
   if (!/^[\w-]+$/.test(sessionId)) return false;
   const file = join(dataDir, "opencode.db");
@@ -55,7 +51,7 @@ export function opencodeHasSession(sessionId: string, dataDir = join(process.env
   try {
     const db = new Database(file, { readonly: true });
     try {
-      return Boolean(db.query("select 1 from session where id = ?").get(sessionId));
+      return Boolean(db.query("select 1 from session_v2 where id = ?").get(sessionId));
     } finally {
       db.close();
     }
@@ -70,10 +66,9 @@ export function opencodeLaunch(config: Config, binDir?: string): AgentLaunch {
     label: "opencode",
     bin: "opencode",
     canFork: false,
-    // opencode 2 changed its plugins, config and tools: jin's plugin does not load there, so
-    // nothing would check its tool calls.
-    supports: majors("opencode", [1], "opencode 2 changed its plugin system: jin's plugin does not load there, so nothing would check its tool calls."),
-    argv: (ctx) => ["opencode", ...(ctx.resume ? ["-s", ctx.resume] : ctx.prompt?.trim() ? ["--prompt", ctx.prompt.trim()] : [])],
+    // jin's plugin uses opencode 2's plugin API (opencode 1 loads plugins differently).
+    supports: majors("opencode", [2], "jin's plugin is written for opencode 2's plugin system; update opencode (`opencode upgrade`)."),
+    argv: (ctx) => ["opencode", "--standalone", ...(ctx.resume ? ["-s", ctx.resume] : ctx.prompt?.trim() ? ["--prompt", ctx.prompt.trim()] : [])],
     env: (_w, ctx) => {
       const rules =
         ctx?.taskId && ctx.terminalId
@@ -83,7 +78,7 @@ export function opencodeLaunch(config: Config, binDir?: string): AgentLaunch {
       return {
         JIN_HOME: config.home,
         ...(binDir ? { PATH: `${binDir}:${process.env.PATH ?? ""}` } : {}),
-        OPENCODE_CONFIG_CONTENT: opencodeConfig({ ask: true, mcp, instructions: rules }),
+        OPENCODE_CONFIG_CONTENT: opencodeConfig({ mcp, instructions: rules }),
       };
     },
     hasSession: (id) => opencodeHasSession(id),

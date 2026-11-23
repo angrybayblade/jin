@@ -150,7 +150,7 @@ export function readSignIn(tool: AuthTool, out: string): { url: string | null; c
     return { url: code ? "https://github.com/login/device" : null, code, needsCode: false, done: Boolean(account), answer, account };
   }
   if (tool === "opencode") {
-    // `opencode providers login -p openai -m "ChatGPT Pro/Plus (headless)"`: a device link and code.
+    // `opencode auth login openai --method chatgpt-headless`: a device link and code.
     const url = text.match(/https:\/\/auth\.openai\.com\/codex\/device\S*/)?.[0] ?? null;
     const code = text.match(/Enter code:\s*([A-Z0-9]{4}-[A-Z0-9]{4,6})/)?.[1] ?? null;
     return { url, code, needsCode: false, done: /Login successful|logged in|Added credential/i.test(text), answer: null, account: null };
@@ -202,7 +202,7 @@ export function describeTool(tool: AuthTool): ToolView {
   return { label: t?.label ?? tool, why: t?.why ?? "", optional: t?.optional ?? true, tokenHint: t?.token?.hint ?? null };
 }
 
-export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : tool === "codex" ? "codex login --device-auth" : tool === "opencode" ? "opencode providers login -p openai -m 'ChatGPT Pro/Plus (headless)'" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
+export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : tool === "codex" ? "codex login --device-auth" : tool === "opencode" ? "opencode auth login openai --method chatgpt-headless --standalone" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
 
 /** `gh yes angrybayblade` / `claude no` / `<tool> missing`, one per line, from the status probe. */
 export function readAuthStatus(out: string): Partial<Record<AuthTool, { state: AuthState["state"]; account: string | null }>> {
@@ -323,7 +323,8 @@ else echo "codex missing"; fi
 # pi and opencode sign in to model providers: the providers they keep a credential for.
 providers() { lim bun -e 'try { const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(Object.keys(j).join(", ")) } catch {}' "$1" 2>/dev/null; }
 if command -v pi >/dev/null; then p=$(providers "\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json"); if [ -n "$p" ]; then echo "pi yes $p"; else echo "pi no"; fi; else echo "pi missing"; fi
-if command -v opencode >/dev/null; then p=$(providers "\${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json"); if [ -n "$p" ]; then echo "opencode yes $p"; else echo "opencode no"; fi; else echo "opencode missing"; fi
+# opencode 2 lists its connected integrations as JSON (--standalone: no shared background server is started for it).
+if command -v opencode >/dev/null; then o=$(lim opencode auth list --standalone --format json 2>/dev/null); p=$(printf '%s' "$o" | bun -e 'try { const j = JSON.parse(await Bun.stdin.text()); console.log(j.map((i) => i.id).join(", ")) } catch {}' 2>/dev/null); if [ -n "$p" ]; then echo "opencode yes $p"; else echo "opencode no"; fi; else echo "opencode missing"; fi
 ${providerTools()
   .map((t) => t.status)
   .join("\n")}

@@ -59,18 +59,19 @@ export function piCalls(tool: string, input: Record<string, unknown>, cwd?: stri
   }
 }
 
-/** opencode's built-in tools as jin knows them; its patch tool is an edit of each file it touches. */
+/** opencode 2's built-in tools as jin knows them; its patch tool is an edit of each file it touches. */
 export function opencodeCalls(tool: string, input: Record<string, unknown>, cwd?: string): Call[] {
   const abs = (p: unknown) => (typeof p === "string" && p ? (cwd && !isAbsolute(p) ? join(cwd, p) : p) : undefined);
+  const path = input.path ?? input.filePath;
   switch (tool) {
-    case "bash":
+    case "shell":
       return [{ tool: "Bash", input: { command: String(input.command ?? "") } }];
     case "edit":
-      return [{ tool: "Edit", input: { file_path: abs(input.filePath) } }];
+      return [{ tool: "Edit", input: { file_path: abs(path) } }];
     case "write":
-      return [{ tool: "Write", input: { file_path: abs(input.filePath) } }];
+      return [{ tool: "Write", input: { file_path: abs(path) } }];
     case "read":
-      return [{ tool: "Read", input: { file_path: abs(input.filePath) } }];
+      return [{ tool: "Read", input: { file_path: abs(path) } }];
     case "glob":
       return [{ tool: "Glob", input: { pattern: input.pattern, path: abs(input.path) } }];
     case "grep":

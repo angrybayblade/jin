@@ -5,7 +5,7 @@ import { opencodeConfig, writeInstructions } from "../opencode-cli";
 import type { Harness, HarnessRun } from "./types";
 
 /**
- * opencode for chats and room agents: each turn is one `opencode run --format json`, continuing
+ * opencode 2 for chats and room agents: each turn is one `opencode run --standalone --format json`, continuing
  * its session with `-s`. jin's plugin sends every tool call to the session's gate and opencode
  * waits for the answer, so policy, the session's rules (a read-only room agent) and approvals
  * in jin hold as for Claude. jin's own tools reach opencode as an MCP server (the bridge Codex
@@ -29,9 +29,10 @@ export class OpencodeHarness implements Harness {
       ...run.env,
       JIN_HOME: this.opts.home,
       ...(run.jinSessionId ? { JIN_SESSION_ID: run.jinSessionId } : {}),
-      OPENCODE_CONFIG_CONTENT: opencodeConfig({ ask: false, mcp, instructions }),
+      OPENCODE_CONFIG_CONTENT: opencodeConfig({ mcp, instructions }),
     };
-    const args = ["run", "--format", "json", ...(run.resume ? ["-s", run.resume] : []), run.prompt];
+    // --standalone: the shared background server would run the tools without jin's plugin.
+    const args = ["run", "--standalone", "--format", "json", ...(run.resume ? ["-s", run.resume] : []), run.prompt];
     const shell = process.env.SHELL || "/bin/bash";
     const proc = Bun.spawn([shell, "-l", "-c", 'exec "$@"', "jin", "opencode", ...args], { cwd: run.cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, ...env } });
     const abort = () => proc.kill("SIGINT");

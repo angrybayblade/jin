@@ -109,8 +109,8 @@ test("Codex signs in with a device code: the link and the code are read from wha
 });
 
 test("opencode signs in with ChatGPT's device code; pi and opencode report the providers they hold credentials for", () => {
-  expect(signInCommand("opencode")).toBe("opencode providers login -p openai -m 'ChatGPT Pro/Plus (headless)'");
-  const out = ["┌  Add credential", "│", "●  Go to: \x1b[36mhttps://auth.openai.com/codex/device\x1b[0m", "│", "●  Enter code: Z6OG-6058V", "│", "◒  Waiting for authorization"].join("\n");
+  expect(signInCommand("opencode")).toBe("opencode auth login openai --method chatgpt-headless --standalone");
+  const out = ["┌  Connect an integration", "│", "◇  Authorization started", "│", "●  Enter code: Z6OG-6058V", "│", "●  \x1b[36mhttps://auth.openai.com/codex/device\x1b[0m", "│", "◇  Waiting for authorization..."].join("\n");
   expect(readSignIn("opencode", out)).toMatchObject({ url: "https://auth.openai.com/codex/device", code: "Z6OG-6058V", done: false });
   expect(readAuthStatus("pi yes openai-codex, anthropic\nopencode no\n")).toMatchObject({
     pi: { state: "signed-in", account: "openai-codex, anthropic" },

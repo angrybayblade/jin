@@ -20,7 +20,7 @@ beforeAll(async () => {
   writeFileSync(
     join(env.bin, "opencode"),
     `#!/usr/bin/env bun
-if (process.argv[2] === "--version") { console.log("1.18.35"); process.exit(0); }
+if (process.argv[2] === "--version") { console.log("opencode v2.3.0"); process.exit(0); }
 const fs = require("node:fs");
 const f = "${env.home}/oc-runs.json";
 const runs = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : [];
@@ -49,11 +49,10 @@ test("an opencode tab starts with jin's plugin, every tool on ask, jin's tools a
   expect(t).toMatchObject({ kind: "agent", agent: "opencode", title: "opencode 1" });
   await until(() => runs().length === 1, 10000, "opencode launched");
   const { argv, config } = runs()[0]!;
-  expect(argv).toEqual(["--prompt", "fix the bug"]);
+  expect(argv).toEqual(["--standalone", "--prompt", "fix the bug"]);
   const c = JSON.parse(config!);
-  expect(c.plugin[0]).toMatch(/opencode-plugin\.ts$/);
-  expect(c.permission).toMatchObject({ "*": "ask", bash: "ask", edit: "ask" });
-  expect(c.mcp.jin).toMatchObject({ type: "local", command: [expect.stringContaining("jin-task"), "mcp"], environment: { JIN_TERMINAL_ID: t.id } });
+  expect(c.plugins).toEqual([expect.stringMatching(/opencode-plugin$/)]);
+  expect(c.mcp.servers.jin).toMatchObject({ type: "local", command: [expect.stringContaining("jin-task"), "mcp"], environment: { JIN_TERMINAL_ID: t.id } });
   expect(readFileSync(c.instructions[0], "utf8")).toContain("jin task OC-1");
 });
 
@@ -62,15 +61,15 @@ test("an opencode tab's hooks: jin denies what it never runs, leaves a push to o
   const hook = (event: string, input: Record<string, unknown>) => d.json("/api/hooks/opencode", { method: "POST", json: { event, terminalId: t.id, sessionId: null, input } });
   await hook("SessionStart", { session_id: "ses_tab1", cwd: t.cwd });
   expect((await d.json(`/api/terminals/${t.id}`)).agentSessionId).toBe("ses_tab1");
-  expect((await hook("PreToolUse", { tool_name: "bash", tool_input: { command: "vercel deploy --prod" } })).decision).toBe("deny");
-  expect((await hook("PreToolUse", { tool_name: "write", cwd: t.cwd, tool_input: { filePath: `${env.home}/token`, content: "x" } })).decision).toBe("deny");
-  expect(await hook("PreToolUse", { tool_name: "bash", tool_input: { command: "git push origin HEAD" } })).toMatchObject({ decision: "ask" });
+  expect((await hook("PreToolUse", { tool_name: "shell", tool_input: { command: "vercel deploy --prod" } })).decision).toBe("deny");
+  expect((await hook("PreToolUse", { tool_name: "write", cwd: t.cwd, tool_input: { path: `${env.home}/token`, content: "x" } })).decision).toBe("deny");
+  expect(await hook("PreToolUse", { tool_name: "shell", tool_input: { command: "git push origin HEAD" } })).toMatchObject({ decision: "ask" });
   expect(await hook("PreToolUse", { tool_name: "mcp__slack__send_message", tool_input: { text: "hi" } })).toMatchObject({ decision: "ask" });
   await hook("Notification", { notification_type: "permission", message: "approval: git push origin HEAD" });
   expect(await d.json(`/api/terminals/${t.id}`)).toMatchObject({ status: "waiting", waitingFor: "approval: git push origin HEAD" });
   await hook("Resumed", {});
   expect((await d.json(`/api/terminals/${t.id}`)).status).toBe("working");
-  expect(await hook("PreToolUse", { tool_name: "edit", cwd: t.cwd, tool_input: { filePath: "a.ts" } })).toEqual({});
+  expect(await hook("PreToolUse", { tool_name: "edit", cwd: t.cwd, tool_input: { path: "a.ts" } })).toEqual({});
   await hook("Stop", {});
   expect((await d.json(`/api/terminals/${t.id}`)).status).toBe("idle");
 });
@@ -82,21 +81,21 @@ test("an opencode tab resumes its session when opencode has it, and cannot be fo
   expect(runs()[1]!.argv).not.toContain("-s");
   await d.json("/api/hooks/opencode", { method: "POST", json: { event: "SessionStart", terminalId: t.id, sessionId: null, input: { session_id: "ses_tab1" } } });
   const db = new Database(join(data, "opencode.db"));
-  db.exec("create table if not exists session (id text primary key); insert or ignore into session values ('ses_tab1');");
+  db.exec("create table if not exists session_v2 (id text primary key); insert or ignore into session_v2 values ('ses_tab1');");
   db.close();
   await d.json(`/api/terminals/${t.id}/restart`, { method: "POST", json: {} });
   await until(() => runs().length === 3, 10000, "opencode resumed");
-  expect(runs()[2]!.argv).toEqual(["-s", "ses_tab1"]);
+  expect(runs()[2]!.argv).toEqual(["--standalone", "-s", "ses_tab1"]);
   expect((await d.api("/api/terminals", { method: "POST", json: { taskId: "OC-1", kind: "agent", forkFrom: t.id } })).status).toBe(400);
 }, 30_000);
 
-test("opencode 2 (whose plugins jin's does not load into) is refused, and the picker says why", async () => {
+test("opencode 1 (which loads plugins differently) is refused, and the picker says why", async () => {
   const bin = join(env.bin, "opencode");
-  writeFileSync(bin, readFileSync(bin, "utf8").replace('console.log("1.18.35")', 'console.log("opencode v2.3.0")'));
+  writeFileSync(bin, readFileSync(bin, "utf8").replace('console.log("opencode v2.3.0")', 'console.log("1.18.35")'));
   const refused = await d.api("/api/agents/default", { method: "PUT", json: { id: "opencode" } });
   expect(refused.status).toBe(409);
-  expect(await refused.text()).toContain("jin supports opencode 1.x; this machine has 2.3.0");
+  expect(await refused.text()).toContain("jin supports opencode 2.x; this machine has 1.18.35");
   const view = (await d.json("/api/agents")).agents.find((a: { id: string }) => a.id === "opencode");
-  expect(view).toMatchObject({ installed: true, version: "2.3.0", problem: expect.stringContaining("plugin system") });
+  expect(view).toMatchObject({ installed: true, version: "1.18.35", problem: expect.stringContaining("opencode upgrade") });
   expect((await d.api("/api/terminals", { method: "POST", json: { taskId: "OC-1", kind: "agent", agent: "opencode" } })).status).toBe(409);
 }, 30_000);
