@@ -204,7 +204,8 @@ export type AgentId = "claude" | "codex" | "pi" | "opencode";
 /** A machine's agents: which are installed, and which one new tabs start. */
 export interface MachineAgents {
   default: AgentId;
-  agents: { id: AgentId; label: string; installed: boolean }[];
+  /** problem: why jin will not run it here (a version it has not checked its hooks against). */
+  agents: { id: AgentId; label: string; installed: boolean; version?: string | null; problem?: string | null }[];
 }
 
 export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited" | "interrupted";
