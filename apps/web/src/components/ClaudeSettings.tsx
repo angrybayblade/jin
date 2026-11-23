@@ -1,8 +1,6 @@
 "use client";
 import { Eye, EyeOff, Plus, X } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AgentPicker } from "@/components/AgentPicker";
 import { saveClaudeSettings } from "@/lib/actions";
 import type { ClaudeSettingsFile } from "@/lib/daemon";
 
@@ -238,8 +236,8 @@ function Hooks({ hooks, onChange }: { hooks: Obj; onChange: (v: Obj) => void }) 
   );
 }
 
-export function ClaudeSettingsPage({ initial, machine, machines }: { initial: ClaudeSettingsFile; machine: string; machines: { id: string; label: string }[] }) {
-  const router = useRouter();
+/** The editor for one machine's file; `onSaved` hands back the file as written (the caller reloads with it). */
+export function ClaudeSettingsEditor({ initial, machine, name, onSaved }: { initial: ClaudeSettingsFile; machine: string; name: string; onSaved: (file: ClaudeSettingsFile) => void }) {
   const start = initial.settings ?? {};
   const [draft, setDraft] = useState<Obj>(start);
   const [raw, setRaw] = useState(initial.settings ? JSON.stringify(start, null, 2) : initial.text);
@@ -284,9 +282,10 @@ export function ClaudeSettingsPage({ initial, machine, machines }: { initial: Cl
     setError(null);
     const r = await saveClaudeSettings(machine, settings, initial.hash);
     setBusy(false);
-    if ("error" in r) return setError(r.error);
+    // A saved file has an `error` field too (null): a failure is a result without a hash.
+    if (!("hash" in r)) return setError(r.error);
     setSavedAt(Date.now());
-    router.refresh();
+    onSaved(r);
   };
   const discard = () => {
     setDraft(start);
@@ -300,40 +299,21 @@ export function ClaudeSettingsPage({ initial, machine, machines }: { initial: Cl
   const plugins = isObj(draft.enabledPlugins) ? draft.enabledPlugins : {};
 
   return (
-    <div className="machines claude-settings">
-      <header className="pane-header">
-        <div className="pane-title">
-          <span className="pane-name">Claude Code</span>
-          <span className="meta mono">{initial.path.replace(/^\/(Users|home)\/[^/]+/, "~")}</span>
-        </div>
-        <div className="pane-actions">
-          {machines.length > 1 && (
-            <label className="field cs-machine">
-              <select value={machine} onChange={(e) => router.push(e.target.value === "local" ? "/claude" : `/claude?m=${encodeURIComponent(e.target.value)}`)} aria-label="Machine">
-                {machines.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {dirty && (
-            <button type="button" className="button quiet small" onClick={discard} disabled={busy}>
-              Discard
-            </button>
-          )}
-          <button type="button" className="button small primary" onClick={() => void save()} disabled={busy || !dirty}>
-            {busy ? "Saving…" : savedAt && !dirty ? "Saved" : "Save"}
+    <div className="claude-settings">
+      <div className="cs-bar">
+        <span className="meta mono">{initial.path.replace(/^\/(Users|home)\/[^/]+/, "~")}</span>
+        <span className="hook-spacer" />
+        {dirty && (
+          <button type="button" className="button quiet small" onClick={discard} disabled={busy}>
+            Discard
           </button>
-        </div>
-      </header>
-      <div className="machines-body is-single" data-scroll="y">
-        <main className="machines-main">
-          <article className="machine-detail is-wide">
-            <AgentPicker machine={machine === "local" ? "local" : machine} name={machine === "local" ? "this machine" : (machines.find((m) => m.id === machine)?.label ?? machine)} />
+        )}
+        <button type="button" className="button small primary" onClick={() => void save()} disabled={busy || !dirty}>
+          {busy ? "Saving…" : savedAt && !dirty ? "Saved" : "Save"}
+        </button>
+      </div>
             <p className="meta">
-              Read by jin&apos;s chats and terminals on {machine === "local" ? "this machine" : machines.find((m) => m.id === machine)?.label}, and by <span className="mono">claude</span> in a plain shell there. New runs pick up a change; running ones keep what they started with. The previous file is kept as <span className="mono">settings.json.jin-backup</span>.
+              Read by jin&apos;s chats and terminals on {name}, and by <span className="mono">claude</span> in a plain shell there. New runs pick up a change; running ones keep what they started with. The previous file is kept as <span className="mono">settings.json.jin-backup</span>.
             </p>
             {error && <p className="machine-error">{error}</p>}
             {broken ? (
@@ -462,9 +442,6 @@ export function ClaudeSettingsPage({ initial, machine, machines }: { initial: Cl
                 )}
               </div>
             </details>
-          </article>
-        </main>
-      </div>
     </div>
   );
 }
