@@ -68,8 +68,8 @@ export function AgentPicker({ machine, name }: { machine?: string; name: string 
           </div>
         )}
         <p className="meta">
-          Each agent uses its own setup and sign-in on {name}. Tabs already open keep their agent. jin checks every tool call either way; in Codex, anything outward needs the network, so Codex asks you in
-          the terminal first.
+          Each agent uses its own setup and sign-in on {name}; tabs and chats already open keep theirs. Whichever runs, jin checks every tool call and asks before anything outward: Claude Code and pi in
+          their own prompt, Codex through its sandbox. A task&apos;s chats and agent rooms use it too; jin&apos;s chat and desks stay on Claude.
         </p>
         {error && <p className="machine-error">{error}</p>}
       </div>

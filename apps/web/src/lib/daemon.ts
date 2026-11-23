@@ -199,7 +199,7 @@ export interface RunChoice {
 }
 
 /** The coding agents a terminal tab can run. */
-export type AgentId = "claude" | "codex";
+export type AgentId = "claude" | "codex" | "pi";
 
 /** A machine's agents: which are installed, and which one new tabs start. */
 export interface MachineAgents {

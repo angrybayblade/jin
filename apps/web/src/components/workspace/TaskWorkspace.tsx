@@ -324,7 +324,7 @@ export function TaskWorkspace({
     };
   }, [machine]);
   const agentLabel = agents?.agents.find((a) => a.id === agents.default)?.label ?? "agent";
-  const labelOf = (t: TerminalInfo) => agents?.agents.find((a) => a.id === t.agent)?.label ?? (t.agent === "codex" ? "Codex" : "Claude Code");
+  const labelOf = (t: TerminalInfo) => agents?.agents.find((a) => a.id === t.agent)?.label ?? (t.agent === "codex" ? "Codex" : t.agent === "pi" ? "pi" : "Claude Code");
   const create = useCallback(
     (kind: "agent" | "shell") =>
       once(`${scope}:${kind}:new:${terms.filter((t) => t.kind === kind).length}`, () => openTerminal({ taskId, kind }))
