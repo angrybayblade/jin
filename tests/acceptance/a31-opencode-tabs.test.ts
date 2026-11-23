@@ -20,6 +20,7 @@ beforeAll(async () => {
   writeFileSync(
     join(env.bin, "opencode"),
     `#!/usr/bin/env bun
+if (process.argv[2] === "--version") { console.log("1.18.35"); process.exit(0); }
 const fs = require("node:fs");
 const f = "${env.home}/oc-runs.json";
 const runs = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : [];
@@ -87,4 +88,15 @@ test("an opencode tab resumes its session when opencode has it, and cannot be fo
   await until(() => runs().length === 3, 10000, "opencode resumed");
   expect(runs()[2]!.argv).toEqual(["-s", "ses_tab1"]);
   expect((await d.api("/api/terminals", { method: "POST", json: { taskId: "OC-1", kind: "agent", forkFrom: t.id } })).status).toBe(400);
+}, 30_000);
+
+test("opencode 2 (whose plugins jin's does not load into) is refused, and the picker says why", async () => {
+  const bin = join(env.bin, "opencode");
+  writeFileSync(bin, readFileSync(bin, "utf8").replace('console.log("1.18.35")', 'console.log("opencode v2.3.0")'));
+  const refused = await d.api("/api/agents/default", { method: "PUT", json: { id: "opencode" } });
+  expect(refused.status).toBe(409);
+  expect(await refused.text()).toContain("jin supports opencode 1.x; this machine has 2.3.0");
+  const view = (await d.json("/api/agents")).agents.find((a: { id: string }) => a.id === "opencode");
+  expect(view).toMatchObject({ installed: true, version: "2.3.0", problem: expect.stringContaining("plugin system") });
+  expect((await d.api("/api/terminals", { method: "POST", json: { taskId: "OC-1", kind: "agent", agent: "opencode" } })).status).toBe(409);
 }, 30_000);

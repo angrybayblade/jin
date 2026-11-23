@@ -130,8 +130,9 @@ let rooms: Rooms | null = null;
 const agentTools = new AgentTools();
 agentToolRoutes(app.router, agentTools);
 const codexHarness = new CodexHarness({ home: config.home, tools: agentTools });
-const piHarness = new PiHarness({ home: config.home, tools: agentTools });
-const opencodeHarness = new OpencodeHarness({ home: config.home, tools: agentTools });
+// A chat on pi or opencode checks, as a tab does, that this machine's version is one jin has checked.
+const piHarness = new PiHarness({ home: config.home, tools: agentTools, ensure: () => agents.pick("pi") });
+const opencodeHarness = new OpencodeHarness({ home: config.home, tools: agentTools, ensure: () => agents.pick("opencode") });
 // Chats and room agents run on Claude through the Agent SDK; on a machine whose agent is Codex,
 // the work in a task (its chats, its room agents) runs on Codex. A resumed session keeps its own.
 // jin's chat, desks and doc chats stay on Claude: they work through claude.ai's connectors.

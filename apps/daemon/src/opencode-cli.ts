@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentLaunch } from "./agents";
+import { majors, type AgentLaunch } from "./agents";
 import { taskRules } from "./claude-cli";
 import type { Config } from "./config";
 
@@ -70,6 +70,9 @@ export function opencodeLaunch(config: Config, binDir?: string): AgentLaunch {
     label: "opencode",
     bin: "opencode",
     canFork: false,
+    // opencode 2 changed its plugins, config and tools: jin's plugin does not load there, so
+    // nothing would check its tool calls.
+    supports: majors("opencode", [1], "opencode 2 changed its plugin system: jin's plugin does not load there, so nothing would check its tool calls."),
     argv: (ctx) => ["opencode", ...(ctx.resume ? ["-s", ctx.resume] : ctx.prompt?.trim() ? ["--prompt", ctx.prompt.trim()] : [])],
     env: (_w, ctx) => {
       const rules =

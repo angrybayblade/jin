@@ -28,9 +28,10 @@ export class PiHarness implements Harness {
   readonly id = "pi" as const;
   readonly adapter = "pi-rpc";
 
-  constructor(private opts: { home: string; tools: AgentTools; execPath?: string }) {}
+  constructor(private opts: { home: string; tools: AgentTools; execPath?: string; /** Throws when this machine's version is not one jin has checked. */ ensure?: () => Promise<unknown> }) {}
 
   async run(run: HarnessRun): Promise<{ sessionId: string }> {
+    await this.opts.ensure?.();
     const registered = run.tools?.length ? this.opts.tools.register(run.tools) : null;
     const env: Record<string, string> = {
       ...run.env,

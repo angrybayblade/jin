@@ -2,7 +2,7 @@ import { Glob } from "bun";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentLaunch } from "./agents";
+import { majors, type AgentLaunch } from "./agents";
 import { taskRules } from "./claude-cli";
 import type { Config } from "./config";
 
@@ -33,6 +33,8 @@ export function piLaunch(config: Config, binDir?: string): AgentLaunch {
     label: "pi",
     bin: "pi",
     canFork: false,
+    // jin's extension uses pi's extension API as of 1.x; another major may load it differently.
+    supports: majors("pi", [1], "Its extension API may have changed, so jin could not be sure it checks pi's tool calls."),
     argv: (ctx) => {
       const args = ["pi", "-e", PI_EXTENSION];
       if (ctx.taskId) {

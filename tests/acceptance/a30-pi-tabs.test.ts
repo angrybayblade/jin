@@ -19,6 +19,7 @@ beforeAll(async () => {
   writeFileSync(
     join(env.bin, "pi"),
     `#!/usr/bin/env bun
+if (process.argv[2] === "--version") { console.log("1.3.0"); process.exit(0); }
 const fs = require("node:fs");
 const f = "${env.home}/pi-runs.json";
 const runs = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : [];

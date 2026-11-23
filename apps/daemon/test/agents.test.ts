@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { answer, codexCalls, patchFiles } from "../src/agent-hooks";
-import { Agents, type AgentLaunch } from "../src/agents";
+import { Agents, majors, versionOf, type AgentLaunch } from "../src/agents";
 import { codexHookFlags } from "../src/codex-cli";
 import { openDb } from "../src/db";
 import { mkdtempSync } from "node:fs";
@@ -41,7 +41,7 @@ test("a machine's default agent: Claude Code until set, only an installed one, a
   const db = openDb(mkdtempSync(join(tmpdir(), "jin-agents-")));
   const stub = (id: "claude" | "codex" | "pi" | "opencode", label: string): AgentLaunch => ({ id, label, bin: id, canFork: id === "claude", argv: () => [id], env: () => ({}), hasSession: () => false });
   const installed = new Set(["claude"]);
-  const agents = new Agents(db, { claude: stub("claude", "Claude Code"), codex: stub("codex", "Codex"), pi: stub("pi", "pi"), opencode: stub("opencode", "opencode") }, async (bin) => installed.has(bin));
+  const agents = new Agents(db, { claude: stub("claude", "Claude Code"), codex: stub("codex", "Codex"), pi: stub("pi", "pi"), opencode: stub("opencode", "opencode") }, async (bin) => ({ installed: installed.has(bin), version: "1.0.0" }));
   expect(agents.defaultId()).toBe("claude");
   await expect(agents.setDefault("codex")).rejects.toThrow("not installed");
   await expect(agents.pick("codex")).rejects.toThrow("not installed");
@@ -51,4 +51,24 @@ test("a machine's default agent: Claude Code until set, only an installed one, a
   expect(agents.defaultId()).toBe("codex");
   expect((await agents.pick()).id).toBe("codex");
   expect((await agents.pick("claude")).id).toBe("claude");
+});
+
+test("an agent at a version jin has not checked is refused: as the default, and for a new tab or chat", async () => {
+  const db = openDb(mkdtempSync(join(tmpdir(), "jin-agents-v-")));
+  const versions: Record<string, string | null> = { claude: "2.0.0", codex: "0.169.0", pi: "1.5.2", opencode: "2.3.0" };
+  const stub = (id: "claude" | "codex" | "pi" | "opencode", supports?: (v: string | null) => string | null): AgentLaunch => ({ id, label: id, bin: id, canFork: false, argv: () => [id], env: () => ({}), hasSession: () => false, supports });
+  const agents = new Agents(
+    db,
+    { claude: stub("claude"), codex: stub("codex"), pi: stub("pi", majors("pi", [1], "")), opencode: stub("opencode", majors("opencode", [1], "Its plugins changed.")) },
+    async (bin) => ({ installed: true, version: versions[bin] ?? null }),
+  );
+  const list = await agents.list();
+  expect(list.find((a) => a.id === "pi")).toMatchObject({ version: "1.5.2", problem: null });
+  expect(list.find((a) => a.id === "opencode")).toMatchObject({ version: "2.3.0", problem: "jin supports opencode 1.x; this machine has 2.3.0. Its plugins changed." });
+  await expect(agents.setDefault("opencode")).rejects.toThrow("jin supports opencode 1.x");
+  await expect(agents.pick("opencode")).rejects.toThrow("this machine has 2.3.0");
+  expect((await agents.pick("pi")).id).toBe("pi");
+  expect(majors("pi", [1], "")(null)).toContain("could not read pi's version");
+  expect(versionOf("opencode v2.3.0\n")).toBe("2.3.0");
+  expect(versionOf("codex-cli 0.169.0")).toBe("0.169.0");
 });

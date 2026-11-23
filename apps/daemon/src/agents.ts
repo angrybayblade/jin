@@ -36,6 +36,11 @@ export interface AgentLaunch {
   env(workspace: WorkspaceConfig | undefined, ctx?: LaunchContext): Record<string, string>;
   /** Whether the agent saved a conversation under this id (one opened and left empty has none). */
   hasSession(sessionId: string, workspace: WorkspaceConfig | undefined): boolean;
+  /**
+   * Versions jin has checked its hooks against: why this one is not one of them (jin would not
+   * know its tool calls are checked, so it is refused), else null. Absent: any version.
+   */
+  supports?(version: string | null): string | null;
   /** Before it starts (Codex: jin's hooks trusted); throws, with the reason, to refuse. */
   prepare?(ctx: LaunchContext): Promise<void>;
   /** What a task follows and what its workspace says, for its starting context (set once known). */
@@ -47,27 +52,61 @@ export interface AgentView {
   id: AgentId;
   label: string;
   installed: boolean;
+  version: string | null;
+  /** Why jin will not run it here (a version it has not checked), else null. */
+  problem: string | null;
 }
+
+/** An agent found on the login shell's PATH, and the version it reports. */
+export interface Found {
+  installed: boolean;
+  version: string | null;
+}
+
+/** The first x.y.z in what `--version` printed. */
+export const versionOf = (text: string): string | null => text.match(/(\d+)\.(\d+)\.(\d+)/)?.[0] ?? null;
+
+/** For `supports`: a version whose major is one of `majors`, else why not. */
+export const majors =
+  (label: string, ok: number[], why: string) =>
+  (version: string | null): string | null => {
+    if (!version) return `jin could not read ${label}'s version, so it cannot tell whether it checks its tool calls`;
+    const major = Number(version.split(".")[0]);
+    return ok.includes(major) ? null : `jin supports ${label} ${ok.map((m) => `${m}.x`).join(", ")}; this machine has ${version}. ${why}`;
+  };
 
 const INSTALLED_FOR = 60_000; // ms a lookup is trusted
 
-/** Whether `bin` is on the login shell's PATH (agents run through it, so its PATH is the one that counts). */
-async function onPath(bin: string): Promise<boolean> {
+/** Run a command through the login shell (its PATH is the one agents run with); give up after `ms`. */
+async function shellOut(script: string, bin: string, ms: number): Promise<{ code: number; out: string } | null> {
   const shell = process.env.SHELL || "/bin/bash";
-  const proc = Bun.spawn([shell, "-l", "-c", 'command -v "$1" >/dev/null', "jin", bin], { stdout: "ignore", stderr: "ignore", stdin: "ignore" });
-  const timer = setTimeout(() => proc.kill(), 10_000);
-  const code = await proc.exited;
-  clearTimeout(timer);
-  return code === 0;
+  const proc = Bun.spawn([shell, "-l", "-c", script, "jin", bin], { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+  // A child that keeps the output open (a tool that waits for input on --version) must not hold us up.
+  const done = Promise.all([proc.exited, new Response(proc.stdout).text()]).then(([code, out]) => ({ code, out }));
+  const result = await Promise.race([done, Bun.sleep(ms).then(() => null)]);
+  if (!result) proc.kill();
+  return result;
+}
+
+/**
+ * Whether `bin` is on the login shell's PATH and, when asked, the version it reports (null when
+ * it does not say within a few seconds, which refuses an agent that lists the versions it supports).
+ */
+async function onPath(bin: string, withVersion: boolean): Promise<Found> {
+  const found = await shellOut('command -v "$1" >/dev/null', bin, 10_000);
+  if (!found || found.code !== 0) return { installed: false, version: null };
+  if (!withVersion) return { installed: true, version: null };
+  const v = await shellOut('"$1" --version 2>&1 </dev/null | head -5', bin, 8_000);
+  return { installed: true, version: v ? versionOf(v.out) : null };
 }
 
 export class Agents {
-  private seen = new Map<AgentId, { installed: boolean; at: number }>();
+  private seen = new Map<AgentId, Found & { at: number }>();
 
   constructor(
     private db: Database,
     private launches: Record<AgentId, AgentLaunch>,
-    private lookup: (bin: string) => Promise<boolean> = onPath,
+    private lookup: (bin: string, withVersion: boolean) => Promise<Found> = onPath,
   ) {}
 
   launch(id: string): AgentLaunch {
@@ -87,27 +126,43 @@ export class Agents {
 
   async setDefault(id: string): Promise<AgentId> {
     const agent = this.launch(id);
-    if (!(await this.installed(agent.id, true))) throw new HttpError(409, `${agent.label} is not installed on this machine (no \`${agent.bin}\` on the login shell's PATH)`);
+    const view = await this.view(agent.id, true);
+    if (!view.installed) throw new HttpError(409, `${agent.label} is not installed on this machine (no \`${agent.bin}\` on the login shell's PATH)`);
+    if (view.problem) throw new HttpError(409, view.problem);
     this.db.query("insert into settings (key, value) values ('agent.default', ?) on conflict(key) do update set value = excluded.value").run(agent.id);
     return agent.id;
   }
 
-  async installed(id: AgentId, fresh = false): Promise<boolean> {
+  private async found(id: AgentId, fresh = false): Promise<Found> {
     const hit = this.seen.get(id);
-    if (!fresh && hit && Date.now() - hit.at < INSTALLED_FOR) return hit.installed;
-    const installed = await this.lookup(this.launches[id].bin).catch(() => false);
-    this.seen.set(id, { installed, at: Date.now() });
-    return installed;
+    if (!fresh && hit && Date.now() - hit.at < INSTALLED_FOR) return hit;
+    const a = this.launches[id];
+    // Only an agent that lists the versions it supports is asked for one.
+    const found = await this.lookup(a.bin, Boolean(a.supports)).catch(() => ({ installed: false, version: null }));
+    this.seen.set(id, { ...found, at: Date.now() });
+    return found;
+  }
+
+  async view(id: AgentId, fresh = false): Promise<AgentView> {
+    const a = this.launches[id];
+    const { installed, version } = await this.found(id, fresh);
+    return { id, label: a.label, installed, version, problem: installed ? (a.supports?.(version) ?? null) : null };
+  }
+
+  async installed(id: AgentId, fresh = false): Promise<boolean> {
+    return (await this.found(id, fresh)).installed;
   }
 
   async list(): Promise<AgentView[]> {
-    return Promise.all(this.all().map(async (a) => ({ id: a.id, label: a.label, installed: await this.installed(a.id) })));
+    return Promise.all(this.all().map((a) => this.view(a.id)));
   }
 
-  /** What a new agent tab runs: the one asked for, else this machine's default; it must be installed. */
+  /** What a new agent tab or chat runs: the one asked for, else this machine's default; installed, and a version jin has checked. */
   async pick(id?: string | null): Promise<AgentLaunch> {
     const agent = this.launch(id || this.defaultId());
-    if (!(await this.installed(agent.id))) throw new HttpError(409, `${agent.label} is not installed on this machine: install it, or pick another agent for this machine in Settings`);
+    const view = await this.view(agent.id);
+    if (!view.installed) throw new HttpError(409, `${agent.label} is not installed on this machine: install it, or pick another agent for this machine in Settings`);
+    if (view.problem) throw new HttpError(409, view.problem);
     return agent;
   }
 }

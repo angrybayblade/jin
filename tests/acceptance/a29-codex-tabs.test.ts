@@ -81,8 +81,8 @@ test("a machine starts Claude Code until Codex is picked, and only an installed 
   expect(before.default).toBe("claude");
   expect(before.agents).toEqual(
     expect.arrayContaining([
-      { id: "claude", label: "Claude Code", installed: true },
-      { id: "codex", label: "Codex", installed: true },
+      expect.objectContaining({ id: "claude", label: "Claude Code", installed: true, problem: null }),
+      expect.objectContaining({ id: "codex", label: "Codex", installed: true, problem: null }),
     ]),
   );
   expect((await d.api("/api/agents/default", { method: "PUT", json: { id: "cursor" } })).status).toBe(400);

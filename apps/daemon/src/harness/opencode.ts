@@ -18,9 +18,10 @@ export class OpencodeHarness implements Harness {
   readonly id = "opencode" as const;
   readonly adapter = "opencode-run";
 
-  constructor(private opts: { home: string; tools: AgentTools; execPath?: string }) {}
+  constructor(private opts: { home: string; tools: AgentTools; execPath?: string; /** Throws when this machine's version is not one jin has checked. */ ensure?: () => Promise<unknown> }) {}
 
   async run(run: HarnessRun): Promise<{ sessionId: string }> {
+    await this.opts.ensure?.();
     const registered = run.tools?.length ? this.opts.tools.register(run.tools) : null;
     const instructions = run.instructions ? writeInstructions(this.opts.home, `session-${run.jinSessionId ?? "chat"}`, run.instructions) : undefined;
     const mcp = registered ? { command: [this.opts.execPath ?? process.execPath, BRIDGE], environment: { JIN_AGENT_TOOLS: registered.token, JIN_HOME: this.opts.home } } : undefined;
