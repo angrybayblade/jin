@@ -198,17 +198,28 @@ export interface RunChoice {
   effort?: Effort | "default";
 }
 
+/** The coding agents a terminal tab can run. */
+export type AgentId = "claude" | "codex";
+
+/** A machine's agents: which are installed, and which one new tabs start. */
+export interface MachineAgents {
+  default: AgentId;
+  agents: { id: AgentId; label: string; installed: boolean }[];
+}
+
 export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited" | "interrupted";
 
 export interface TerminalInfo {
   id: string;
-  kind: "shell" | "claude";
+  /** A shell, or a coding agent's tab (Claude Code, Codex: its `agent`). */
+  kind: "shell" | "agent";
+  agent: AgentId | null;
   taskId: string | null;
   cwd: string;
   title: string;
   status: AgentStatus;
   exitCode: number | null;
-  claudeSessionId: string | null;
+  agentSessionId: string | null;
   createdAt: string;
   clients: number;
   archived: boolean;

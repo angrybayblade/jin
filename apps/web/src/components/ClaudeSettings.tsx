@@ -2,6 +2,7 @@
 import { Eye, EyeOff, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AgentPicker } from "@/components/AgentPicker";
 import { saveClaudeSettings } from "@/lib/actions";
 import type { ClaudeSettingsFile } from "@/lib/daemon";
 
@@ -330,6 +331,7 @@ export function ClaudeSettingsPage({ initial, machine, machines }: { initial: Cl
       <div className="machines-body is-single" data-scroll="y">
         <main className="machines-main">
           <article className="machine-detail is-wide">
+            <AgentPicker machine={machine === "local" ? "local" : machine} name={machine === "local" ? "this machine" : (machines.find((m) => m.id === machine)?.label ?? machine)} />
             <p className="meta">
               Read by jin&apos;s chats and terminals on {machine === "local" ? "this machine" : machines.find((m) => m.id === machine)?.label}, and by <span className="mono">claude</span> in a plain shell there. New runs pick up a change; running ones keep what they started with. The previous file is kept as <span className="mono">settings.json.jin-backup</span>.
             </p>

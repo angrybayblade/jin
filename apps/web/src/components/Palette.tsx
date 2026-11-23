@@ -36,7 +36,7 @@ interface Item {
   title: string;
   detail?: string;
   icon?: LucideIcon;
-  mark?: "claude";
+  mark?: "agent";
   run: () => void | Promise<void>;
 }
 
@@ -103,7 +103,7 @@ export function Palette({ tasks }: { tasks: (Task & { machine: string; machineLa
     items.push({ id: "notify:test", title: "Send a test notification", detail: "desktop notification and sound", icon: Bell, run: () => void testNotification() });
     if (taskId) {
       items.push(
-        { id: "task:claude", title: "New Claude Code session", detail: taskId, icon: Plus, run: () => void window.dispatchEvent(new CustomEvent("jin:new-tab", { detail: { taskId, kind: "claude" } })) },
+        { id: "task:agent", title: "New agent session", detail: taskId, icon: Plus, run: () => void window.dispatchEvent(new CustomEvent("jin:new-tab", { detail: { taskId, kind: "agent" } })) },
         { id: "task:shell", title: "New terminal", detail: taskId, icon: SquareTerminal, run: () => void window.dispatchEvent(new CustomEvent("jin:new-tab", { detail: { taskId, kind: "shell" } })) },
         { id: "task:find", title: "Find file…", detail: "⌘P", icon: File, run: () => openMode("files") },
         { id: "task:search", title: "Search in files…", detail: "⌘⇧F", icon: Search, run: () => openMode("search") },
@@ -137,7 +137,7 @@ export function Palette({ tasks }: { tasks: (Task & { machine: string; machineLa
 
   const tabItems = useMemo<Item[]>(() => {
     const ordered = [...tabs].sort((a, b) => b.lastActive - a.lastActive);
-    const icon = (t: TabEntry): Pick<Item, "icon" | "mark"> => (t.group === "claude" ? { mark: "claude" } : { icon: t.group === "shell" ? SquareTerminal : File });
+    const icon = (t: TabEntry): Pick<Item, "icon" | "mark"> => (t.group === "agent" ? { mark: "agent" } : { icon: t.group === "shell" ? SquareTerminal : File });
     const items: Item[] = ordered.map((t) => ({ id: `tab:${t.id}`, title: t.label, detail: t.detail, ...icon(t), run: t.activate }));
     // Other tasks follow the open tabs.
     for (const t of tasks.filter((x) => x.state === "ready" && !(x.id === taskId && x.machine === at.machine))) items.push({ id: `tab:task:${t.machine}:${t.id}`, title: t.id, detail: `${t.title ?? t.slug}${several ? ` · ${t.machineLabel}` : ""}`, icon: ArrowRight, run: () => router.push(taskHref(t.machine, t.id)) });
@@ -311,7 +311,7 @@ export function Palette({ tasks }: { tasks: (Task & { machine: string; machineLa
               const Icon = it.icon;
               return (
                 <li key={it.id} role="option" aria-selected={i === clamped} className={`palette-item ${i === clamped ? "is-selected" : ""}`} onMouseMove={() => setIndex(i)} onClick={() => choose(it)}>
-                  <span className="palette-icon">{it.mark === "claude" ? <ThermalMark size={14} animated={false} /> : Icon ? <Icon size={14} /> : null}</span>
+                  <span className="palette-icon">{it.mark === "agent" ? <ThermalMark size={14} animated={false} /> : Icon ? <Icon size={14} /> : null}</span>
                   <span className="palette-title">{it.title}</span>
                   {it.detail && <span className="palette-detail">{it.detail}</span>}
                 </li>

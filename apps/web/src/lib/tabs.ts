@@ -1,10 +1,10 @@
 "use client";
 import { useSyncExternalStore } from "react";
 
-/** An open tab anywhere in the workspace: a Claude Code session, a shell or a file. */
+/** An open tab anywhere in the workspace: an agent session, a shell or a file. */
 export interface TabEntry {
   id: string;
-  group: "claude" | "shell" | "file";
+  group: "agent" | "shell" | "file";
   label: string;
   detail?: string;
   /** Bring it to front (switch the pane's tab, focus it). */

@@ -4,14 +4,14 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FileText, FolderTree, GitCompare, GitPullRequest, MoreHorizontal, NotebookPen, PanelRightClose, Users, UserPlus, Square, Trash2, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archivedTerminals, clearRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/lib/actions";
+import { archivedTerminals, listAgents, clearRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/lib/actions";
 import { DocPage } from "../docs/DocPage";
 import { docMenu } from "../docs/docMenu";
 import type { DocFull, Session, SessionEvent } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 import { AGENT_LABEL, fromTerminal } from "@/lib/agent-state";
 import { act } from "@/lib/notices";
-import type { TaskPR, TerminalInfo } from "@/lib/daemon";
+import type { MachineAgents, TaskPR, TerminalInfo } from "@/lib/daemon";
 import { setActiveTerminal } from "@/lib/presence";
 import { useTabShortcuts } from "@/lib/shortcuts";
 import { registerTabs, touchTab, unregisterTabs } from "@/lib/tabs";
@@ -57,9 +57,9 @@ const docKey = (id: string) => `d:${id}`;
 type DocTab = { doc: DocFull; chat: { session: Session; events: SessionEvent[] } | null; wsBase: string } | { error: string };
 
 /**
- * A task as one row of tabs: Claude Code sessions, terminals, open files and the diff, with
+ * A task as one row of tabs: agent sessions (Claude Code, Codex), terminals, open files and the diff, with
  * one body below. Terminals persist (daemon-side) across reloads and restarts; an interrupted
- * one starts again when shown, and Claude Code resumes its conversation.
+ * one starts again when shown, and its agent resumes its conversation.
  */
 export function TaskWorkspace({
   machine,
@@ -101,8 +101,8 @@ export function TaskWorkspace({
       const server = byId.get(t.id);
       if (!server || (!running(server) && running(t))) byId.set(t.id, t);
     }
-    // Claude Code sessions first, then shells; each oldest first.
-    return [...byId.values()].filter((t) => !closed.has(t.id)).sort((a, b) => (a.kind === b.kind ? a.createdAt.localeCompare(b.createdAt) : a.kind === "claude" ? -1 : 1));
+    // Agent sessions first, then shells; each oldest first.
+    return [...byId.values()].filter((t) => !closed.has(t.id)).sort((a, b) => (a.kind === b.kind ? a.createdAt.localeCompare(b.createdAt) : a.kind === "agent" ? -1 : 1));
   }, [terminals, local, closed]);
 
   // ---------------------------------------------------------------- files
@@ -151,7 +151,7 @@ export function TaskWorkspace({
       const saved = JSON.parse(localStorage.getItem(filesKey) ?? "null") as { tabs?: string[]; docs?: string[]; room?: boolean } | null;
       if (saved?.tabs?.length) setFiles(saved.tabs);
       if (saved?.docs?.length) setDocTabs(saved.docs);
-      // ?terminal=<id> (a notification's link) opens that Claude Code tab; else the last one you had open.
+      // ?terminal=<id> (a notification's link) opens that agent tab; else the last one you had open.
       const wanted = new URLSearchParams(window.location.search).get("terminal");
       setActiveState(wanted ? termKey(wanted) : localStorage.getItem(activeKey));
     } catch {}
@@ -313,8 +313,20 @@ export function TaskWorkspace({
   }, [current]);
 
   // ---------------------------------------------------------------- terminal actions
+  // The machine's agents: what new sessions start (its default), and each tab's name for its own.
+  const [agents, setAgents] = useState<MachineAgents | null>(null);
+  useEffect(() => {
+    let live = true;
+    // A machine that does not say (an older jin) labels sessions as plain "agent".
+    void listAgents().then((a) => live && !("error" in a) && setAgents(a));
+    return () => {
+      live = false;
+    };
+  }, [machine]);
+  const agentLabel = agents?.agents.find((a) => a.id === agents.default)?.label ?? "agent";
+  const labelOf = (t: TerminalInfo) => agents?.agents.find((a) => a.id === t.agent)?.label ?? (t.agent === "codex" ? "Codex" : "Claude Code");
   const create = useCallback(
-    (kind: "claude" | "shell") =>
+    (kind: "agent" | "shell") =>
       once(`${scope}:${kind}:new:${terms.filter((t) => t.kind === kind).length}`, () => openTerminal({ taskId, kind }))
         .then((t) => {
           remember(t);
@@ -326,7 +338,7 @@ export function TaskWorkspace({
   );
   /** A new tab that carries on from this one's conversation (Claude Code --fork-session). */
   const fork = (t: TerminalInfo) =>
-    openTerminal({ taskId, kind: "claude", forkFrom: t.id })
+    openTerminal({ taskId, kind: "agent", forkFrom: t.id })
       .then((n) => {
         remember(n);
         setActive(termKey(n.id));
@@ -338,9 +350,9 @@ export function TaskWorkspace({
       .then(remember)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
 
-  // A task always has something open: its first Claude Code session.
+  // A task always has something open: its first agent session.
   useEffect(() => {
-    if (terminals.length === 0 && terms.length === 0 && files.length === 0 && docTabs.length === 0) void create("claude");
+    if (terminals.length === 0 && terms.length === 0 && files.length === 0 && docTabs.length === 0) void create("agent");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terms.length, files.length, docTabs.length]);
 
@@ -353,9 +365,9 @@ export function TaskWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTerm?.id, currentTerm?.status]);
 
-  // The Claude Code session on screen: jin does not notify about it while you watch.
+  // The agent session on screen: jin does not notify about it while you watch.
   useEffect(() => {
-    setActiveTerminal(currentTerm?.kind === "claude" ? currentTerm.id : null);
+    setActiveTerminal(currentTerm?.kind === "agent" ? currentTerm.id : null);
     return () => setActiveTerminal(null);
   }, [currentTerm?.id, currentTerm?.kind]);
 
@@ -367,8 +379,8 @@ export function TaskWorkspace({
     setActive(tabs[i + 1] ?? tabs[i - 1] ?? null);
   };
   const closeTerm = async (t: TerminalInfo, confirmed = false) => {
-    // A running Claude Code session ends when its tab closes: the first click asks, the second closes.
-    if (!confirmed && t.kind === "claude" && running(t) && !confirm.ask(termKey(t.id))) return;
+    // A running agent session ends when its tab closes: the first click asks, the second closes.
+    if (!confirmed && t.kind === "agent" && running(t) && !confirm.ask(termKey(t.id))) return;
     leave(termKey(t.id));
     setClosed((c) => new Set(c).add(t.id));
     if ((await act(`Couldn't close ${t.title}`, async () => (await closeTerminal(t.id), true))) === null) unhide(t.id);
@@ -452,10 +464,10 @@ export function TaskWorkspace({
     }
   }, [taskId]);
 
-  // ⌘T a new Claude Code session, ⌘W close the open tab (as its × does), ⌘1–9 a tab.
+  // ⌘T a new agent session, ⌘W close the open tab (as its × does), ⌘1–9 a tab.
   useTabShortcuts({
     count: tabs.length,
-    create: () => void create("claude"),
+    create: () => void create("agent"),
     select: (i) => tabs[i] && setActive(tabs[i]!),
     close: () => {
       if (!current) return;
@@ -478,7 +490,7 @@ export function TaskWorkspace({
       if (d.taskId === taskId) openFile(d.path, d.line);
     };
     const onNew = (e: Event) => {
-      const d = (e as CustomEvent<{ taskId: string; kind: "claude" | "shell" }>).detail;
+      const d = (e as CustomEvent<{ taskId: string; kind: "agent" | "shell" }>).detail;
       if (d.taskId === taskId) void create(d.kind);
     };
     const onShow = (e: Event) => {
@@ -510,7 +522,7 @@ export function TaskWorkspace({
         id: termKey(t.id),
         group: t.kind,
         label: t.title,
-        detail: `${taskId} · ${t.kind === "claude" ? `Claude Code · ${AGENT_LABEL[fromTerminal(t.status)]}` : "shell"}`,
+        detail: `${taskId} · ${t.kind === "agent" ? `${labelOf(t)} · ${AGENT_LABEL[fromTerminal(t.status)]}` : "shell"}`,
         activate: () => setActive(termKey(t.id)),
       })),
       { id: "room", group: "file" as const, label: "Room", detail: `${taskId} · agent room`, activate: () => setActive("room") },
@@ -531,15 +543,16 @@ export function TaskWorkspace({
         remember(await restartTerminal(t.id));
       },
     },
-    ...(t.kind === "claude"
+    ...(t.kind === "agent"
       ? ([
-          ...(t.claudeSessionId ? [{ label: "Fork", icon: GitFork, run: () => void fork(t) }] : []),
+          // Only Claude Code can start a new session from another's conversation.
+          ...(t.agentSessionId && t.agent !== "codex" ? [{ label: "Fork", icon: GitFork, run: () => void fork(t) }] : []),
           { label: "Archive", icon: Archive, run: () => archive(t) },
-          ...(t.claudeSessionId ? [{ label: "Copy session id", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(t.claudeSessionId!) }] : []),
+          ...(t.agentSessionId ? [{ label: "Copy session id", icon: ClipboardCopy, run: () => void navigator.clipboard?.writeText(t.agentSessionId!) }] : []),
         ] satisfies MenuItem[])
       : []),
     { divider: true },
-    { label: "Close", icon: X, ...(t.kind === "claude" && running(t) ? { danger: true, confirm: "Close and end the session?" } : {}), run: () => closeTerm(t, true) },
+    { label: "Close", icon: X, ...(t.kind === "agent" && running(t) ? { danger: true, confirm: "Close and end the session?" } : {}), run: () => closeTerm(t, true) },
   ];
   const fileMenu = (p: string): MenuItem[] => [
     { header: p },
@@ -556,17 +569,17 @@ export function TaskWorkspace({
     { label: "Copy path", icon: ClipboardCopy, hint: "in the task", run: () => void navigator.clipboard?.writeText(p) },
   ];
 
-  /** Right-click "+": bring back an archived Claude Code session (it resumes where it left off). */
+  /** Right-click "+": bring back an archived agent session (it resumes where it left off). */
   const restoreMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     const point = { clientX: e.clientX, clientY: e.clientY };
     const items: MenuItem[] = [
-      { label: "New Claude Code session", icon: Plus, run: () => void create("claude") },
+      { label: `New ${agentLabel} session`, icon: Plus, run: () => void create("agent") },
       { label: "New terminal", icon: SquareTerminal, run: () => void create("shell") },
       { label: "New document", icon: FileText, run: () => void newDoc() },
       { label: "Agent room", icon: Users, run: () => openRoom() },
     ];
-    const old = (await archivedTerminals(taskId).catch(() => [] as TerminalInfo[])).filter((t) => t.kind === "claude");
+    const old = (await archivedTerminals(taskId).catch(() => [] as TerminalInfo[])).filter((t) => t.kind === "agent");
     if (old.length) {
       items.push({ divider: true }, { header: "Archived sessions" });
       for (const t of old)
@@ -610,10 +623,10 @@ export function TaskWorkspace({
           {terms.map((t) => {
             const k = termKey(t.id);
             return (
-              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={t.kind === "claude" ? `${t.title} · Claude Code · ${AGENT_LABEL[fromTerminal(t.status)]}` : `${t.title} · terminal`} onClick={() => (setActive(k), toBody())} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => termMenu(t))}>
-                {t.kind === "claude" ? <StatusMark state={fromTerminal(t.status)} /> : <SquareTerminal size={13} className="tab-icon" />}
+              <div key={k} role="tab" tabIndex={0} aria-selected={current === k} className={`term-tab ${current === k ? "is-active" : ""}`} title={t.kind === "agent" ? `${t.title} · ${labelOf(t)} · ${AGENT_LABEL[fromTerminal(t.status)]}` : `${t.title} · terminal`} onClick={() => (setActive(k), toBody())} onDoubleClick={() => setRenaming(t.id)} {...contextMenu(() => termMenu(t))}>
+                {t.kind === "agent" ? <StatusMark state={fromTerminal(t.status)} /> : <SquareTerminal size={13} className="tab-icon" />}
                 {renaming === t.id ? <RenameInput value={t.title} label={`Rename ${t.title}`} onCancel={() => setRenaming(null)} onSave={(v) => void rename(t, v)} /> : <span className="term-tab-name">{t.title}</span>}
-                {closeButton(k, t.title, () => void closeTerm(t), "Click again to close; the Claude Code session ends")}
+                {closeButton(k, t.title, () => void closeTerm(t), "Click again to close; the session ends")}
               </div>
             );
           })}
@@ -654,7 +667,7 @@ export function TaskWorkspace({
             </div>
           )}
         </div>
-        <NewTab onClaude={() => (void create("claude"), toBody())} onShell={() => (void create("shell"), toBody())} onDoc={() => (void newDoc(), toBody())} onRoom={() => (openRoom(), toBody())} onRestore={(e) => void restoreMenu(e)} />
+        <NewTab agentLabel={agentLabel} onAgent={() => (void create("agent"), toBody())} onShell={() => (void create("shell"), toBody())} onDoc={() => (void newDoc(), toBody())} onRoom={() => (openRoom(), toBody())} onRestore={(e) => void restoreMenu(e)} />
         <TaskPRBadges taskId={taskId} prs={prs} />
         <TaskLabel taskId={taskId} subtitle={subtitle} />
         <div className="pane-actions">
@@ -686,7 +699,7 @@ export function TaskWorkspace({
             openContextMenu({ clientX: r.right - 220, clientY: r.bottom + 4 }, [
               { header: `${taskId} · ${subtitle}` },
               { label: "Changes", icon: GitCompare, hint: "uncommitted diff", run: () => (showChanges(), toBody()) },
-              { label: "New Claude Code session", icon: Plus, run: () => (void create("claude"), toBody()) },
+              { label: `New ${agentLabel} session`, icon: Plus, run: () => (void create("agent"), toBody()) },
               { label: "New terminal", icon: SquareTerminal, run: () => (void create("shell"), toBody()) },
               { label: "New document", icon: FileText, run: () => (void newDoc(), toBody()) },
               { label: "Agent room", icon: Users, run: () => (openRoom(), toBody()) },
@@ -725,17 +738,17 @@ export function TaskWorkspace({
           ) : currentTerm.status === "exited" ? (
             <Empty
               place="pane"
-              title={currentTerm.kind === "claude" ? "Claude Code exited" : "The shell exited"}
+              title={currentTerm.kind === "agent" ? `${labelOf(currentTerm)} exited` : "The shell exited"}
               action={
                 <button type="button" className="button" onClick={() => void start(currentTerm.id)}>
-                  <Play size={13} /> {currentTerm.kind === "claude" && currentTerm.claudeSessionId ? "Resume the conversation" : "Start again"}
+                  <Play size={13} /> {currentTerm.kind === "agent" && currentTerm.agentSessionId ? "Resume the conversation" : "Start again"}
                 </button>
               }
             />
           ) : error ? (
             <Failed place="pane" message={error} />
           ) : (
-            <Loading place="pane" label={currentTerm.kind === "claude" ? "Resuming Claude Code…" : "Starting the shell…"} />
+            <Loading place="pane" label={currentTerm.kind === "agent" ? `Resuming ${labelOf(currentTerm)}…` : "Starting the shell…"} />
           )
         ) : currentFile ? (
           <div className="editor-main">
@@ -792,15 +805,15 @@ export function TaskWorkspace({
             <DiffView taskId={taskId} active />
           </Boundary>
         ) : (
-          error ? <Failed place="pane" message={error} /> : <Empty place="pane" title="Nothing open">Open a Claude Code session or a terminal with +, the agent room, or a file from the tree.</Empty>
+          error ? <Failed place="pane" message={error} /> : <Empty place="pane" title="Nothing open">Open an agent session or a terminal with +, the agent room, or a file from the tree.</Empty>
         )}
       </div>} right={<Boundary label={side === "files" ? "Files" : side === "journal" ? "The journal" : "Activity"} resetKey={`${scope}:${side}`}><TaskSidePanel tab={side} taskId={taskId} openPath={currentFile} onOpen={(p) => (openFile(p), toBody())} /></Boundary>} />
     </section>
   );
 }
 
-/** "+": a Claude Code session on click; hover to choose a terminal or a document instead; right-click for archived sessions. */
-function NewTab({ onClaude, onShell, onDoc, onRoom, onRestore }: { onClaude: () => void; onShell: () => void; onDoc: () => void; onRoom: () => void; onRestore: (e: React.MouseEvent) => void }) {
+/** "+": an agent session (this machine's agent) on click; hover to choose a terminal or a document instead; right-click for archived sessions. */
+function NewTab({ agentLabel, onAgent, onShell, onDoc, onRoom, onRestore }: { agentLabel: string; onAgent: () => void; onShell: () => void; onDoc: () => void; onRoom: () => void; onRestore: (e: React.MouseEvent) => void }) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const show = () => {
@@ -817,13 +830,13 @@ function NewTab({ onClaude, onShell, onDoc, onRoom, onRestore }: { onClaude: () 
   };
   return (
     <div className="tab-new" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
-      <button type="button" className="term-tab-new" onClick={pick(onClaude)} onContextMenu={onRestore} aria-label="New tab" aria-haspopup="menu" aria-expanded={open} title="New Claude Code session (hover for a terminal or a document; right-click for archived sessions)">
+      <button type="button" className="term-tab-new" onClick={pick(onAgent)} onContextMenu={onRestore} aria-label="New tab" aria-haspopup="menu" aria-expanded={open} title={`New ${agentLabel} session (hover for a terminal or a document; right-click for archived sessions)`}>
         <Plus size={14} />
       </button>
       {open && (
         <div className="tab-new-menu" role="menu">
-          <button type="button" role="menuitem" onClick={pick(onClaude)}>
-            <ThermalMark size={13} animated={false} variant="blob" /> Claude Code session
+          <button type="button" role="menuitem" onClick={pick(onAgent)}>
+            <ThermalMark size={13} animated={false} variant="blob" /> {agentLabel} session
           </button>
           <button type="button" role="menuitem" onClick={pick(onShell)}>
             <SquareTerminal size={13} /> Terminal

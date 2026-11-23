@@ -60,7 +60,7 @@ function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initi
   const [type, setType] = useState("");
   const [setup, setSetup] = useState(true);
   const [prompt, setPrompt] = useState("");
-  // Where the task starts: a Claude Code session, or its agent room (remembered).
+  // Where the task starts: a session of the machine's agent (Claude Code or Codex), or its agent room (remembered).
   const [startIn, setStartInState] = useState<"claude" | "room">("claude");
   useEffect(() => {
     try {
@@ -251,7 +251,7 @@ function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initi
             <span>Start with</span>
             <div className="segmented" role="tablist" aria-label="Start with">
               <button type="button" role="tab" aria-selected={startIn === "claude"} className={startIn === "claude" ? "is-active" : ""} onClick={() => setStartIn("claude")}>
-                Claude Code session
+                Agent session
               </button>
               <button type="button" role="tab" aria-selected={startIn === "room"} className={startIn === "room" ? "is-active" : ""} onClick={() => setStartIn("room")}>
                 Agent room
@@ -260,7 +260,7 @@ function NewTaskDialog({ targets, initial, onClose }: { targets: Target[]; initi
           </div>
         )}
         <label className="field">
-          <span>{kind !== "review" && startIn === "room" ? "First message to the room (optional)" : "First prompt for Claude Code (optional)"}</span>
+          <span>{kind !== "review" && startIn === "room" ? "First message to the room (optional)" : "First prompt for the agent (optional)"}</span>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}

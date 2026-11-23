@@ -99,8 +99,8 @@ export function Sidebar({
 
   const taskMenu = (machine: string, t: Task): MenuItem[] => [
     { label: "Open", icon: ArrowRight, run: () => router.push(taskHref(machine, t.id)) },
-    ...(["claude", "shell"] as const).map((kind) => ({
-      label: kind === "claude" ? "Claude" : "Terminal",
+    ...(["agent", "shell"] as const).map((kind) => ({
+      label: kind === "agent" ? "Agent session" : "Terminal",
       icon: Plus,
       run: async () => {
         await openTerminal({ taskId: t.id, kind, machine });
@@ -164,7 +164,7 @@ export function Sidebar({
       );
     }
     // Claude Code's status (from its hooks), else the latest SDK session's.
-    const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
+    const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "agent").at(-1);
     const s = latest((x) => x.taskId === t.id);
     const mark = cli ? fromTerminal(cli.status) : s ? fromSession(s.state) : null;
     const title = t.title ?? t.slug;

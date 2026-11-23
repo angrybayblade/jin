@@ -1,4 +1,5 @@
 "use client";
+import { AgentPicker } from "@/components/AgentPicker";
 import { Empty } from "@/components/States";
 import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -573,6 +574,7 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
             </ul>
           </section>
           <Workspace machine={m} refresh={refresh} />
+          <AgentPicker machine={m.id} name={m.label} />
           <Home machine={m} refresh={refresh} />
         </>
       )}

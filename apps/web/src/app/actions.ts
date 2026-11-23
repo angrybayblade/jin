@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -112,8 +112,28 @@ export async function attachTicket(terminalId: string): Promise<string> {
   });
 }
 
+/** A machine's coding agents and its default (`machine`: another machine; else the page's own). */
+export async function listAgents(machine?: string): Promise<MachineAgents | { error: string }> {
+  try {
+    return await daemon<MachineAgents>("/api/agents", { machine });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** The agent new tabs on a machine start. */
+export async function setDefaultAgent(id: AgentId, machine?: string): Promise<MachineAgents | { error: string }> {
+  try {
+    const r = await daemon<MachineAgents>("/api/agents/default", { method: "PUT", json: { id }, machine });
+    revalidatePath("/", "layout");
+    return r;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** `machine`: the task's machine, from a page that is not on it (the sidebar); else the page's own. */
-export async function openTerminal(opts: { taskId?: string; kind: "shell" | "claude"; prompt?: string; cols?: number; rows?: number; forkFrom?: string; machine?: string }): Promise<TerminalInfo> {
+export async function openTerminal(opts: { taskId?: string; kind: "shell" | "agent"; agent?: AgentId; prompt?: string; cols?: number; rows?: number; forkFrom?: string; machine?: string }): Promise<TerminalInfo> {
   return failSafe(async () => {
     const { machine, ...json } = opts;
     const t = await daemon<TerminalInfo>("/api/terminals", { method: "POST", json, machine });
