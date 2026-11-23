@@ -70,6 +70,11 @@ runs Codex sandboxed with the network off, so outward actions ask you in the ter
 and sign-ins (`/login` in a pi tab). jin's extension checks every tool call; outward actions
 ask in pi's prompt (tabs) or in jin (chats). See [security.md §8e](docs/security.md#8e-pi-as-a-machines-agent).
 
+**opencode instead** (same card): tabs, task chats and agent rooms run opencode with its own
+models and sign-ins. jin passes its plugin per launch (nothing written to your opencode
+config); outward actions ask in opencode's prompt (tabs) or in jin (chats). See
+[security.md §8f](docs/security.md#8f-opencode-as-a-machines-agent).
+
 **A repo as a workspace** (Settings → Set up jin → Add another, or a machine's Workspace
 card): type `owner/repo` or a git URL. jin clones it into `~/repos/<name>` (with `gh` for
 GitHub, so private repos work with your sign-in) and uses it; a clone you already have is

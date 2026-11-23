@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **opencode as a machine's agent.** Pick opencode and its tabs, task chats and agent rooms
+  run opencode (its own models and sign-ins). jin's plugin, passed per launch, checks every
+  tool call: a tab sets every tool to ask and answers what jin allows, so a push or message
+  shows opencode's own prompt; a chat or room waits on jin's approvals.
+
 - **pi as a machine's agent.** Pick pi for a machine and its terminal tabs, task chats and
   agent rooms run pi (with its own models and sign-ins). jin's pi extension checks every
   tool call and pi waits for the answer: a tab asks in pi's own prompt, a chat or room in

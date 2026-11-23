@@ -28,6 +28,9 @@ whether it is a design choice for a single-user tool or a gap to close.
   an agent on its own is not built yet. There is no agent-kept state card:
   the room's outputs are its docs and the diff. *Deliberate for the first version.*
 
+- **opencode signs in on its own** (`opencode auth login` on the machine; the Sign-ins card
+  does not cover it). Its chats run one `opencode run` per message; a session cannot be
+  forked or moved, and jin's skills are Claude Code only. *Gap.*
 - **pi signs in on its own.** A pi machine's tabs, task chats and rooms run pi with its own
   models and sign-ins; sign in with `/login` in a pi tab there (the Sign-ins card does not
   cover pi yet). A pi session cannot be forked or moved, and jin's skills are Claude Code
@@ -37,8 +40,7 @@ whether it is a design choice for a single-user tool or a gap to close.
   stay on Claude, since they work through claude.ai's connectors. A Codex tab cannot ask you
   before an outward MCP tool (jin blocks it; a task chat or room asks in jin), cannot be
   forked, and asks you before each `jin-task` command (Codex's sandbox keeps the network,
-  localhost included, off). jin's skills are added to Claude Code only. *Gap*; opencode is not
-  supported yet.
+  localhost included, off). jin's skills are added to Claude Code only. *Gap.*
 
 ## Integrations
 

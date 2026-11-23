@@ -299,6 +299,27 @@ in its terminal tabs, a task's chats and its agent rooms:
 - **Not covered:** pi's sign-in (run `/login` in a pi tab on that machine);
   jin's skills plugin; forking a pi session or moving it to another machine.
 
+### 8f. opencode as a machine's agent
+
+A machine can run opencode instead, in its terminal tabs, a task's chats and
+its agent rooms. Everything jin adds is passed for that launch in
+`OPENCODE_CONFIG_CONTENT`; nothing is written to `~/.config/opencode`.
+
+- **jin's plugin checks every tool call, and opencode waits for it.**
+  `hooks/opencode-plugin.ts` asks the daemon in `tool.execute.before`; a call
+  jin denies is blocked (the hook throws, and opencode shows jin's reason),
+  and so is any call when the daemon cannot be reached.
+- **In a tab**, every tool is set to "ask" (named tools too, so a user's own
+  `"bash": "allow"` cannot skip jin). The plugin answers opencode's permission
+  request itself for calls jin allows; a call jin asks about (a push, a PR, a
+  message) is left to opencode's own prompt.
+- **In a chat or room agent** (one `opencode run` per turn), the session's gate
+  decides in the plugin, approvals in jin included; jin's own tools reach
+  opencode through the same MCP bridge as Codex and pi.
+- **No sandbox**, as with Claude Code and pi: guardrails against a misled
+  model, not isolation. Its sign-in is opencode's own (`opencode auth login`
+  on that machine); a session cannot be forked or moved.
+
 ### 9. Network
 
 - **Single-user today:** jin listens on loopback only, on your Mac and on each
