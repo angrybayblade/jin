@@ -28,13 +28,13 @@ whether it is a design choice for a single-user tool or a gap to close.
   an agent on its own is not built yet. There is no agent-kept state card:
   the room's outputs are its docs and the diff. *Deliberate for the first version.*
 
-- **opencode 2 is not supported.** jin's plugin is written for opencode 1.x; opencode 2
-  changed its plugins, config and tool names, so jin refuses it (the machine's agent picker
-  says so). pi is supported at 1.x. *Gap.*
+- **opencode 2 only.** jin's plugin is written for opencode 2's plugin API; opencode 1 is
+  refused (the agent picker says so; `opencode upgrade` fixes it). pi is supported at 1.x.
+  *Deliberate: the latest opencode only.*
 - **opencode and pi sign in to their own providers.** A machine's Sign-ins card shows which
   providers each holds a credential for (credentials from environment variables are not
   counted). opencode signs in there with ChatGPT; another provider, or an API key, means
-  `opencode providers login` on the machine. pi signs in only in its own terminal: `/login`
+  `opencode auth login` on the machine. pi signs in only in its own terminal: `/login`
   in a pi tab there (pi has no sign-in command to drive). Their chats run one process per
   message (`opencode run`) or pi's RPC mode; their sessions cannot be forked or moved, and
   jin's skills are Claude Code only. *Gap.*

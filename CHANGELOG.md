@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **opencode 2.** jin's opencode support moves to opencode 2 (and only 2): its plugin uses
+  the new plugin API, tabs and chats run `--standalone` so jin's plugin is the one checking
+  tool calls, a push or message in a tab asks in opencode's own prompt showing the call, and
+  jin's tools appear directly. opencode 1 is refused.
+
 - **Fix: jin refuses pi or opencode at a version it has not checked.** opencode 2 changed its
   plugin system, so jin's plugin did not load there and an opencode tab or chat would have run
   unchecked (no one had picked it yet). Each agent now declares the versions jin has checked

@@ -305,7 +305,7 @@ in its terminal tabs, a task's chats and its agent rooms:
 
 jin's hooks for pi and opencode use each agent's extension API, which can change between
 major versions without a word: opencode 2 stopped loading jin's plugin, so its calls would
-have run unchecked. Each agent declares the versions jin has checked (pi 1.x, opencode 1.x);
+have run unchecked. Each agent declares the versions jin has checked (pi 1.x, opencode 2.x);
 jin reads `--version` on the machine and refuses another version as the machine's agent and
 for every new tab and chat, saying why. Codex needs no list: jin refuses it unless Codex
 itself reports jin's hooks as trusted, which an unknown version cannot fake.
@@ -316,17 +316,25 @@ A machine can run opencode instead, in its terminal tabs, a task's chats and
 its agent rooms. Everything jin adds is passed for that launch in
 `OPENCODE_CONFIG_CONTENT`; nothing is written to `~/.config/opencode`.
 
-- **jin's plugin checks every tool call, and opencode waits for it.**
-  `hooks/opencode-plugin.ts` asks the daemon in `tool.execute.before`; a call
-  jin denies is blocked (the hook throws, and opencode shows jin's reason),
-  and so is any call when the daemon cannot be reached.
-- **In a tab**, every tool is set to "ask" (named tools too, so a user's own
-  `"bash": "allow"` cannot skip jin). The plugin answers opencode's permission
-  request itself for calls jin allows; a call jin asks about (a push, a PR, a
-  message) is left to opencode's own prompt.
+- **opencode 2 only.** jin's plugin (`hooks/opencode-plugin/`) is written for
+  opencode 2's plugin API; opencode 1 is refused (see 8e′).
+- **Always `--standalone`.** By default every opencode 2 client uses one shared
+  background server that runs the tools with its own configuration, so a
+  per-launch plugin would never load there. jin starts its tabs and chats with
+  a private server that has jin's plugin.
+- **jin's plugin checks every tool call, and opencode waits for it.** Its
+  `tool.execute.before` hook is registered first (the plugin's other hooks only
+  report status, each guarded so a renamed one cannot stop the check from
+  loading). A call jin denies is rejected with jin's reason, and so is any call
+  when the daemon cannot be reached. Calls a code-mode script makes go through
+  the same hook one by one, so your MCP tools are checked inside scripts too.
+- **In a tab**, a call jin asks about (a push, a PR, a message) goes to
+  opencode's own approval prompt (`permission.assert`), showing the call, and
+  runs only once you allow it; other calls run without prompting.
 - **In a chat or room agent** (one `opencode run` per turn), the session's gate
   decides in the plugin, approvals in jin included; jin's own tools reach
-  opencode through the same MCP bridge as Codex and pi.
+  opencode through the same MCP bridge as Codex and pi, as direct tools
+  (`codemode: false`).
 - **No sandbox**, as with Claude Code and pi: guardrails against a misled
   model, not isolation. It signs in on the machine itself (the Sign-ins card
   runs opencode's ChatGPT device sign-in there; no credential passes through
