@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentLaunch, LaunchContext } from "./agents";
+import { CodexAppServer } from "./codex-app-server";
 import { taskRules } from "./claude-cli";
 import type { Config } from "./config";
 import { HttpError } from "./http";
@@ -23,7 +24,7 @@ const TOOL_EVENTS = ["PreToolUse", "PostToolUse", "PermissionRequest"] as const;
 const OTHER_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop"] as const;
 
 /** A TOML string (JSON's escapes are valid TOML basic-string escapes). */
-const toml = (s: string) => JSON.stringify(s);
+export const toml = (s: string) => JSON.stringify(s);
 
 /** jin's hooks, as -c flags: the same text on every launch, so Codex's trust in them holds. */
 export function codexHookFlags(execPath = process.execPath, hook = HOOK): string[] {
@@ -47,58 +48,6 @@ interface HookEntry {
   currentHash: string;
 }
 
-/** Run Codex's app-server (through the login shell, for its PATH), send requests, and stop it. */
-async function appServer<T>(flags: string[], env: Record<string, string>, talk: (send: (method: string, params?: unknown) => Promise<any>) => Promise<T>): Promise<T> {
-  const shell = process.env.SHELL || "/bin/bash";
-  const proc = Bun.spawn([shell, "-l", "-c", 'exec "$@"', "jin", "codex", "app-server", ...flags], { stdin: "pipe", stdout: "pipe", stderr: "ignore", env: { ...process.env, ...env } });
-  const waiting = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  let next = 1;
-  const reader = (async () => {
-    let buf = "";
-    const decoder = new TextDecoder();
-    for await (const chunk of proc.stdout) {
-      buf += decoder.decode(chunk, { stream: true });
-      for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
-        const line = buf.slice(0, i).trim();
-        buf = buf.slice(i + 1);
-        if (!line) continue;
-        let msg: { id?: number; method?: string; result?: unknown; error?: { message?: string } };
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        if (msg.id == null || msg.method != null) continue;
-        const w = waiting.get(msg.id);
-        waiting.delete(msg.id);
-        if (msg.error) w?.reject(new Error(msg.error.message ?? "app-server error"));
-        else w?.resolve(msg.result);
-      }
-    }
-    for (const w of waiting.values()) w.reject(new Error("Codex's app-server stopped"));
-  })();
-  const write = (m: unknown) => {
-    proc.stdin.write(JSON.stringify(m) + "\n");
-    proc.stdin.flush();
-  };
-  const send = (method: string, params?: unknown) =>
-    new Promise<any>((resolve, reject) => {
-      const id = next++;
-      waiting.set(id, { resolve, reject });
-      write({ id, method, params });
-    });
-  const timer = setTimeout(() => proc.kill(), 30_000);
-  try {
-    await send("initialize", { clientInfo: { name: "jin", version: "1" } });
-    write({ method: "initialized" });
-    return await talk(send);
-  } finally {
-    clearTimeout(timer);
-    proc.kill();
-    await reader.catch(() => {});
-  }
-}
-
 /**
  * Make sure Codex will run jin's hooks: list them as Codex sees them with these flags, trust
  * the ones that are not (yet, or since they changed), and check again. Throws if any is still
@@ -106,17 +55,24 @@ async function appServer<T>(flags: string[], env: Record<string, string>, talk: 
  */
 export async function trustCodexHooks(flags: string[], cwd: string, env: Record<string, string> = {}): Promise<void> {
   const ours = (r: { data?: { hooks?: HookEntry[] }[] }) => (r.data ?? []).flatMap((d) => d.hooks ?? []).filter((h) => h.source === "sessionFlags");
-  await appServer(flags, env, async (send) => {
-    const before = ours(await send("hooks/list", { cwds: [cwd] }));
+  const server = new CodexAppServer(flags, env);
+  const timer = setTimeout(() => server.close(), 30_000);
+  try {
+    await server.initialize();
+    const before = ours(await server.request("hooks/list", { cwds: [cwd] }));
     if (!before.length) throw new Error("Codex did not load jin's hooks");
     const edits = before
       .filter((h) => h.trustStatus !== "trusted" && h.trustStatus !== "managed")
       .map((h) => ({ keyPath: `hooks.state.${JSON.stringify(h.key)}.trusted_hash`, mergeStrategy: "replace", value: h.currentHash }));
-    if (edits.length) await send("config/batchWrite", { edits });
-    const after = ours(await send("hooks/list", { cwds: [cwd] }));
+    if (edits.length) await server.request("config/batchWrite", { edits });
+    const after = ours(await server.request("hooks/list", { cwds: [cwd] }));
     const untrusted = after.filter((h) => h.trustStatus !== "trusted" && h.trustStatus !== "managed");
     if (untrusted.length || after.length !== before.length) throw new Error(`Codex still does not trust ${untrusted.length || "all"} of jin's hooks`);
-  });
+  } finally {
+    clearTimeout(timer);
+    server.close();
+    await server.closed.catch(() => {});
+  }
 }
 
 /** Codex keeps each conversation as a rollout file named after its id, under sessions/<date>/. */
