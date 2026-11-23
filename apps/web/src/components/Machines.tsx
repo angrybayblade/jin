@@ -496,6 +496,7 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
   const doneSteps = m.steps.filter((x) => x.state === "done").length;
   const tunnelPort = m.localPort ? `127.0.0.1:${m.localPort}` : null;
   return (
+    <div className="machine-page">
     <article className="machine-detail">
       <header className="md-head">
         <span className="md-icon">
@@ -578,11 +579,17 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
             </ul>
           </section>
           <Workspace machine={m} refresh={refresh} />
-          <HarnessSettings machine={m.id} name={m.label} />
           <Home machine={m} refresh={refresh} />
         </>
       )}
     </article>
+    {/* The machine's coding agents and their settings, beside it on a wide screen. */}
+    {ready && (
+      <aside className="machine-side" aria-label={`Coding agents on ${m.label}`}>
+        <HarnessSettings machine={m.id} name={m.label} />
+      </aside>
+    )}
+    </div>
   );
 }
 

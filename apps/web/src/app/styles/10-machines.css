@@ -656,3 +656,34 @@ p.machine-auth-body {
   margin: 0;
   padding: 0 var(--space-3) var(--space-2);
 }
+
+/* A machine's page: the machine, and beside it (on a wide screen) its coding agents and their
+   settings, which stay in view and scroll on their own. Stacked below that width. */
+.machine-page {
+  display: grid;
+  grid-template-columns: minmax(0, 760px) minmax(380px, 640px);
+  gap: var(--space-4);
+  align-items: start;
+}
+.machine-side {
+  display: grid;
+  gap: var(--space-3);
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.machines-main {
+  container-type: inline-size;
+}
+@container (max-width: 1180px) {
+  .machine-page {
+    grid-template-columns: minmax(0, 760px);
+  }
+  .machine-side {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
