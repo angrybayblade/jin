@@ -149,6 +149,12 @@ export function readSignIn(tool: AuthTool, out: string): { url: string | null; c
     const account = text.match(/Logged in as (\S+)/)?.[1] ?? null;
     return { url: code ? "https://github.com/login/device" : null, code, needsCode: false, done: Boolean(account), answer, account };
   }
+  if (tool === "opencode") {
+    // `opencode providers login -p openai -m "ChatGPT Pro/Plus (headless)"`: a device link and code.
+    const url = text.match(/https:\/\/auth\.openai\.com\/codex\/device\S*/)?.[0] ?? null;
+    const code = text.match(/Enter code:\s*([A-Z0-9]{4}-[A-Z0-9]{4,6})/)?.[1] ?? null;
+    return { url, code, needsCode: false, done: /Login successful|logged in|Added credential/i.test(text), answer: null, account: null };
+  }
   if (tool === "codex") {
     // `codex login --device-auth`: a link and a one-time code; it finishes once you approve.
     const url = text.match(/https:\/\/auth\.openai\.com\/codex\/device\S*/)?.[0] ?? null;
@@ -169,18 +175,34 @@ export function readSignIn(tool: AuthTool, out: string): { url: string | null; c
 }
 
 /** The tools a machine signs in to: jin's own, then the ones workspace providers declare. */
-export const authTools = (): AuthTool[] => ["gh", "claude", "codex", ...providerTools().map((t) => t.id)];
+export const authTools = (): AuthTool[] => ["gh", "claude", "codex", "pi", "opencode", ...providerTools().map((t) => t.id)];
 
-/** How a tool shows in the sign-ins list. */
-export function describeTool(tool: AuthTool): { label: string; why: string; optional: boolean; tokenHint: string | null } {
+/**
+ * How a tool shows in the sign-ins list. `providers`: it signs in to model providers (its
+ * account is the providers it holds credentials for). `signInHint`: it signs in only in its
+ * own terminal, so the list says how instead of offering a sign-in.
+ */
+export interface ToolView {
+  label: string;
+  why: string;
+  optional: boolean;
+  tokenHint: string | null;
+  providers?: boolean;
+  signInHint?: string | null;
+}
+
+export function describeTool(tool: AuthTool): ToolView {
   if (tool === "gh") return { label: "GitHub (gh)", why: "Clones the workspace's repos; PRs and checks.", optional: false, tokenHint: null };
   if (tool === "claude") return { label: "Claude Code", why: "Runs Claude Code and jin's chats there.", optional: false, tokenHint: null };
   if (tool === "codex") return { label: "Codex", why: "Runs Codex there, when it is the machine's coding agent.", optional: true, tokenHint: null };
+  if (tool === "pi")
+    return { label: "pi", why: "Runs pi there, when it is the machine's coding agent.", optional: true, tokenHint: null, providers: true, signInHint: "pi signs in in its own terminal: open a pi tab on this machine and run /login." };
+  if (tool === "opencode") return { label: "opencode", why: "Runs opencode there, when it is the machine's coding agent. Signs in with ChatGPT.", optional: true, tokenHint: null, providers: true };
   const t = providerTools().find((x) => x.id === tool);
   return { label: t?.label ?? tool, why: t?.why ?? "", optional: t?.optional ?? true, tokenHint: t?.token?.hint ?? null };
 }
 
-export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : tool === "codex" ? "codex login --device-auth" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
+export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : tool === "codex" ? "codex login --device-auth" : tool === "opencode" ? "opencode providers login -p openai -m 'ChatGPT Pro/Plus (headless)'" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
 
 /** `gh yes angrybayblade` / `claude no` / `<tool> missing`, one per line, from the status probe. */
 export function readAuthStatus(out: string): Partial<Record<AuthTool, { state: AuthState["state"]; account: string | null }>> {
@@ -298,6 +320,10 @@ if command -v codex >/dev/null; then
   s=$(lim codex login status 2>&1 || true)
   if echo "$s" | grep -q '^Logged in'; then echo "codex yes $(echo "$s" | sed -n 's/^Logged in using //p' | head -1)"; else echo "codex no"; fi
 else echo "codex missing"; fi
+# pi and opencode sign in to model providers: the providers they keep a credential for.
+providers() { lim bun -e 'try { const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(Object.keys(j).join(", ")) } catch {}' "$1" 2>/dev/null; }
+if command -v pi >/dev/null; then p=$(providers "\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json"); if [ -n "$p" ]; then echo "pi yes $p"; else echo "pi no"; fi; else echo "pi missing"; fi
+if command -v opencode >/dev/null; then p=$(providers "\${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json"); if [ -n "$p" ]; then echo "opencode yes $p"; else echo "opencode no"; fi; else echo "opencode missing"; fi
 ${providerTools()
   .map((t) => t.status)
   .join("\n")}
@@ -951,6 +977,8 @@ pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}
 
   /** Start a sign-in on the machine; its link and code show up in the machine's view. */
   signIn(id: string, tool: AuthTool) {
+    const hint = describeTool(tool).signInHint;
+    if (hint) throw new HttpError(400, hint);
     const m = this.record(id);
     const key = `${id}:${tool}`;
     this.signIns.get(key)?.proc.kill();

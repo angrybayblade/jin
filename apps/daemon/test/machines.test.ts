@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readDetections } from "../src/adapters";
-import { machineId, readAuthStatus, readSignIn, stripAnsi, validHost } from "../src/machines";
+import { describeTool, machineId, readAuthStatus, readSignIn, signInCommand, stripAnsi, validHost } from "../src/machines";
 
 test("a machine's id comes from its host, and never collides", () => {
   expect(machineId("tmp-jin.exe.xyz")).toBe("tmp-jin");
@@ -106,4 +106,17 @@ test("Codex signs in with a device code: the link and the code are read from wha
   expect(readSignIn("codex", `${out}\nSuccessfully logged in\n`).done).toBe(true);
   expect(readAuthStatus("gh yes a\ncodex yes ChatGPT\n").codex).toEqual({ state: "signed-in", account: "ChatGPT" });
   expect(readAuthStatus("codex no\n").codex).toEqual({ state: "signed-out", account: null });
+});
+
+test("opencode signs in with ChatGPT's device code; pi and opencode report the providers they hold credentials for", () => {
+  expect(signInCommand("opencode")).toBe("opencode providers login -p openai -m 'ChatGPT Pro/Plus (headless)'");
+  const out = ["┌  Add credential", "│", "●  Go to: \x1b[36mhttps://auth.openai.com/codex/device\x1b[0m", "│", "●  Enter code: Z6OG-6058V", "│", "◒  Waiting for authorization"].join("\n");
+  expect(readSignIn("opencode", out)).toMatchObject({ url: "https://auth.openai.com/codex/device", code: "Z6OG-6058V", done: false });
+  expect(readAuthStatus("pi yes openai-codex, anthropic\nopencode no\n")).toMatchObject({
+    pi: { state: "signed-in", account: "openai-codex, anthropic" },
+    opencode: { state: "signed-out", account: null },
+  });
+  expect(describeTool("opencode")).toMatchObject({ providers: true, optional: true });
+  // pi signs in only in its own terminal: the list says how, and offers no sign-in.
+  expect(describeTool("pi")).toMatchObject({ providers: true, signInHint: expect.stringContaining("/login") });
 });
