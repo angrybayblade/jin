@@ -320,7 +320,7 @@ export async function startTerminal(deps: TerminalDeps, id: string, opts: { prom
   await agent.prepare?.(ctx);
   if (deps.terminals.isLive(id)) return deps.terminals.get(id);
   const prompt = !resume && !fork ? opts.prompt : undefined;
-  return deps.terminals.spawn(id, { argv: agent.argv({ ...ctx, resume, fork, prompt }), env: agent.env(workspace), cols: opts.cols, rows: opts.rows });
+  return deps.terminals.spawn(id, { argv: agent.argv({ ...ctx, resume, fork, prompt }), env: agent.env(workspace, ctx), cols: opts.cols, rows: opts.rows });
 }
 
 /** A new tab running a shell or an agent (this machine's default unless `agent` names one), in a task's directory (or the workspace root without a task). */

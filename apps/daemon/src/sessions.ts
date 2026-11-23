@@ -281,6 +281,20 @@ export class Sessions {
   }
 
   /**
+   * A tool call of a running session, decided by its gate (a harness whose hooks can wait, pi):
+   * policy, the session's own rules, and an approval in jin when policy asks. A session that is
+   * not running gets nothing.
+   */
+  async check(sessionId: string, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<{ allow: boolean; reason?: string }> {
+    const session = this.get(sessionId);
+    const run = this.running.get(sessionId);
+    if (!run) return { allow: false, reason: `the session is ${session.state}, not running` };
+    const both = AbortSignal.any([signal, run.signal]);
+    const v = await this.gate(sessionId, session.workspace)(tool, input, both);
+    return v.allow ? { allow: true } : { allow: false, reason: v.reason };
+  }
+
+  /**
    * Whether a tool call may even start (asked by a harness's hooks before it runs): why not
    * (policy denies it, or the session may not, like a read-only room agent editing), else
    * null. Approvals are not decided here; they come to the gate.

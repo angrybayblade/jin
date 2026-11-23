@@ -4,12 +4,12 @@ import type { WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 
 /**
- * The coding agents a terminal tab can run (Claude Code, Codex), and which one this machine
+ * The coding agents a terminal tab can run (Claude Code, Codex, pi), and which one this machine
  * starts by default. Each agent keeps its own setup and sign-in on the machine (~/.claude,
- * ~/.codex); jin only adds its hooks, its tools and the task's rules when it launches one.
+ * ~/.codex, ~/.pi); jin only adds its hooks, its tools and the task's rules when it launches one.
  */
-export type AgentId = "claude" | "codex";
-export const AGENT_IDS: readonly AgentId[] = ["claude", "codex"];
+export type AgentId = "claude" | "codex" | "pi";
+export const AGENT_IDS: readonly AgentId[] = ["claude", "codex", "pi"];
 
 /** Where an agent starts and what it is told: a task's folder, rules and context. */
 export interface LaunchContext {
@@ -33,7 +33,7 @@ export interface AgentLaunch {
   readonly canFork: boolean;
   /** The command line: jin's hooks, tools and rules, then resuming, forking or the first prompt. */
   argv(ctx: LaunchContext & { resume?: string; fork?: string; prompt?: string }): string[];
-  env(workspace: WorkspaceConfig | undefined): Record<string, string>;
+  env(workspace: WorkspaceConfig | undefined, ctx?: LaunchContext): Record<string, string>;
   /** Whether the agent saved a conversation under this id (one opened and left empty has none). */
   hasSession(sessionId: string, workspace: WorkspaceConfig | undefined): boolean;
   /** Before it starts (Codex: jin's hooks trusted); throws, with the reason, to refuse. */

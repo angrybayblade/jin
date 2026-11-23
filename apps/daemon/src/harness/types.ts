@@ -46,7 +46,7 @@ export interface HarnessRun {
  * Resolves with the harness's own session id, used to resume later.
  */
 export interface Harness {
-  readonly id: "claude" | "codex";
+  readonly id: "claude" | "codex" | "pi";
   /** Which implementation runs it ("claude-agent-sdk", "codex-app-server", "scripted"). */
   readonly adapter: string;
   run(run: HarnessRun): Promise<{ sessionId: string }>;

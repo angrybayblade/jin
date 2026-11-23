@@ -33,6 +33,8 @@ import { Composio, composioRoutes, type LiveEvent } from "./composio";
 import { GithubWatch } from "./github-watch";
 import { claudeHarness, type Harness } from "./harness";
 import { CodexHarness } from "./harness/codex";
+import { PiHarness } from "./harness/pi";
+import { piLaunch } from "./pi-cli";
 import { AgentTools, agentToolRoutes } from "./agent-tools";
 import { HttpError, json, Router } from "./http";
 import { join } from "node:path";
@@ -126,13 +128,14 @@ let rooms: Rooms | null = null;
 const agentTools = new AgentTools();
 agentToolRoutes(app.router, agentTools);
 const codexHarness = new CodexHarness({ home: config.home, tools: agentTools });
+const piHarness = new PiHarness({ home: config.home, tools: agentTools });
 // Chats and room agents run on Claude through the Agent SDK; on a machine whose agent is Codex,
 // the work in a task (its chats, its room agents) runs on Codex. A resumed session keeps its own.
 // jin's chat, desks and doc chats stay on Claude: they work through claude.ai's connectors.
 const harnessFor = ({ kind, id }: { kind: string; id?: string }): Harness => {
   if (process.env.JIN_HARNESS === "scripted") return claudeHarness();
-  const codex = id ? id === "codex" : (kind === "task" || kind === "room") && agents.defaultId() === "codex";
-  return codex ? codexHarness : claudeHarness();
+  const which = id ?? (kind === "task" || kind === "room" ? agents.defaultId() : "claude");
+  return which === "codex" ? codexHarness : which === "pi" ? piHarness : claudeHarness();
 };
 const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: harnessFor, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle, mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
   // The scripted harness (tests) has no Claude Code to ask.
@@ -201,7 +204,7 @@ chatSkillRoutes(app.router, (kind) => sessions.chatPlace(kind), sessions.chatSki
 const terminals = new Terminals(db);
 const jinTaskBin = writeJinTaskCommand(config);
 // The coding agents a tab can run, and this machine's default (Settings, or the machine's card).
-const launches = { claude: claudeLaunch(config, writeClaudeSettings(config), jinTaskBin), codex: codexLaunch(config, jinTaskBin) };
+const launches = { claude: claudeLaunch(config, writeClaudeSettings(config), jinTaskBin), codex: codexLaunch(config, jinTaskBin), pi: piLaunch(config, jinTaskBin) };
 const agents = new Agents(db, launches);
 agentRoutes(app.router, agents);
 // A removed task's terminals close with it.
@@ -265,6 +268,7 @@ agentHookRoutes(app.router, {
   },
   onStatus: onClaudeStatus,
   precheck: (sessionId, tool, input) => sessions.precheck(sessionId, tool, input),
+  sessionGate: (sessionId, tool, input, signal) => sessions.check(sessionId, tool, input, signal),
   // The agent created a PR in a task: attach it, whatever it does next.
   onPrsCreated: (terminalId, urls) => {
     const taskId = terminals.get(terminalId).taskId;

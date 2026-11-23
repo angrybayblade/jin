@@ -79,10 +79,12 @@ afterAll(async () => {
 test("a machine starts Claude Code until Codex is picked, and only an installed agent can be picked", async () => {
   const before = await d.json("/api/agents");
   expect(before.default).toBe("claude");
-  expect(before.agents).toEqual([
-    { id: "claude", label: "Claude Code", installed: true },
-    { id: "codex", label: "Codex", installed: true },
-  ]);
+  expect(before.agents).toEqual(
+    expect.arrayContaining([
+      { id: "claude", label: "Claude Code", installed: true },
+      { id: "codex", label: "Codex", installed: true },
+    ]),
+  );
   expect((await d.api("/api/agents/default", { method: "PUT", json: { id: "cursor" } })).status).toBe(400);
   expect((await d.json("/api/agents/default", { method: "PUT", json: { id: "codex" } })).default).toBe("codex");
 });

@@ -36,6 +36,29 @@ export function codexCalls(tool: string, input: Record<string, unknown>, cwd?: s
   return [{ tool, input }];
 }
 
+/** pi's built-in tools as jin knows them (Claude Code's names and fields); MCP and others as they are. */
+export function piCalls(tool: string, input: Record<string, unknown>, cwd?: string): Call[] {
+  const abs = (p: unknown) => (typeof p === "string" && p ? (cwd && !isAbsolute(p) ? join(cwd, p) : p) : undefined);
+  switch (tool) {
+    case "bash":
+      return [{ tool: "Bash", input: { command: String(input.command ?? "") } }];
+    case "edit":
+      return [{ tool: "Edit", input: { file_path: abs(input.path) } }];
+    case "write":
+      return [{ tool: "Write", input: { file_path: abs(input.path) } }];
+    case "read":
+      return [{ tool: "Read", input: { file_path: abs(input.path) } }];
+    case "grep":
+      return [{ tool: "Grep", input: { pattern: input.pattern, path: abs(input.path) } }];
+    case "find":
+      return [{ tool: "Glob", input: { pattern: input.pattern, path: abs(input.path) } }];
+    case "ls":
+      return [{ tool: "LS", input: { path: abs(input.path) } }];
+    default:
+      return [{ tool, input }];
+  }
+}
+
 /**
  * What jin answers an agent's hook for one tool call. Claude Code shows its own permission
  * prompt for "ask". Codex ignores "ask", so: a shell command needs the network to do anything
@@ -45,7 +68,8 @@ export function codexCalls(tool: string, input: Record<string, unknown>, cwd?: s
 export function answer(agent: AgentId, tool: string, verdict: Verdict): { decision?: "deny" | "ask"; reason?: string } {
   if (verdict.decision === "deny") return { decision: "deny", reason: verdict.reason };
   if (verdict.decision !== "ask") return {};
-  if (agent === "claude") return { decision: "ask", reason: verdict.reason };
+  // Claude Code shows its permission prompt; jin's pi extension shows pi's own.
+  if (agent === "claude" || agent === "pi") return { decision: "ask", reason: verdict.reason };
   if (tool === "Bash") return {};
   return { decision: "deny", reason: `${verdict.reason}; a Codex tab cannot ask you first, so jin blocks it. Do it from a Claude Code tab, or yourself.` };
 }
@@ -60,6 +84,8 @@ export interface AgentHookDeps {
   onPrsCreated?: (terminalId: string, urls: string[]) => void;
   /** A chat or room agent's tool call (Codex through jin's app-server client): why it may not start, else null. */
   precheck?: (sessionId: string, tool: string, input: Record<string, unknown>) => string | null;
+  /** A chat or room agent's tool call, decided in full by its session's gate (pi waits for it, approvals included). */
+  sessionGate?: (sessionId: string, tool: string, input: Record<string, unknown>, signal: AbortSignal) => Promise<{ allow: boolean; reason?: string }>;
   /** The task's work journal: turns start, and tool calls leave evidence. */
   journal?: { turnStarted: (terminalId: string) => void; evidence: (terminalId: string, tool: string, input: Record<string, unknown>) => void };
 }
@@ -70,9 +96,19 @@ export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
     const { event, terminalId, sessionId, input } = await body<{ event: string; terminalId: string | null; sessionId?: string | null; input: Record<string, any> }>(req);
     const tool = String(input.tool_name ?? "");
     const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
-    const calls = agent === "codex" ? codexCalls(tool, toolInput, typeof input.cwd === "string" ? input.cwd : undefined) : [{ tool, input: toolInput }];
-    // A chat or room agent (not a terminal): its session's rules decide whether a call may start;
-    // what needs the user's approval comes to the session's gate from the harness.
+    const cwd = typeof input.cwd === "string" ? input.cwd : undefined;
+    const calls = agent === "codex" ? codexCalls(tool, toolInput, cwd) : agent === "pi" ? piCalls(tool, toolInput, cwd) : [{ tool, input: toolInput }];
+    // A pi chat or room agent: the session's gate decides, and pi waits (an approval included).
+    if (agent === "pi" && sessionId && !terminalId) {
+      if (event !== "PreToolUse" || !deps.sessionGate) return json({});
+      for (const c of calls) {
+        const v = await deps.sessionGate(sessionId, c.tool, c.input, req.signal);
+        if (!v.allow) return json({ decision: "deny", reason: v.reason ?? "not allowed" });
+      }
+      return json({ decision: "allow" });
+    }
+    // A Codex chat or room agent: its session's rules decide whether a call may start; what
+    // needs the user's approval comes to the session's gate from the harness.
     if (sessionId && !terminalId) {
       if (event !== "PreToolUse" || !deps.precheck) return json({});
       for (const c of calls) {
@@ -88,7 +124,7 @@ export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
     if (terminalId) {
       // The agent's session id (Claude Code's is new on /clear) lets the tab resume after a restart.
       if (typeof input.session_id === "string" && input.session_id) terminals.setAgentSession(terminalId, input.session_id);
-      if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse") terminals.setStatus(terminalId, "working");
+      if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse" || event === "Resumed") terminals.setStatus(terminalId, "working");
       else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting", typeof input.message === "string" ? input.message : null);
       else if (event === "PermissionRequest") terminals.setStatus(terminalId, "waiting", `approval: ${typeof toolInput.command === "string" ? toolInput.command : tool}`);
       else if (event === "Stop" || event === "SessionStart") terminals.setStatus(terminalId, "idle");
@@ -98,7 +134,7 @@ export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
       else if (event === "PostToolUse") for (const c of calls) deps.journal.evidence(terminalId, c.tool, c.input);
     }
     if (event === "PostToolUse" && terminalId && deps.onPrsCreated) {
-      const urls = createdPrs(tool, toolInput, input.tool_response);
+      const urls = createdPrs(calls[0]!.tool, calls[0]!.input, input.tool_response);
       if (urls.length) deps.onPrsCreated(terminalId, urls);
     }
     if (event !== "PreToolUse") {
@@ -115,5 +151,8 @@ export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
     report();
     return json(out); // nothing: the agent's own permission rules decide, as in a terminal
   };
-  router.on("POST", "/api/hooks/claude", (req) => handle("claude", req)).on("POST", "/api/hooks/codex", (req) => handle("codex", req));
+  router
+    .on("POST", "/api/hooks/claude", (req) => handle("claude", req))
+    .on("POST", "/api/hooks/codex", (req) => handle("codex", req))
+    .on("POST", "/api/hooks/pi", (req) => handle("pi", req));
 }
