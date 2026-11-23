@@ -334,7 +334,7 @@ export function watchForNotifications(notifier: Notifier, w: Watched) {
     const t = w.terminals.get(terminalId);
     if (t.kind !== "agent") return;
     const base = { title: t.taskId ? `${t.taskId} · ${t.title}` : t.title, path: t.taskId ? `/t/${encodeURIComponent(t.taskId)}` : "/", terminal: t.id };
-    const who = t.agent === "codex" ? "Codex" : t.agent === "pi" ? "pi" : "Claude Code";
+    const who = t.agent === "codex" ? "Codex" : t.agent === "pi" ? "pi" : t.agent === "opencode" ? "opencode" : "Claude Code";
     if (event === "Stop" && before !== "idle") notifier.notify({ ...base, key: `term:${t.id}:done`, subtitle: `${who} finished`, body: plain(lastAssistantText(input)) || "Turn finished" });
     else if (after === "waiting" && before !== "waiting")
       notifier.notify({ ...base, key: `term:${t.id}:waiting`, subtitle: `${who} needs you`, body: plain(String(input.message ?? input.tool_name ?? "Waiting for your approval")) });

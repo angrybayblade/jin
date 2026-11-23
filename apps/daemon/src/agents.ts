@@ -4,12 +4,12 @@ import type { WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 
 /**
- * The coding agents a terminal tab can run (Claude Code, Codex, pi), and which one this machine
+ * The coding agents a terminal tab can run (Claude Code, Codex, pi, opencode), and which one this machine
  * starts by default. Each agent keeps its own setup and sign-in on the machine (~/.claude,
- * ~/.codex, ~/.pi); jin only adds its hooks, its tools and the task's rules when it launches one.
+ * ~/.codex, ~/.pi, ~/.config/opencode); jin only adds its hooks, its tools and the task's rules when it launches one.
  */
-export type AgentId = "claude" | "codex" | "pi";
-export const AGENT_IDS: readonly AgentId[] = ["claude", "codex", "pi"];
+export type AgentId = "claude" | "codex" | "pi" | "opencode";
+export const AGENT_IDS: readonly AgentId[] = ["claude", "codex", "pi", "opencode"];
 
 /** Where an agent starts and what it is told: a task's folder, rules and context. */
 export interface LaunchContext {

@@ -59,6 +59,36 @@ export function piCalls(tool: string, input: Record<string, unknown>, cwd?: stri
   }
 }
 
+/** opencode's built-in tools as jin knows them; its patch tool is an edit of each file it touches. */
+export function opencodeCalls(tool: string, input: Record<string, unknown>, cwd?: string): Call[] {
+  const abs = (p: unknown) => (typeof p === "string" && p ? (cwd && !isAbsolute(p) ? join(cwd, p) : p) : undefined);
+  switch (tool) {
+    case "bash":
+      return [{ tool: "Bash", input: { command: String(input.command ?? "") } }];
+    case "edit":
+      return [{ tool: "Edit", input: { file_path: abs(input.filePath) } }];
+    case "write":
+      return [{ tool: "Write", input: { file_path: abs(input.filePath) } }];
+    case "read":
+      return [{ tool: "Read", input: { file_path: abs(input.filePath) } }];
+    case "glob":
+      return [{ tool: "Glob", input: { pattern: input.pattern, path: abs(input.path) } }];
+    case "grep":
+      return [{ tool: "Grep", input: { pattern: input.pattern, path: abs(input.path) } }];
+    case "list":
+      return [{ tool: "LS", input: { path: abs(input.path) } }];
+    case "webfetch":
+      return [{ tool: "WebFetch", input: { url: input.url } }];
+    case "patch":
+    case "apply_patch": {
+      const files = patchFiles(String(input.patchText ?? input.patch ?? ""), cwd);
+      return files.length ? files.map((file_path) => ({ tool: "Edit", input: { file_path } })) : [{ tool, input }];
+    }
+    default:
+      return [{ tool, input }];
+  }
+}
+
 /**
  * What jin answers an agent's hook for one tool call. Claude Code shows its own permission
  * prompt for "ask". Codex ignores "ask", so: a shell command needs the network to do anything
@@ -68,8 +98,9 @@ export function piCalls(tool: string, input: Record<string, unknown>, cwd?: stri
 export function answer(agent: AgentId, tool: string, verdict: Verdict): { decision?: "deny" | "ask"; reason?: string } {
   if (verdict.decision === "deny") return { decision: "deny", reason: verdict.reason };
   if (verdict.decision !== "ask") return {};
-  // Claude Code shows its permission prompt; jin's pi extension shows pi's own.
-  if (agent === "claude" || agent === "pi") return { decision: "ask", reason: verdict.reason };
+  // Claude Code shows its permission prompt; jin's pi extension shows pi's own; jin's opencode
+  // plugin leaves opencode's permission request for the user to answer.
+  if (agent === "claude" || agent === "pi" || agent === "opencode") return { decision: "ask", reason: verdict.reason };
   if (tool === "Bash") return {};
   return { decision: "deny", reason: `${verdict.reason}; a Codex tab cannot ask you first, so jin blocks it. Do it from a Claude Code tab, or yourself.` };
 }
@@ -97,9 +128,10 @@ export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
     const tool = String(input.tool_name ?? "");
     const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
     const cwd = typeof input.cwd === "string" ? input.cwd : undefined;
-    const calls = agent === "codex" ? codexCalls(tool, toolInput, cwd) : agent === "pi" ? piCalls(tool, toolInput, cwd) : [{ tool, input: toolInput }];
-    // A pi chat or room agent: the session's gate decides, and pi waits (an approval included).
-    if (agent === "pi" && sessionId && !terminalId) {
+    const calls =
+      agent === "codex" ? codexCalls(tool, toolInput, cwd) : agent === "pi" ? piCalls(tool, toolInput, cwd) : agent === "opencode" ? opencodeCalls(tool, toolInput, cwd) : [{ tool, input: toolInput }];
+    // A pi or opencode chat or room agent: the session's gate decides, and the agent waits (an approval included).
+    if ((agent === "pi" || agent === "opencode") && sessionId && !terminalId) {
       if (event !== "PreToolUse" || !deps.sessionGate) return json({});
       for (const c of calls) {
         const v = await deps.sessionGate(sessionId, c.tool, c.input, req.signal);
@@ -154,5 +186,6 @@ export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
   router
     .on("POST", "/api/hooks/claude", (req) => handle("claude", req))
     .on("POST", "/api/hooks/codex", (req) => handle("codex", req))
-    .on("POST", "/api/hooks/pi", (req) => handle("pi", req));
+    .on("POST", "/api/hooks/pi", (req) => handle("pi", req))
+    .on("POST", "/api/hooks/opencode", (req) => handle("opencode", req));
 }

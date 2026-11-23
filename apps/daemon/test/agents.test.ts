@@ -39,9 +39,9 @@ test("jin's Codex hooks are the same flags on every launch (Codex trusts them by
 
 test("a machine's default agent: Claude Code until set, only an installed one, and new tabs need theirs installed", async () => {
   const db = openDb(mkdtempSync(join(tmpdir(), "jin-agents-")));
-  const stub = (id: "claude" | "codex" | "pi", label: string): AgentLaunch => ({ id, label, bin: id, canFork: id === "claude", argv: () => [id], env: () => ({}), hasSession: () => false });
+  const stub = (id: "claude" | "codex" | "pi" | "opencode", label: string): AgentLaunch => ({ id, label, bin: id, canFork: id === "claude", argv: () => [id], env: () => ({}), hasSession: () => false });
   const installed = new Set(["claude"]);
-  const agents = new Agents(db, { claude: stub("claude", "Claude Code"), codex: stub("codex", "Codex"), pi: stub("pi", "pi") }, async (bin) => installed.has(bin));
+  const agents = new Agents(db, { claude: stub("claude", "Claude Code"), codex: stub("codex", "Codex"), pi: stub("pi", "pi"), opencode: stub("opencode", "opencode") }, async (bin) => installed.has(bin));
   expect(agents.defaultId()).toBe("claude");
   await expect(agents.setDefault("codex")).rejects.toThrow("not installed");
   await expect(agents.pick("codex")).rejects.toThrow("not installed");
