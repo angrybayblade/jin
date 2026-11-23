@@ -257,7 +257,8 @@ Claude Code, or the machine's card). What holds, and what differs:
   sandbox.** Codex ignores a hook's "ask". jin starts it with
   `-s workspace-write -a on-request` and the network off, whatever your Codex
   config says, so a push, a PR, a `gh` write or an upload cannot run until you
-  approve it in Codex's own prompt. An outward MCP tool jin would ask about
+  approve it in Codex's own prompt. jin's rules see past git's own options
+  (`git -C repo push` asks like `git push`). An outward MCP tool jin would ask about
   (sending a Slack message) is blocked in a Codex tab, since nothing would stop
   it. `jin-task` talks to jin on localhost, which the sandbox also blocks, so
   its commands ask too.
@@ -275,6 +276,28 @@ Claude Code, or the machine's card). What holds, and what differs:
 - **Not covered:** jin's chat, the desks and doc chats stay on Claude (they
   work through claude.ai's connectors); jin's skills plugin is Claude Code
   only; a Codex session cannot be forked or moved to another machine.
+
+### 8e. pi as a machine's agent
+
+A machine can run pi instead (Settings → Claude Code, or the machine's card),
+in its terminal tabs, a task's chats and its agent rooms:
+
+- **jin's extension checks every tool call, and pi waits for it.** pi loads
+  `hooks/pi-extension.ts` given with `-e` (no project-trust step for an
+  extension passed on the command line). Its `tool_call` handler asks the
+  daemon before each call, built-in tools and MCP tools alike, including
+  calls a code-mode script makes. pi blocks a call whose handler fails, so a
+  daemon that cannot be reached means nothing runs.
+- **In a tab**, deny rules and jin's secrets block the call; what jin asks
+  about (a push, a PR, a message) is asked in pi's own prompt.
+- **In a chat or room agent**, the session's gate decides: policy, the
+  session's rules (a read-only room agent's edits) and an approval in jin,
+  which pi waits for however long it takes. jin's own tools reach pi through
+  the same token-scoped MCP bridge as Codex.
+- **pi has no sandbox of its own**, so these checks are the only guard, as
+  with Claude Code: guardrails against a misled model, not isolation.
+- **Not covered:** pi's sign-in (run `/login` in a pi tab on that machine);
+  jin's skills plugin; forking a pi session or moving it to another machine.
 
 ### 9. Network
 

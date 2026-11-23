@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **pi as a machine's agent.** Pick pi for a machine and its terminal tabs, task chats and
+  agent rooms run pi (with its own models and sign-ins). jin's pi extension checks every
+  tool call and pi waits for the answer: a tab asks in pi's own prompt, a chat or room in
+  jin's approvals; a read-only room agent's edits are refused.
+- **Fix: `git -C <dir> push` (and other git options before the subcommand) now asks first**,
+  like `git push`, for every agent.
+
 - **Codex as a machine's agent.** Settings → Claude Code (or a machine's card) picks the
   coding agent new sessions start: Claude Code or Codex, each with its own setup and sign-in
   there. A Codex tab gets jin's hooks (trusted through Codex's app-server before it starts,

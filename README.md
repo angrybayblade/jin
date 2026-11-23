@@ -66,6 +66,10 @@ hooks in Codex before the first start (a `hooks.state` entry in `~/.codex/config
 runs Codex sandboxed with the network off, so outward actions ask you in the terminal. See
 [security.md §8d](docs/security.md#8d-codex-as-a-machines-agent).
 
+**pi instead** (same card): new tabs, task chats and agent rooms run pi with its own models
+and sign-ins (`/login` in a pi tab). jin's extension checks every tool call; outward actions
+ask in pi's prompt (tabs) or in jin (chats). See [security.md §8e](docs/security.md#8e-pi-as-a-machines-agent).
+
 **A repo as a workspace** (Settings → Set up jin → Add another, or a machine's Workspace
 card): type `owner/repo` or a git URL. jin clones it into `~/repos/<name>` (with `gh` for
 GitHub, so private repos work with your sign-in) and uses it; a clone you already have is
