@@ -28,11 +28,13 @@ whether it is a design choice for a single-user tool or a gap to close.
   an agent on its own is not built yet. There is no agent-kept state card:
   the room's outputs are its docs and the diff. *Deliberate for the first version.*
 
-- **Codex runs in terminal tabs only.** A machine can start Codex instead of Claude Code in
-  its agent tabs; jin's chats, desks and agent rooms still run Claude. A Codex tab cannot
-  ask you before an outward MCP tool (jin blocks it), cannot be forked, and asks you before
-  each `jin-task` command (Codex's sandbox keeps the network, localhost included, off).
-  jin's skills are added to Claude Code only. *Gap*; opencode and pi are not supported yet.
+- **Codex covers a task's work, not jin's own chats.** On a machine set to Codex, its
+  terminal tabs, task chats and agent rooms run Codex; jin's chat, the desks and doc chats
+  stay on Claude, since they work through claude.ai's connectors. A Codex tab cannot ask you
+  before an outward MCP tool (jin blocks it; a task chat or room asks in jin), cannot be
+  forked, and asks you before each `jin-task` command (Codex's sandbox keeps the network,
+  localhost included, off). jin's skills are added to Claude Code only. *Gap*; opencode and
+  pi are not supported yet.
 
 ## Integrations
 

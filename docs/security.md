@@ -264,9 +264,17 @@ Claude Code, or the machine's card). What holds, and what differs:
 - **Choices you make in Codex stick.** "Don't ask again" for `git push` in
   Codex's prompt lets later pushes run without asking, as Claude Code's
   allow rules do.
-- **Not covered yet:** jin's chats, desks and agent rooms still run Claude
-  through the Agent SDK; jin's skills plugin is Claude Code only; a Codex tab
-  cannot be forked or moved to another machine.
+- **A task's chats and agent rooms run on Codex too**, through
+  `codex app-server` with jin as its client: the same trusted hooks deny what
+  policy denies (a read-only room agent's edits included, checked against its
+  session); a command that reaches out asks to leave the sandbox, and that
+  request comes to jin's gate, an approval in jin for as long as it takes;
+  every MCP tool call (jin's own tools, served through a bridge that knows the
+  run by a random token, and your Slack, Linear...) is a request to jin's gate
+  first.
+- **Not covered:** jin's chat, the desks and doc chats stay on Claude (they
+  work through claude.ai's connectors); jin's skills plugin is Claude Code
+  only; a Codex session cannot be forked or moved to another machine.
 
 ### 9. Network
 

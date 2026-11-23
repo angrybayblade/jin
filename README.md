@@ -60,7 +60,8 @@ tracker: github              # optional: linear, github or none
 ```
 
 **Codex instead of Claude Code** (Settings → Claude Code, or a machine's card): new agent
-tabs on that machine start Codex, with its own `~/.codex` setup and sign-in. jin trusts its
+tabs, task chats and agent rooms on that machine run Codex, with its own `~/.codex` setup and
+sign-in (a machine's Sign-ins card signs in with a device code). jin trusts its
 hooks in Codex before the first start (a `hooks.state` entry in `~/.codex/config.toml`) and
 runs Codex sandboxed with the network off, so outward actions ask you in the terminal. See
 [security.md §8d](docs/security.md#8d-codex-as-a-machines-agent).
