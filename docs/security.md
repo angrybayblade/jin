@@ -139,6 +139,10 @@ that persist (logs, workspace files, model context, workflow history).
   closed for shell commands when the daemon cannot be reached. Outward actions
   are approvals (SDK chats) or Claude Code's own permission prompt. `cws`
   itself only refuses commands that go through it.
+- **Codex tabs** (a machine set to Codex, see 8d) get the same deny rules
+  through Codex's PreToolUse hook, which fails closed for every tool call when
+  the daemon cannot be reached. Codex cannot be told to ask, so outward actions
+  rely on its sandbox (below) instead of a jin rule.
 - **Multi-tenant needs:** the same rules enforced outside the agent (in the
   broker: the GitHub App cannot trigger workflows or push to protected
   branches; secrets brokers expose no production configs); per-organisation
@@ -151,8 +155,8 @@ that persist (logs, workspace files, model context, workflow history).
   resolved through symlinks; files over 1 MB and binaries refused). A
   terminal is remote code execution by design; acceptable only because the
   only user is the owner and everything is on loopback. Terminals do not run
-  jin's agent policy (the user is typing); Claude Code in them gets jin's rules
-  through its hooks. The daemon drops a parent Claude Code session's variables
+  jin's agent policy (the user is typing); Claude Code and Codex in them get
+  jin's rules through their hooks (Codex: 8d). The daemon drops a parent Claude Code session's variables
   at start, including its messaging token, so they never reach these
   processes.
 - **Multi-tenant needs:** the editor runs inside the user's sandbox, never
@@ -232,6 +236,37 @@ can use jin as you. Keep the machine out of shared tailnet ACLs, and never use
 `tailscale funnel`, which puts it on the public internet. A name in
 `JIN_WEB_HOSTS` is trusted as fully as 127.0.0.1, so list only names that
 resolve to your own machine.
+
+### 8d. Codex as a machine's agent
+
+A machine can start Codex instead of Claude Code in its agent tabs (Settings →
+Claude Code, or the machine's card). What holds, and what differs:
+
+- **Hooks are trusted before Codex starts, or it does not start.** Codex runs
+  a hook only once it is trusted and skips an untrusted one without a word: an
+  agent with no checks at all. jin passes its hooks with `-c` (the same text on
+  every launch), lists them through `codex app-server` (`hooks/list`), trusts
+  them (`config/batchWrite`, a `hooks.state` entry in `~/.codex/config.toml`,
+  the only thing jin writes there) and checks again; if any is still untrusted,
+  the tab is refused with the reason.
+- **Deny rules and jin's secrets** apply as for Claude Code. An `apply_patch`
+  call is checked as an edit of each file it touches. A hook that fails, or
+  cannot reach the daemon, exits 2, which blocks the call; Codex runs a call
+  whose hook crashed or timed out, so the hook never lets an error escape.
+- **Outward actions need your approval in the terminal, through Codex's
+  sandbox.** Codex ignores a hook's "ask". jin starts it with
+  `-s workspace-write -a on-request` and the network off, whatever your Codex
+  config says, so a push, a PR, a `gh` write or an upload cannot run until you
+  approve it in Codex's own prompt. An outward MCP tool jin would ask about
+  (sending a Slack message) is blocked in a Codex tab, since nothing would stop
+  it. `jin-task` talks to jin on localhost, which the sandbox also blocks, so
+  its commands ask too.
+- **Choices you make in Codex stick.** "Don't ask again" for `git push` in
+  Codex's prompt lets later pushes run without asking, as Claude Code's
+  allow rules do.
+- **Not covered yet:** jin's chats, desks and agent rooms still run Claude
+  through the Agent SDK; jin's skills plugin is Claude Code only; a Codex tab
+  cannot be forked or moved to another machine.
 
 ### 9. Network
 

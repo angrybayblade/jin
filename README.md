@@ -59,6 +59,12 @@ root: /Users/you/repos/web   # a clone, or a folder whose subfolders are clones
 tracker: github              # optional: linear, github or none
 ```
 
+**Codex instead of Claude Code** (Settings → Claude Code, or a machine's card): new agent
+tabs on that machine start Codex, with its own `~/.codex` setup and sign-in. jin trusts its
+hooks in Codex before the first start (a `hooks.state` entry in `~/.codex/config.toml`) and
+runs Codex sandboxed with the network off, so outward actions ask you in the terminal. See
+[security.md §8d](docs/security.md#8d-codex-as-a-machines-agent).
+
 **A repo as a workspace** (Settings → Set up jin → Add another, or a machine's Workspace
 card): type `owner/repo` or a git URL. jin clones it into `~/repos/<name>` (with `gh` for
 GitHub, so private repos work with your sign-in) and uses it; a clone you already have is
@@ -68,10 +74,10 @@ never inside it.
 ## Layout
 
 - `apps/daemon` (Bun): workspace providers (`adapters/`: cws, git), the
-  GitHub feed, persistent terminals (Claude Code and shells), Claude Code hooks, PRs on
+  GitHub feed, persistent terminals (an agent, Claude Code or Codex, and shells), agent hooks, PRs on
   tasks, notifications, Agent SDK chats with approvals, policy, tickets, first-run setup,
   remote machines over ssh, SQLite.
-- `apps/web` (Next.js): jin's chat, the task view (Claude Code and shell tabs, files, PR
+- `apps/web` (Next.js): jin's chat, the task view (agent and shell tabs, files, PR
   badges), desks, setup and machines, on Zero's design system with light/dark themes.
 - `apps/desktop` (Electrobun): the macOS window; starts jin's services from the release.
 - `tests/acceptance`: the v0 acceptance suite (`bun run acceptance`), black box, with fake

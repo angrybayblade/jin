@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Codex as a machine's agent.** Settings → Claude Code (or a machine's card) picks the
+  coding agent new sessions start: Claude Code or Codex, each with its own setup and sign-in
+  there. A Codex tab gets jin's hooks (trusted through Codex's app-server before it starts,
+  or it does not start), the task's rules and jin's journal tools; deploys and jin's secrets
+  are denied, and outward actions wait for your approval in Codex's sandbox prompt. Chats,
+  desks and rooms stay on Claude.
+
 - **A repo as a workspace.** The git provider takes one clone as well as a folder of them.
   Setup (and a machine's Workspace card) clones a repo you name (`owner/repo` or a git URL)
   into `~/repos/<name>` and uses it, next to any workspace already there; tasks are worktrees
