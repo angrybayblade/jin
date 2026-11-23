@@ -114,3 +114,13 @@ test("sending data off this machine with curl or wget asks first; reading, and t
   expect(evaluate("Bash", { command: "curl -X POST localhost:3000/api -d '{}'" })).toMatchObject({ decision: "allow" });
   expect(evaluate("Bash", { command: "curl -d x http://127.0.0.1:7317/health" })).toMatchObject({ decision: "allow" });
 });
+
+test("git's own options before the subcommand do not hide a push (git -C dir push, git -c k=v push)", () => {
+  const ask = (command: string) => evaluate("Bash", { command }).decision;
+  expect(ask("git -C site push origin HEAD:refs/heads/x")).toBe("ask");
+  expect(ask("git -c core.sshCommand=ssh --no-pager push")).toBe("ask");
+  expect(ask("git --git-dir=/r/.git --work-tree=/r push")).toBe("ask");
+  expect(ask("cd site && git -C . -p push -f")).toBe("ask");
+  expect(ask("git -C site log --oneline")).toBe("allow");
+  expect(simpleCommands("git -C a -c x=y push origin")).toEqual(["git push origin"]);
+});

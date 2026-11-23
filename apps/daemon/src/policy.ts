@@ -49,6 +49,8 @@ const OUTWARD_TOOL = /^mcp__.*(send|post|create|update|delete|remove|comment|rep
 const ENV_ASSIGNMENTS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)+/;
 // Prefixes that run the rest of the line as a command: `sudo x`, `npx vercel`, `pnpm dlx x`.
 const WRAPPER = /^(?:sudo(?:\s+-\S+)*|env(?:\s+-\S+)*|exec|time|nohup|command|xargs(?:\s+-\S+)*|npx(?:\s+-y|\s+--yes)?|bunx|pnpm\s+(?:dlx|exec)|yarn\s+dlx|npm\s+exec(?:\s+--)?)\s+/;
+// git's own options before its subcommand (`git -C repo push`, `git -c k=v push`): rules name the subcommand.
+const GIT_GLOBALS = /^git((?:\s+(?:-C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env)(?:=|\s+)\S+|\s+--(?:no-pager|paginate|bare|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-optional-locks|no-replace-objects)|\s+-[pP])+)\s+/;
 // `sh -c "..."`, `bash -lc '...'`, `eval "..."`: the quoted string is itself a command line.
 const NESTED = /^(?:(?:ba|z|da)?sh\s+(?:-\w*c\w*)|eval)\s+(["'])([\s\S]*)\1\s*$/;
 
@@ -59,7 +61,7 @@ export function simpleCommands(command: string, depth = 0): string[] {
     let c = raw.trim();
     for (let prev = ""; prev !== c; ) {
       prev = c;
-      c = c.replace(ENV_ASSIGNMENTS, "").replace(WRAPPER, "").trim();
+      c = c.replace(ENV_ASSIGNMENTS, "").replace(WRAPPER, "").replace(GIT_GLOBALS, "git ").trim();
     }
     const nested = c.match(NESTED);
     if (nested && depth < 4) out.push(...simpleCommands(nested[2]!, depth + 1));
