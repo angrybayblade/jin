@@ -97,8 +97,6 @@ export class TaskJobs {
     return this.list().find((j) => j.taskId === taskId);
   }
 
-  /** Before Claude Code starts in a task: its skills (jin's, by the task's tags). */
-  prepare: ((taskId: string) => Promise<void>) | null = null;
   /** Once a task exists: the links given with it (Slack threads and channels, Notion pages). */
   addLinks: ((taskId: string, urls: string[]) => string[]) | null = null;
 
@@ -144,9 +142,9 @@ export class TaskJobs {
           this.roomPost(spec.id, opts.prompt);
           say("Your prompt was posted to the task's agent room.");
         } else if (opts.prompt?.trim()) {
-          await this.prepare?.(spec.id).catch((err) => say(`skills: ${err instanceof Error ? err.message : err}`));
-          job.terminalId = openTerminal(this.deps, { taskId: spec.id, kind: "claude", prompt: opts.prompt }).id;
-          say("Claude Code started with your prompt.");
+          const t = await openTerminal(this.deps, { taskId: spec.id, kind: "agent", prompt: opts.prompt });
+          job.terminalId = t.id;
+          say(`${t.agent ? this.deps.agents.launch(t.agent).label : "The agent"} started with your prompt.`);
         }
         job.state = "done";
       } catch (err) {

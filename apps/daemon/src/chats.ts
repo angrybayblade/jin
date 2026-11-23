@@ -12,7 +12,8 @@ import { HOOK_EVENTS, type Hook, type Hooks } from "./hooks";
 import type { TaskLink, TaskLinks } from "./links";
 import type { Journal, JournalEntry, JournalView } from "./journal";
 import { startReview } from "./reviews";
-import { openTerminal, type ClaudeLaunch, type Terminals } from "./terminals";
+import type { Agents } from "./agents";
+import { openTerminal, type Terminals } from "./terminals";
 
 export const CHAT_KINDS = ["jin", "desk", "slack", "linear", "notion", "gmail", "github", "doc"] as const;
 export type ChatKind = (typeof CHAT_KINDS)[number];
@@ -107,8 +108,8 @@ export interface MachineAccess {
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; claude: ClaudeLaunch; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks; journal?: () => Journal; linksOf?: (taskId: string) => TaskLink[] }): JinTool[] {
-  const { feed, tasks, sessions, adapters, workspaces, terminals, claude, jobs, prs, machines, hooks, links } = deps;
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; agents: Agents; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks; journal?: () => Journal; linksOf?: (taskId: string) => TaskLink[] }): JinTool[] {
+  const { feed, tasks, sessions, adapters, workspaces, terminals, agents, jobs, prs, machines, hooks, links } = deps;
   const remote = (id: string | undefined) => (id && id !== "local" ? id : null);
   const connected = () => (machines?.list() ?? []).filter((m) => m.connected);
   const link = (machine: string | null, taskId: string) => (machine ? `/m/${machine}/t/${taskId}` : `/t/${taskId}`);
@@ -175,7 +176,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
       run: async (a) => {
         const asOf = new Date().toISOString();
         const since = (a.since as string | undefined) ?? dayAgo();
-        const live = (t: { kind: string; status: string }) => t.kind === "claude" && t.status !== "exited" && t.status !== "interrupted";
+        const live = (t: { kind: string; status: string }) => t.kind === "agent" && t.status !== "exited" && t.status !== "interrupted";
         type Term = { id: string; kind: string; taskId: string | null; title: string; status: string; waitingFor?: string | null };
         const journal = deps.journal?.();
         return {
@@ -239,7 +240,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
             journal: journal ? compactJournal(journal) : null,
             follows: linkList.map(shapeLink),
             pullRequests: prList.filter((p) => p.taskId === id).map(shapePr),
-            agents: terms.filter((t) => t.taskId === id && t.kind === "claude").map((t) => agentOf(on, t)),
+            agents: terms.filter((t) => t.taskId === id && t.kind === "agent").map((t) => agentOf(on, t)),
             chats,
           };
         }
@@ -251,7 +252,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           journal: journal ? compactJournal(journal.view(id)) : null,
           follows: (deps.linksOf?.(id) ?? []).map(shapeLink),
           pullRequests: (prs?.list(id) ?? []).map(shapePr),
-          agents: terminals.list({ taskId: id }).filter((t) => t.kind === "claude").map((t) => agentOf(null, t)),
+          agents: terminals.list({ taskId: id }).filter((t) => t.kind === "agent").map((t) => agentOf(null, t)),
           chats,
         };
       },
@@ -421,7 +422,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     },
     {
       name: "jin_start_agent",
-      description: "Open Claude Code in a task's worktree, started with a prompt. The user watches and steers it in jin's task view; jin blocks deploys and pushes or PRs need the user's approval.",
+      description: "Open the machine's coding agent (Claude Code or Codex, as set for it) in a task's worktree, started with a prompt. The user watches and steers it in jin's task view; jin blocks deploys and pushes or PRs need the user's approval.",
       input: { taskId: z.string(), prompt: z.string(), machine: machineArg },
       run: async (a) => {
         const on = remote(a.machine as string | undefined);
@@ -429,8 +430,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
           const t = await machines!.call<{ id: string; taskId: string }>(on, "POST", "/api/terminals", { taskId: a.taskId, kind: "claude", prompt: a.prompt });
           return { terminalId: t.id, taskId: t.taskId, machine: on, open: link(on, t.taskId) };
         }
-        await jobs.prepare?.(a.taskId as string).catch(problems.catch(`${a.taskId}'s skills`));
-        const t = openTerminal({ terminals, tasks, workspaces, claude }, { taskId: a.taskId as string, kind: "claude", prompt: a.prompt as string });
+        const t = await openTerminal({ terminals, tasks, workspaces, agents }, { taskId: a.taskId as string, kind: "agent", prompt: a.prompt as string });
         return { terminalId: t.id, taskId: t.taskId, open: `/t/${t.taskId}` };
       },
     },

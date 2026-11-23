@@ -309,7 +309,7 @@ async function waitingOnYou(): Promise<number> {
     const d = JSON.parse(readFileSync(join(HOME, "daemon.json"), "utf8")) as { host: string; port: number; token: string };
     const get = (path: string) => fetch(`http://${d.host}:${d.port}${path}`, { headers: { authorization: `Bearer ${d.token}` }, signal: AbortSignal.timeout(2000) }).then((r) => (r.ok ? r.json() : []));
     const [terminals, approvals] = (await Promise.all([get("/api/terminals"), get("/api/approvals?state=pending")])) as [{ kind: string; status: string }[], unknown[]];
-    return terminals.filter((t) => t.kind === "claude" && t.status === "waiting").length + approvals.length;
+    return terminals.filter((t) => t.kind === "agent" && t.status === "waiting").length + approvals.length;
   } catch {
     return 0;
   }

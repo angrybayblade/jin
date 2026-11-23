@@ -37,7 +37,10 @@ import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
 import { Tasks, taskRoutes } from "./tasks";
-import { claudeHookRoutes, claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude-cli";
+import { claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude-cli";
+import { codexLaunch } from "./codex-cli";
+import { agentHookRoutes } from "./agent-hooks";
+import { Agents, agentRoutes } from "./agents";
 import { Journal, journalRoutes } from "./journal";
 import { prRoutes, rollup, TaskPRs } from "./prs";
 import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
@@ -182,7 +185,11 @@ docRoutes(app.router, docs, docAsk, (chatId) => {
 });
 chatSkillRoutes(app.router, (kind) => sessions.chatPlace(kind), sessions.chatSkills);
 const terminals = new Terminals(db);
-const claude = claudeLaunch(config, writeClaudeSettings(config), writeJinTaskCommand(config));
+const jinTaskBin = writeJinTaskCommand(config);
+// The coding agents a tab can run, and this machine's default (Settings, or the machine's card).
+const launches = { claude: claudeLaunch(config, writeClaudeSettings(config), jinTaskBin), codex: codexLaunch(config, jinTaskBin) };
+const agents = new Agents(db, launches);
+agentRoutes(app.router, agents);
 // A removed task's terminals close with it.
 tasks.onRemoved((taskId) => {
   for (const t of [...terminals.list({ taskId }), ...terminals.list({ taskId, archived: true })]) terminals.close(t.id);
@@ -198,16 +205,15 @@ const prepareSkills = async (taskId: string) => {
   const list = home ? await machines.call<SkillBody[]>(home.id, "GET", `/api/skills/bundle?tags=${encodeURIComponent(tags.join(","))}`) : skills.bundle(tags);
   writeTaskPlugin(config.home, taskId, list);
 };
-terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, claude, prepare: prepareSkills });
-const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, claude, feed, db });
+terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, agents, prepare: prepareSkills });
+const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, agents, prepare: prepareSkills, feed, db });
 // A task that starts in its agent room: its first prompt is said there.
 jobs.roomPost = (taskId, text) => void rooms?.post(taskId, text);
-jobs.prepare = prepareSkills;
 jobRoutes(app.router, jobs);
 reviewRoutes(app.router, { tasks, jobs });
 sessions.provideJinTools(() =>
   jinTools({
-    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, claude, jobs, prs, hooks, links: taskLinks,
+    feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, agents, jobs, prs, hooks, links: taskLinks,
     // Defined further down; read when a chat runs.
     journal: () => journal, linksOf: (id) => linksOf(id),
     machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
@@ -236,14 +242,21 @@ const journal = new Journal(db, (terminalId) => {
   }
 });
 journalRoutes(app.router, journal);
-claudeHookRoutes(app.router, terminals, adapters, (terminalId) => {
-  const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
-  return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
-}, onClaudeStatus, (terminalId, urls) => {
-  // Claude Code created a PR in a task: attach it, whatever it does next.
-  const taskId = terminals.get(terminalId).taskId;
-  if (taskId) for (const url of urls) void prs.attach(taskId, url, "hook").catch(problems.catch(`attaching ${url} to ${taskId}`));
-}, journal);
+agentHookRoutes(app.router, {
+  terminals,
+  adapters,
+  workspaceOf: (terminalId) => {
+    const taskId = terminalId ? terminals.list().find((t) => t.id === terminalId)?.taskId : undefined;
+    return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
+  },
+  onStatus: onClaudeStatus,
+  // The agent created a PR in a task: attach it, whatever it does next.
+  onPrsCreated: (terminalId, urls) => {
+    const taskId = terminals.get(terminalId).taskId;
+    if (taskId) for (const url of urls) void prs.attach(taskId, url, "hook").catch(problems.catch(`attaching ${url} to ${taskId}`));
+  },
+  journal,
+});
 
 // Pull requests attached to tasks; open ones are refreshed from GitHub every few minutes.
 const prs = new TaskPRs(db);
@@ -346,7 +359,7 @@ setTimeout(() => void desks.status().catch(problems.catch("checking the desks' c
 app.router.on("GET", "/api/stamp", () => {
   const summary = JSON.stringify([
     tasks.list().map((t) => [t.id, t.state, t.title, t.archived, t.removing, t.removeError]),
-    [...terminals.list(), ...terminals.list({ archived: true })].map((t) => [t.id, t.status, t.title, t.archived, t.claudeSessionId]),
+    [...terminals.list(), ...terminals.list({ archived: true })].map((t) => [t.id, t.status, t.title, t.archived, t.agentSessionId]),
     sessions.list({}).map((x) => [x.id, x.state, x.title, x.lastEventAt]),
     sessions.approvals("pending").map((a) => a.id),
     jobs.list().map((j) => [j.id, j.state, j.log.length]),
@@ -487,12 +500,12 @@ linkRoutes(app.router, {
     return home ? machines.call<FeedItem[]>(home.id, "GET", "/api/feed") : feed.list();
   },
 });
-claude.linksOf = linksOf;
-// What the task's workspace tells its Claude Code: where it starts, what to read, how to set up.
-claude.briefOf = (taskId) => {
+// What the task's workspace tells its agent: where it starts, what to read, how to set up.
+const briefOf = (taskId: string) => {
   const t = tasks.get(taskId);
   return tasks.adapter(t.workspace).agentBrief({ id: t.id, kind: t.kind, root: t.root, repos: t.repos });
 };
+for (const launch of agents.all()) Object.assign(launch, { linksOf, briefOf });
 jobs.addLinks = (taskId, urls) => {
   const problems: string[] = [];
   for (const u of urls.map((x) => x.trim()).filter(Boolean)) {

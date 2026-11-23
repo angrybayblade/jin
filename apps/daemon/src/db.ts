@@ -284,6 +284,14 @@ const MIGRATIONS: string[] = [
   `create table task_jobs (id text primary key, started_at text not null, body text not null);`,
   // 16: an issue link is an issue from whichever tracker its key names ("linear:ENG-1").
   `update task_links set kind = 'issue' where kind = 'linear';`,
+  // 17: machine settings jin changes at runtime (which coding agent new tabs start).
+  `create table settings (key text primary key, value text not null);`,
+  // 18: an agent tab runs one of several agents (Claude Code, Codex), and resumes its session.
+  `
+  alter table terminals rename column claude_session_id to agent_session_id;
+  alter table terminals add column agent text;
+  update terminals set kind = 'agent', agent = 'claude' where kind = 'claude';
+  `,
 ];
 
 export function openDb(home: string): Database {

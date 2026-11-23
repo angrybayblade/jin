@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hasTranscript } from "../src/terminals";
+import { hasTranscript } from "../src/claude-cli";
 
 const dir = mkdtempSync(join(tmpdir(), "jin-claude-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

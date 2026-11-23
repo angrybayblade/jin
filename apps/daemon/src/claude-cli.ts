@@ -1,12 +1,10 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentBrief, ReviewedPR, TaskKind, WorkspaceAdapter } from "./adapters";
+import type { AgentBrief, ReviewedPR, TaskKind } from "./adapters";
+import type { AgentLaunch } from "./agents";
 import { taskPluginDir, taskSkills } from "./skills";
 import type { Config, WorkspaceConfig } from "./config";
-import { body, json, type Router } from "./http";
-import { evaluate } from "./policy";
-import { createdPrs } from "./prs";
-import type { AgentStatus, ClaudeLaunch, Terminals } from "./terminals";
 
 const HOOK = join(import.meta.dir, "hooks", "claude-hook.ts");
 const JIN_TASK = join(import.meta.dir, "hooks", "jin-task.ts");
@@ -119,7 +117,19 @@ export function writeJinTaskCommand(config: Config): string {
   return dir;
 }
 
-export function claudeLaunch(config: Config, settingsFile: string, binDir?: string): ClaudeLaunch {
+/** Whether Claude Code has a saved conversation for `sessionId` (under any project directory). */
+export function hasTranscript(sessionId: string, configDir?: string): boolean {
+  if (!/^[\w-]+$/.test(sessionId)) return false;
+  const projects = join(configDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+  try {
+    return readdirSync(projects).some((d) => existsSync(join(projects, d, `${sessionId}.jsonl`)));
+  } catch {
+    return false;
+  }
+}
+
+/** Claude Code in a terminal tab: jin's settings file with its hooks, its tools, the task's rules and skills. */
+export function claudeLaunch(config: Config, settingsFile: string, binDir?: string): AgentLaunch {
   const links = (taskId: string) => {
     try {
       return launch.linksOf?.(taskId) ?? [];
@@ -134,12 +144,16 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       return undefined;
     }
   };
-  const launch: ClaudeLaunch = {
-    // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
-    args: (ctx) => [
+  const launch: AgentLaunch = {
+    id: "claude",
+    label: "Claude Code",
+    bin: "claude",
+    canFork: true,
+    argv: (ctx) => [
+      "claude",
       // The work journal: jin's `journal` tool, through `jin-task mcp` (it knows its terminal). First:
       // both flags take lists, so the next argument must be another flag, never the prompt.
-      ...(ctx?.taskId && ctx.terminalId && binDir
+      ...(ctx.taskId && ctx.terminalId && binDir
         ? [
             "--mcp-config",
             JSON.stringify({ mcpServers: { jin: { type: "stdio", command: join(binDir, "jin-task"), args: ["mcp"], env: { JIN_TERMINAL_ID: ctx.terminalId, JIN_HOME: config.home } } } }),
@@ -150,68 +164,21 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       "--settings",
       settingsFile,
       // jin's skills for this task (by its tags), as a plugin: /jin:<name>.
-      ...(ctx?.taskId && existsSync(taskPluginDir(config.home, ctx.taskId)) ? ["--plugin-dir", taskPluginDir(config.home, ctx.taskId)] : []),
+      ...(ctx.taskId && existsSync(taskPluginDir(config.home, ctx.taskId)) ? ["--plugin-dir", taskPluginDir(config.home, ctx.taskId)] : []),
+      // The same model as jin's chats, so a task's Claude Code does not fall back to another default.
       "--model",
       config.model,
       // The whole workspace is readable from a task's folder; the task's context and rules go in the system prompt.
-      ...(ctx?.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
-      ...(ctx?.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId), brief: brief(ctx.taskId) })] : []),
+      ...(ctx.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
+      ...(ctx.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId), brief: brief(ctx.taskId) })] : []),
+      ...(ctx.resume ? ["--resume", ctx.resume] : ctx.fork ? ["--resume", ctx.fork, "--fork-session"] : ctx.prompt?.trim() ? [ctx.prompt.trim()] : []),
     ],
     env: (w: WorkspaceConfig | undefined) => ({
       JIN_HOME: config.home,
       ...(binDir ? { PATH: `${binDir}:${process.env.PATH ?? ""}` } : {}),
       ...(w?.profile.claudeConfigDir ? { CLAUDE_CONFIG_DIR: w.profile.claudeConfigDir } : {}),
     }),
+    hasSession: (id, w) => hasTranscript(id, w?.profile.claudeConfigDir),
   };
   return launch;
-}
-
-/** What Claude Code's hooks report: status for the command center, and jin's verdict on tool calls. */
-export function claudeHookRoutes(
-  router: Router,
-  terminals: Terminals,
-  adapters: Map<string, WorkspaceAdapter>,
-  workspaceOf: (terminalId: string | null) => string | undefined,
-  /** After each hook: the tab's status before and after (notifications use it). */
-  onStatus?: (terminalId: string, before: AgentStatus, after: AgentStatus, event: string, input: Record<string, any>) => void,
-  /** A tool call created pull requests (attached to the terminal's task). */
-  onPrsCreated?: (terminalId: string, urls: string[]) => void,
-  /** The task's work journal: turns start, and tool calls leave evidence. */
-  journal?: { turnStarted: (terminalId: string) => void; evidence: (terminalId: string, tool: string, input: Record<string, unknown>) => void },
-) {
-  router.on("POST", "/api/hooks/claude", async (req) => {
-    const { event, terminalId, input } = await body<{ event: string; terminalId: string | null; input: Record<string, any> }>(req);
-    const before = terminalId && terminals.isLive(terminalId) ? terminals.get(terminalId).status : null;
-    const report = () => {
-      if (terminalId && before && onStatus && terminals.isLive(terminalId)) onStatus(terminalId, before, terminals.get(terminalId).status, event, input);
-    };
-    if (terminalId) {
-      // Claude Code's session id (new on /clear) lets the tab resume after a restart.
-      if (typeof input.session_id === "string" && input.session_id) terminals.setClaudeSession(terminalId, input.session_id);
-      if (event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse") terminals.setStatus(terminalId, "working");
-      else if (event === "Notification") terminals.setStatus(terminalId, input.notification_type === "idle_prompt" ? "idle" : "waiting", typeof input.message === "string" ? input.message : null);
-      else if (event === "Stop" || event === "SessionStart") terminals.setStatus(terminalId, "idle");
-    }
-    if (terminalId && journal) {
-      if (event === "UserPromptSubmit") journal.turnStarted(terminalId);
-      else if (event === "PostToolUse") journal.evidence(terminalId, String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>);
-    }
-    if (event === "PostToolUse" && terminalId && onPrsCreated) {
-      const urls = createdPrs(String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>, input.tool_response);
-      if (urls.length) onPrsCreated(terminalId, urls);
-    }
-    if (event !== "PreToolUse") {
-      report();
-      return json({});
-    }
-    const workspace = workspaceOf(terminalId);
-    const verdict = evaluate(String(input.tool_name ?? ""), (input.tool_input ?? {}) as Record<string, unknown>, workspace ? adapters.get(workspace)?.policy() : undefined);
-    if (verdict.decision === "deny") return json({ decision: "deny", reason: verdict.reason });
-    if (verdict.decision === "ask") {
-      if (terminalId) terminals.setStatus(terminalId, "waiting", `approval: ${verdict.reason}`);
-      report();
-      return json({ decision: "ask", reason: verdict.reason });
-    }
-    return json({}); // Claude Code's own permission rules decide, as in a terminal
-  });
 }

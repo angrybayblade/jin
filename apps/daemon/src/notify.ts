@@ -302,7 +302,7 @@ export function lastAssistantText(input: Record<string, any>): string {
 interface Watched {
   sessions: { onEvent(fn: (e: { sessionId: string; kind: string; payload: Record<string, any> }) => void): void; get(id: string): { id: string; kind: string; taskId: string | null; title: string } };
   jobs: { onFinish(fn: (j: { id: string; taskId: string; slug: string; state: string; error?: string | null; terminalId?: string | null }) => void): void };
-  terminals: { get(id: string): { id: string; kind: string; taskId: string | null; title: string } };
+  terminals: { get(id: string): { id: string; kind: string; agent?: string | null; taskId: string | null; title: string } };
 }
 
 /** Turn finished work into notifications. Returns the Claude Code hook listener for claudeHookRoutes. */
@@ -326,16 +326,17 @@ export function watchForNotifications(notifier: Notifier, w: Watched) {
 
   w.jobs.onFinish((j) => {
     const path = `/t/${encodeURIComponent(j.taskId)}`;
-    if (j.state === "done") notifier.notify({ key: `job:${j.id}`, title: `${j.taskId} is ready`, subtitle: j.slug, body: j.terminalId ? "Claude Code started with your prompt." : "Worktrees are set up.", path });
+    if (j.state === "done") notifier.notify({ key: `job:${j.id}`, title: `${j.taskId} is ready`, subtitle: j.slug, body: j.terminalId ? "The agent started with your prompt." : "Worktrees are set up.", path });
     else notifier.notify({ key: `job:${j.id}`, title: `${j.taskId} setup failed`, subtitle: j.slug, body: plain(j.error ?? ""), path });
   });
 
   return (terminalId: string, before: string, after: string, event: string, input: Record<string, any>) => {
     const t = w.terminals.get(terminalId);
-    if (t.kind !== "claude") return;
+    if (t.kind !== "agent") return;
     const base = { title: t.taskId ? `${t.taskId} · ${t.title}` : t.title, path: t.taskId ? `/t/${encodeURIComponent(t.taskId)}` : "/", terminal: t.id };
-    if (event === "Stop" && before !== "idle") notifier.notify({ ...base, key: `term:${t.id}:done`, subtitle: "Claude Code finished", body: plain(lastAssistantText(input)) || "Turn finished" });
+    const who = t.agent === "codex" ? "Codex" : "Claude Code";
+    if (event === "Stop" && before !== "idle") notifier.notify({ ...base, key: `term:${t.id}:done`, subtitle: `${who} finished`, body: plain(lastAssistantText(input)) || "Turn finished" });
     else if (after === "waiting" && before !== "waiting")
-      notifier.notify({ ...base, key: `term:${t.id}:waiting`, subtitle: "Claude Code needs you", body: plain(String(input.message ?? input.tool_name ?? "Waiting for your approval")) });
+      notifier.notify({ ...base, key: `term:${t.id}:waiting`, subtitle: `${who} needs you`, body: plain(String(input.message ?? input.tool_name ?? "Waiting for your approval")) });
   };
 }

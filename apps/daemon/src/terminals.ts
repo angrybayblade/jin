@@ -3,26 +3,26 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal as Headless } from "@xterm/headless";
 import type { ServerWebSocket, Subprocess } from "bun";
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import type { AgentBrief, ReviewedPR, TaskKind } from "./adapters";
+import type { AgentId, Agents } from "./agents";
 import type { WorkspaceConfig } from "./config";
 import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
 import type { Tasks } from "./tasks";
 
-export type TerminalKind = "shell" | "claude";
+/** A shell, or a coding agent (Claude Code, Codex: its `agent`). */
+export type TerminalKind = "shell" | "agent";
 /**
- * What a terminal is doing. Claude Code's hooks report starting/working/waiting/idle;
+ * What a terminal is doing. The agent's hooks report starting/working/waiting/idle;
  * "exited" means its process ended; "interrupted" means it is not running (the daemon
- * restarted) but can be started again, resuming Claude Code's conversation.
+ * restarted) but can be started again, resuming the agent's conversation.
  */
 export type AgentStatus = "starting" | "working" | "waiting" | "idle" | "exited" | "interrupted";
 
 export interface TerminalInfo {
   id: string;
   kind: TerminalKind;
+  /** Which agent an agent tab runs; null for a shell. */
+  agent: AgentId | null;
   taskId: string | null;
   cwd: string;
   title: string;
@@ -30,8 +30,8 @@ export interface TerminalInfo {
   /** While waiting: what for, when known. */
   waitingFor?: string | null;
   exitCode: number | null;
-  /** Claude Code's session id (from its hooks), used to resume after a restart. */
-  claudeSessionId: string | null;
+  /** The agent's session id (from its hooks), used to resume after a restart. */
+  agentSessionId: string | null;
   createdAt: string;
   clients: number;
   archived: boolean;
@@ -45,7 +45,7 @@ interface Live {
   serializer: SerializeAddon;
   clients: Set<AttachSocket>;
   status: AgentStatus;
-  /** While waiting: what for (Claude Code's notice, or why jin asks). */
+  /** While waiting: what for (the agent's notice, or why jin asks). */
   waitingFor?: string | null;
   exitCode: number | null;
 }
@@ -54,9 +54,10 @@ interface TerminalRow {
   id: string;
   task_id: string | null;
   kind: TerminalKind;
+  agent: AgentId | null;
   title: string;
   cwd: string;
-  claude_session_id: string | null;
+  agent_session_id: string | null;
   created_at: string;
   closed_at: string | null;
   archived_at: string | null;
@@ -65,13 +66,13 @@ interface TerminalRow {
 const SCROLLBACK = 5000;
 
 /**
- * Terminal tabs: a shell, or Claude Code's own TUI. Each has a record in SQLite and, while
+ * Terminal tabs: a shell, or a coding agent's own TUI (Claude Code, Codex). Each has a record in SQLite and, while
  * running, a process the daemon owns. Closing or reloading the page only detaches; the
  * screen is kept in a headless xterm and replayed on re-attach. After a daemon restart the
- * tabs come back as "interrupted" and start again in place, Claude Code with --resume.
+ * tabs come back as "interrupted" and start again in place, an agent resuming its conversation.
  *
  * This is the user's own terminal, not an agent run by jin, so jin's agent policy is not
- * applied here; Claude Code started by jin gets jin's rules through its own hooks.
+ * applied here; an agent started by jin gets jin's rules through its own hooks.
  *
  * Client messages: {"t":"in","d":"..."} keystrokes, {"t":"resize","cols":n,"rows":n}.
  * Server messages: terminal output (the first one is the serialized screen).
@@ -89,17 +90,18 @@ export class Terminals {
 
   private info(r: TerminalRow): TerminalInfo {
     const l = this.live.get(r.id);
-    const resumable = r.kind === "claude" ? Boolean(r.claude_session_id) : true;
+    const resumable = r.kind === "agent" ? Boolean(r.agent_session_id) : true;
     return {
       id: r.id,
       kind: r.kind,
+      agent: r.agent,
       taskId: r.task_id,
       cwd: r.cwd,
       title: r.title,
       status: l ? l.status : resumable ? "interrupted" : "exited",
       waitingFor: l?.status === "waiting" ? (l.waitingFor ?? null) : null,
       exitCode: l?.exitCode ?? null,
-      claudeSessionId: r.claude_session_id,
+      agentSessionId: r.agent_session_id,
       createdAt: r.created_at,
       clients: l?.clients.size ?? 0,
       archived: Boolean(r.archived_at),
@@ -117,7 +119,7 @@ export class Terminals {
     return rows.map((r) => this.info(r));
   }
 
-  /** Archive a tab: its process stops and it leaves the tab bar, but Claude Code's session can be restored. */
+  /** Archive a tab: its process stops and it leaves the tab bar, but the agent's session can be restored. */
   archive(id: string, archived: boolean) {
     this.row(id);
     if (archived) this.stop(id);
@@ -139,12 +141,13 @@ export class Terminals {
     return Boolean(l && l.status !== "exited");
   }
 
-  /** A new tab, titled "Claude 2", "Terminal 3"... within its task. */
-  create(opts: { kind: TerminalKind; taskId?: string; cwd: string }): TerminalInfo {
+  /** A new tab, titled "Claude 2", "Codex 1", "Terminal 3"... within its task. */
+  create(opts: { kind: TerminalKind; agent?: AgentId; label?: string; taskId?: string; cwd: string }): TerminalInfo {
     const id = randomUUID();
-    const label = opts.kind === "claude" ? "Claude" : "Terminal";
-    const n = (this.db.query("select count(*) as n from terminals where kind = ? and task_id is ?").get(opts.kind, opts.taskId ?? null) as { n: number }).n + 1;
-    this.db.query("insert into terminals (id, task_id, kind, title, cwd, created_at) values (?, ?, ?, ?, ?, ?)").run(id, opts.taskId ?? null, opts.kind, `${label} ${n}`, opts.cwd, now());
+    const agent = opts.kind === "agent" ? (opts.agent ?? "claude") : null;
+    const label = opts.label ?? (agent ? "Claude" : "Terminal");
+    const n = (this.db.query("select count(*) as n from terminals where kind = ? and agent is ? and task_id is ?").get(opts.kind, agent, opts.taskId ?? null) as { n: number }).n + 1;
+    this.db.query("insert into terminals (id, task_id, kind, agent, title, cwd, created_at) values (?, ?, ?, ?, ?, ?, ?)").run(id, opts.taskId ?? null, opts.kind, agent, `${label} ${n}`, opts.cwd, now());
     return this.get(id);
   }
 
@@ -175,12 +178,12 @@ export class Terminals {
         },
       },
     });
-    const live: Live = { proc, screen, serializer, clients, status: r.kind === "claude" ? "starting" : "idle", exitCode: null };
+    const live: Live = { proc, screen, serializer, clients, status: r.kind === "agent" ? "starting" : "idle", exitCode: null };
     void proc.exited.then((code) => {
       if (this.live.get(id) !== live) return;
       live.status = "exited";
       live.exitCode = code;
-      const note = `\r\n\x1b[2m[${r.kind === "claude" ? "Claude Code" : "shell"} exited${code ? ` with ${code}` : ""}]\x1b[0m\r\n`;
+      const note = `\r\n\x1b[2m[${r.kind === "agent" ? "the agent" : "shell"} exited${code ? ` with ${code}` : ""}]\x1b[0m\r\n`;
       screen.write(note);
       for (const ws of clients) ws.send(note);
     });
@@ -190,7 +193,7 @@ export class Terminals {
     return this.get(id);
   }
 
-  /** Hooks from Claude Code report what it is doing. */
+  /** The agent's hooks report what it is doing. */
   setStatus(id: string, status: AgentStatus, waitingFor?: string | null) {
     const l = this.live.get(id);
     if (!l || l.status === "exited") return;
@@ -198,14 +201,20 @@ export class Terminals {
     l.waitingFor = status === "waiting" ? (waitingFor?.slice(0, 200) ?? null) : null;
   }
 
-  /** Claude Code's session id; it changes on /clear, so the latest one wins. */
-  setClaudeSession(id: string, sessionId: string | null) {
-    this.db.query("update terminals set claude_session_id = ? where id = ?").run(sessionId, id);
+  /** The agent's session id (Claude Code's changes on /clear), so the latest one wins. */
+  setAgentSession(id: string, sessionId: string | null) {
+    this.db.query("update terminals set agent_session_id = ? where id = ?").run(sessionId, id);
   }
 
   rename(id: string, title: string) {
     this.row(id);
     this.db.query("update terminals set title = ? where id = ?").run(title.slice(0, 60), id);
+  }
+
+  /** Forget a tab that never ran (its agent refused to start): no record, and its number is free again. */
+  discard(id: string) {
+    this.stop(id);
+    this.db.query("delete from terminals where id = ?").run(id);
   }
 
   /** Close a tab: end its process and drop it from the list. */
@@ -270,24 +279,19 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, M
 
 // ---------------------------------------------------------------- opening and routes
 
-export interface ClaudeLaunch {
-  /** Extra arguments for `claude`: jin's settings file with its hooks, the model, and in a task its rules. */
-  args: (ctx?: { taskId?: string | null; taskRoot?: string; workspaceRoot?: string; parent?: string | null; terminalId?: string; kind?: TaskKind; prs?: ReviewedPR[] }) => string[];
-  env: (workspace: WorkspaceConfig | undefined) => Record<string, string>;
-  /** What a task follows, for its Claude Code's starting context (set once links exist). */
-  linksOf?: (taskId: string) => { kind: string; label: string; url: string | null }[];
-  /** What a task's workspace says about working in it (its provider's brief). */
-  briefOf?: (taskId: string) => AgentBrief | undefined;
-}
 
 export interface TerminalDeps {
   terminals: Terminals;
   tasks: Tasks;
   workspaces: WorkspaceConfig[];
-  claude: ClaudeLaunch;
-  /** Before Claude Code starts in a task: its skills (jin's, by the task's tags). */
+  /** The coding agents tabs can run, and this machine's default. */
+  agents: Agents;
+  /** Before an agent starts in a task: its skills (jin's, by the task's tags). */
   prepare?: (taskId: string) => Promise<void>;
 }
+
+/** What callers may ask for: a shell, or an agent tab ("claude" is the older name for one). */
+export type OpenKind = TerminalKind | "claude";
 
 function place(deps: TerminalDeps, taskId?: string | null) {
   const task = taskId ? deps.tasks.get(taskId) : undefined;
@@ -298,44 +302,44 @@ function place(deps: TerminalDeps, taskId?: string | null) {
   return { task, workspace, cwd };
 }
 
-/** Whether Claude Code has a saved conversation for `sessionId` (under any project directory). */
-export function hasTranscript(sessionId: string, configDir?: string): boolean {
-  if (!/^[\w-]+$/.test(sessionId)) return false;
-  const projects = join(configDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
-  try {
-    return readdirSync(projects).some((d) => existsSync(join(projects, d, `${sessionId}.jsonl`)));
-  } catch {
-    return false;
-  }
-}
-
-/** Start (or restart) a tab's process: Claude Code resumes its conversation when it has one. */
-export function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: string; cols?: number; rows?: number; fork?: string } = {}): TerminalInfo {
+/** Start (or restart) a tab's process: an agent resumes its conversation when it has one. */
+export async function startTerminal(deps: TerminalDeps, id: string, opts: { prompt?: string; cols?: number; rows?: number; fork?: string } = {}): Promise<TerminalInfo> {
   const t = deps.terminals.get(id);
   if (deps.terminals.isLive(id)) return t;
   const { workspace, task } = place(deps, t.taskId);
   if (t.kind === "shell") return deps.terminals.spawn(id, { cols: opts.cols, rows: opts.rows });
-  // Claude Code saves a conversation only once something is sent, so a session that was
-  // opened and left empty has nothing to resume: start a fresh one instead of failing.
-  const session = t.claudeSessionId && hasTranscript(t.claudeSessionId, workspace?.profile.claudeConfigDir) ? t.claudeSessionId : null;
-  if (t.claudeSessionId && !session) deps.terminals.setClaudeSession(id, null);
+  const agent = deps.agents.launch(t.agent ?? "claude");
+  // An agent saves a conversation only once something is sent, so a session that was opened
+  // and left empty has nothing to resume: start a fresh one instead of failing.
+  const resume = t.agentSessionId && agent.hasSession(t.agentSessionId, workspace) ? t.agentSessionId : undefined;
+  if (t.agentSessionId && !resume) deps.terminals.setAgentSession(id, null);
   // A fork: a new tab that starts from another tab's conversation, under a new session id.
-  const fork = !session && opts.fork && hasTranscript(opts.fork, workspace?.profile.claudeConfigDir) ? opts.fork : null;
-  const resume = session ? ["--resume", session] : fork ? ["--resume", fork, "--fork-session"] : [];
-  const prompt = !session && !fork && opts.prompt?.trim() ? [opts.prompt.trim()] : [];
-  return deps.terminals.spawn(id, { argv: ["claude", ...deps.claude.args({ taskId: t.taskId, taskRoot: task?.root, workspaceRoot: workspace?.root, parent: task?.parent, terminalId: id, kind: task?.kind, prs: task?.prs }), ...resume, ...prompt], env: deps.claude.env(workspace), cols: opts.cols, rows: opts.rows });
+  const fork = !resume && agent.canFork && opts.fork && agent.hasSession(opts.fork, workspace) ? opts.fork : undefined;
+  const ctx = { taskId: t.taskId, taskRoot: task?.root, workspaceRoot: workspace?.root, parent: task?.parent, terminalId: id, kind: task?.kind, prs: task?.prs, workspace };
+  if (task && deps.prepare) await deps.prepare(task.id).catch(() => {});
+  await agent.prepare?.(ctx);
+  if (deps.terminals.isLive(id)) return deps.terminals.get(id);
+  const prompt = !resume && !fork ? opts.prompt : undefined;
+  return deps.terminals.spawn(id, { argv: agent.argv({ ...ctx, resume, fork, prompt }), env: agent.env(workspace), cols: opts.cols, rows: opts.rows });
 }
 
-/** A new tab running a shell or Claude Code, in a task's directory (or the workspace root without a task). */
-export function openTerminal(deps: TerminalDeps, b: { taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number; forkFrom?: string }): TerminalInfo {
-  // Forking a Claude Code tab: same task, its conversation copied into a new session.
+/** A new tab running a shell or an agent (this machine's default unless `agent` names one), in a task's directory (or the workspace root without a task). */
+export async function openTerminal(deps: TerminalDeps, b: { taskId?: string; kind?: OpenKind; agent?: string; prompt?: string; cols?: number; rows?: number; forkFrom?: string }): Promise<TerminalInfo> {
+  // Forking an agent tab: same task and agent, its conversation copied into a new session.
   const from = b.forkFrom ? deps.terminals.get(b.forkFrom) : null;
-  if (from && (from.kind !== "claude" || !from.claudeSessionId)) throw new HttpError(400, "only a Claude Code tab with a conversation can be forked");
-  const kind: TerminalKind = from || b.kind === "claude" ? "claude" : "shell";
+  if (from && (from.kind !== "agent" || !from.agentSessionId || !deps.agents.launch(from.agent ?? "claude").canFork)) throw new HttpError(400, "only a Claude Code tab with a conversation can be forked");
+  const kind: TerminalKind = from || b.kind === "agent" || b.kind === "claude" ? "agent" : "shell";
+  const agent = kind === "agent" ? await deps.agents.pick(from?.agent ?? b.agent) : null;
   const { task, cwd } = place(deps, from ? (from.taskId ?? undefined) : b.taskId);
-  const t = deps.terminals.create({ kind, taskId: task?.id, cwd });
+  const t = deps.terminals.create({ kind, agent: agent?.id, label: agent ? agent.label.split(" ")[0] : undefined, taskId: task?.id, cwd });
   if (from) deps.terminals.rename(t.id, `${from.title} fork`);
-  return startTerminal(deps, t.id, { ...b, fork: from?.claudeSessionId ?? undefined });
+  try {
+    return await startTerminal(deps, t.id, { ...b, fork: from?.agentSessionId ?? undefined });
+  } catch (err) {
+    // It never ran: leave no empty tab behind.
+    deps.terminals.discard(t.id);
+    throw err;
+  }
 }
 
 export function terminalRoutes(router: Router, deps: TerminalDeps) {
@@ -344,15 +348,12 @@ export function terminalRoutes(router: Router, deps: TerminalDeps) {
     .on("GET", "/api/terminals", (_req, _p, url) => json(terminals.list({ taskId: url.searchParams.get("task") ?? undefined, archived: url.searchParams.get("archived") === "1" })))
     .on("GET", "/api/terminals/:id", (_req, p) => json(terminals.get(p.id!)))
     .on("POST", "/api/terminals", async (req) => {
-      const b = await body<{ taskId?: string; kind?: TerminalKind; prompt?: string; cols?: number; rows?: number; forkFrom?: string }>(req);
-      if (b.taskId && (b.kind === "claude" || b.forkFrom)) await deps.prepare?.(b.taskId).catch(() => {});
-      return json(openTerminal(deps, b), 201);
+      const b = await body<{ taskId?: string; kind?: OpenKind; agent?: string; prompt?: string; cols?: number; rows?: number; forkFrom?: string }>(req);
+      return json(await openTerminal(deps, b), 201);
     })
     .on("POST", "/api/terminals/:id/start", async (req, p) => {
       const b = await body<{ cols?: number; rows?: number }>(req);
-      const t = terminals.get(p.id!);
-      if (t.taskId && t.kind === "claude" && !terminals.isLive(t.id)) await deps.prepare?.(t.taskId).catch(() => {});
-      return json(startTerminal(deps, p.id!, b));
+      return json(await startTerminal(deps, p.id!, b));
     })
     .on("PATCH", "/api/terminals/:id", async (req, p) => {
       const { title, archived } = await body<{ title?: string; archived?: boolean }>(req);
@@ -364,10 +365,10 @@ export function terminalRoutes(router: Router, deps: TerminalDeps) {
       return json(terminals.get(p.id!));
     })
     .on("POST", "/api/terminals/:id/restart", async (req, p) => {
-      // Stop and start again in place: Claude Code resumes its conversation.
+      // Stop and start again in place: the agent resumes its conversation.
       const b = await body<{ cols?: number; rows?: number }>(req);
       terminals.restartable(p.id!);
-      return json(startTerminal(deps, p.id!, b));
+      return json(await startTerminal(deps, p.id!, b));
     })
     .on("DELETE", "/api/terminals/:id", (_req, p) => {
       terminals.close(p.id!);

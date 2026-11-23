@@ -131,7 +131,7 @@ export class Mentions {
     for (const snap of await this.deps.machines()) {
       for (const t of snap.tasks) {
         if (t.state !== "ready") continue;
-        const cli = snap.terminals.filter((x) => x.taskId === t.id && x.kind === "claude").at(-1);
+        const cli = snap.terminals.filter((x) => x.taskId === t.id && x.kind === "agent").at(-1);
         const open = snap.prs.filter((p) => p.taskId === t.id);
         items.set(`task:${snap.machine}:${t.id}`, {
           label: t.id,

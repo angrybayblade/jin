@@ -25,7 +25,7 @@ const tools = () => {
     feed: { list: () => [] },
     tasks: { get: () => ({ id: "PLEN-1", title: null, slug: "limiter", repos: ["platform"], state: "ready" }), list: () => [] },
     sessions: { list: (f: { taskId?: string; kind?: string } = {}) => [chat, taskChat].filter((c) => (!f.taskId || c.taskId === f.taskId) && (!f.kind || c.kind === f.kind)), get: (id: string) => [chat, taskChat].find((c) => c.id === id), events: () => events, approvals: () => [] },
-    terminals: { list: () => [{ id: "t1", kind: "claude", taskId: "PLEN-1", title: "Claude 1", status: "waiting", waitingFor: "Claude needs your permission to use Bash" }] },
+    terminals: { list: () => [{ id: "t1", kind: "agent", agent: "claude", taskId: "PLEN-1", title: "Claude 1", status: "waiting", waitingFor: "Claude needs your permission to use Bash" }] },
     prs: { list: () => [{ taskId: "PLEN-1", url: "https://github.com/acme/platform/pull/1", title: "limiter", state: "OPEN", draft: false, review: null, checks: "passing" }] },
     journal: () => journal,
     linksOf: () => [{ kind: "linear", label: "PLEN-1", url: "https://linear.app/acme/issue/PLEN-1", key: "linear:PLEN-1", since: null }],

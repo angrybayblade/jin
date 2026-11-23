@@ -33,7 +33,7 @@ export function subtaskRoutes(router: Router, deps: { terminals: Terminals; task
         tasks.childIds(parent.id).map((id) => {
           const job = jobs.forTask(id);
           const task = tasks.list().find((t) => t.id === id);
-          const cli = terminals.list({ taskId: id }).filter((t) => t.kind === "claude").at(-1);
+          const cli = terminals.list({ taskId: id }).filter((t) => t.kind === "agent").at(-1);
           return {
             id,
             title: task ? (task.title ?? task.slug) : (job?.slug ?? null),

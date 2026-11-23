@@ -135,7 +135,7 @@ test("A20 a Claude Code tab forks into a new tab that carries on its conversatio
   await d.json("/api/hooks/claude", { method: "POST", json: { event: "SessionStart", terminalId, input: { session_id: "sess-fork-1" } } });
   const from = await d.json<any>(`/api/terminals/${terminalId}`);
   const fork = await d.json<any>("/api/terminals", { method: "POST", json: { forkFrom: terminalId } });
-  expect(fork).toMatchObject({ kind: "claude", taskId: "PR-1", title: `${from.title} fork` });
+  expect(fork).toMatchObject({ kind: "agent", agent: "claude", taskId: "PR-1", title: `${from.title} fork` });
   expect(fork.id).not.toBe(terminalId);
   await until(() => readFileSync(join(env.home, "claude-args.txt"), "utf8").includes("--fork-session"), 10000, "the fork launched");
   expect(readFileSync(join(env.home, "claude-args.txt"), "utf8")).toContain("--resume\nsess-fork-1\n--fork-session");

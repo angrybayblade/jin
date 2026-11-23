@@ -31,7 +31,7 @@ const machines = async (): Promise<MachineSnapshot[]> => [
       { id: "REV-111701", title: null, slug: "review rate limits", state: "ready", issue: null, createdAt: "2026-11-02" },
     ],
     prs: [{ taskId: "PLEN-1334", url: "https://github.com/ComposioHQ/platform/pull/133", repo: "ComposioHQ/platform", number: 133, title: "fix limiter", state: "OPEN", draft: false, review: "CHANGES_REQUESTED", checks: "failing" }],
-    terminals: [{ taskId: "PLEN-1334", kind: "claude", status: "idle" }],
+    terminals: [{ taskId: "PLEN-1334", kind: "agent", status: "idle" }],
   },
 ];
 const feed = (): FeedItem[] =>
