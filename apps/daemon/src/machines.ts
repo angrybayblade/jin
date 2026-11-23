@@ -149,6 +149,12 @@ export function readSignIn(tool: AuthTool, out: string): { url: string | null; c
     const account = text.match(/Logged in as (\S+)/)?.[1] ?? null;
     return { url: code ? "https://github.com/login/device" : null, code, needsCode: false, done: Boolean(account), answer, account };
   }
+  if (tool === "codex") {
+    // `codex login --device-auth`: a link and a one-time code; it finishes once you approve.
+    const url = text.match(/https:\/\/auth\.openai\.com\/codex\/device\S*/)?.[0] ?? null;
+    const code = text.match(/one-time code[^\n]*\n\s*([A-Z0-9]{4}-[A-Z0-9]{4,6})/)?.[1] ?? null;
+    return { url, code, needsCode: false, done: /Successfully logged in/i.test(text), answer: null, account: null };
+  }
   if (tool === "claude") {
     const url = text.match(/https:\/\/\S*oauth\S*authorize\S+/)?.[0] ?? null;
     const done = /Login successful/i.test(text);
@@ -163,17 +169,18 @@ export function readSignIn(tool: AuthTool, out: string): { url: string | null; c
 }
 
 /** The tools a machine signs in to: jin's own, then the ones workspace providers declare. */
-export const authTools = (): AuthTool[] => ["gh", "claude", ...providerTools().map((t) => t.id)];
+export const authTools = (): AuthTool[] => ["gh", "claude", "codex", ...providerTools().map((t) => t.id)];
 
 /** How a tool shows in the sign-ins list. */
 export function describeTool(tool: AuthTool): { label: string; why: string; optional: boolean; tokenHint: string | null } {
   if (tool === "gh") return { label: "GitHub (gh)", why: "Clones the workspace's repos; PRs and checks.", optional: false, tokenHint: null };
   if (tool === "claude") return { label: "Claude Code", why: "Runs Claude Code and jin's chats there.", optional: false, tokenHint: null };
+  if (tool === "codex") return { label: "Codex", why: "Runs Codex there, when it is the machine's coding agent.", optional: true, tokenHint: null };
   const t = providerTools().find((x) => x.id === tool);
   return { label: t?.label ?? tool, why: t?.why ?? "", optional: t?.optional ?? true, tokenHint: t?.token?.hint ?? null };
 }
 
-export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
+export const signInCommand = (tool: AuthTool): string => (tool === "gh" ? "gh auth login --hostname github.com --git-protocol https --web" : tool === "claude" ? "claude auth login" : tool === "codex" ? "codex login --device-auth" : (providerTools().find((t) => t.id === tool)?.signIn?.command ?? ""));
 
 /** `gh yes angrybayblade` / `claude no` / `<tool> missing`, one per line, from the status probe. */
 export function readAuthStatus(out: string): Partial<Record<AuthTool, { state: AuthState["state"]; account: string | null }>> {
@@ -287,6 +294,10 @@ if command -v claude >/dev/null; then
   s=$(lim claude auth status 2>/dev/null || true)
   if echo "$s" | grep -q '"loggedIn": *true'; then echo "claude yes $(echo "$s" | sed -n 's/.*"email": *"\\([^"]*\\)".*/\\1/p' | head -1)"; else echo "claude no"; fi
 else echo "claude missing"; fi
+if command -v codex >/dev/null; then
+  s=$(lim codex login status 2>&1 || true)
+  if echo "$s" | grep -q '^Logged in'; then echo "codex yes $(echo "$s" | sed -n 's/^Logged in using //p' | head -1)"; else echo "codex no"; fi
+else echo "codex missing"; fi
 ${providerTools()
   .map((t) => t.status)
   .join("\n")}

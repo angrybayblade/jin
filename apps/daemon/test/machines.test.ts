@@ -92,3 +92,18 @@ test("a machine removed while its tunnel opens stays gone, and its health check 
   m.closeTunnel("gone");
   rmSync(home, { recursive: true, force: true });
 });
+
+test("Codex signs in with a device code: the link and the code are read from what it prints", () => {
+  const out = [
+    "Welcome to Codex [v0.169.0]",
+    "Follow these steps to sign in with ChatGPT using device code authorization:",
+    "1. Open this link in your browser and sign in to your account",
+    "   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m",
+    "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m",
+    "   \x1b[94mYWG8-DC4LF\x1b[0m",
+  ].join("\n");
+  expect(readSignIn("codex", out)).toMatchObject({ url: "https://auth.openai.com/codex/device", code: "YWG8-DC4LF", done: false });
+  expect(readSignIn("codex", `${out}\nSuccessfully logged in\n`).done).toBe(true);
+  expect(readAuthStatus("gh yes a\ncodex yes ChatGPT\n").codex).toEqual({ state: "signed-in", account: "ChatGPT" });
+  expect(readAuthStatus("codex no\n").codex).toEqual({ state: "signed-out", account: null });
+});
