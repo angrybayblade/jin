@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Coding agents live on each machine's page.** Machines → a machine (this one included,
+  now a page of its own) shows which agent new sessions start and a card for each harness
+  installed there: Claude Code's settings editor, and where the others keep theirs. The
+  Claude Code entry is gone from the settings menu (`/claude` redirects).
+- **Fix: saving Claude Code's settings showed no "Saved" and did not reload the file.**
+
 - **opencode 2.** jin's opencode support moves to opencode 2 (and only 2): its plugin uses
   the new plugin API, tabs and chats run `--standalone` so jin's plugin is the one checking
   tool calls, a push or message in a tab asks in opencode's own prompt showing the call, and

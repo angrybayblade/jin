@@ -279,7 +279,7 @@ Claude Code, or the machine's card). What holds, and what differs:
 
 ### 8e. pi as a machine's agent
 
-A machine can run pi instead (Settings → Claude Code, or the machine's card),
+A machine can run pi instead (Machines → the machine → Coding agent),
 in its terminal tabs, a task's chats and its agent rooms:
 
 - **jin's extension checks every tool call, and pi waits for it.** pi loads

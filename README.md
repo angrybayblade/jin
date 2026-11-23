@@ -59,7 +59,7 @@ root: /Users/you/repos/web   # a clone, or a folder whose subfolders are clones
 tracker: github              # optional: linear, github or none
 ```
 
-**Codex instead of Claude Code** (Settings → Claude Code, or a machine's card): new agent
+**Codex instead of Claude Code** (Machines → the machine → Coding agent): new agent
 tabs, task chats and agent rooms on that machine run Codex, with its own `~/.codex` setup and
 sign-in (a machine's Sign-ins card signs in with a device code). jin trusts its
 hooks in Codex before the first start (a `hooks.state` entry in `~/.codex/config.toml`) and
