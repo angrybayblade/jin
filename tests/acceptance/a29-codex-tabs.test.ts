@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { setupEnv, startDaemon, until, type Daemon, type Env } from "./helpers";
+import { scripted, setupEnv, startDaemon, until, type Daemon, type Env } from "./helpers";
 
 let env: Env;
 let d: Daemon;
@@ -164,3 +164,23 @@ test("Claude Code tabs still open when asked for by their old name, on the machi
   const t = await d.json("/api/terminals", { method: "POST", json: { taskId: "CX-1", kind: "claude" } });
   expect(t).toMatchObject({ kind: "agent", agent: "claude", title: "Claude 1" });
 });
+
+test("a chat or room agent on Codex: its hooks ask jin whether a call may start, by the session's rules", async () => {
+  const hook = (sessionId: string, input: Record<string, unknown>) => d.json("/api/hooks/codex", { method: "POST", json: { event: "PreToolUse", terminalId: null, sessionId, input } });
+  const chat = await d.json("/api/tasks/CX-1/sessions", { method: "POST", json: { prompt: scripted([{ text: "ok" }]) } });
+  expect((await hook(chat.id, { tool_name: "Bash", tool_input: { command: "vercel deploy --prod" } })).decision).toBe("deny");
+  // Outward: not decided here; Codex's sandbox sends it to the session's gate as an approval.
+  expect(await hook(chat.id, { tool_name: "Bash", tool_input: { command: "git push origin HEAD" } })).toEqual({});
+  const [t] = await d.json("/api/terminals?task=CX-1");
+  expect((await hook(chat.id, { tool_name: "apply_patch", cwd: t.cwd, tool_input: { command: `*** Begin Patch\n*** Add File: ${env.home}/token\n+x\n*** End Patch` } })).decision).toBe("deny");
+  const events = await d.json(`/api/sessions/${chat.id}/events`);
+  expect(events.some((e: { kind: string; payload: { by?: string } }) => e.kind === "tool.denied" && e.payload.by === "policy")).toBe(true);
+
+  // A read-only room agent: an edit is refused whatever it says; reading is fine.
+  await d.json("/api/tasks/CX-1/room/messages", { method: "POST", json: { text: "@reviewer have a look" } });
+  const reviewer = await until(async () => (await d.json("/api/tasks/CX-1/room")).agents.find((a: { handle: string; sessionId: string | null }) => a.handle === "reviewer" && a.sessionId), 10000, "reviewer's session");
+  const edit = await hook(reviewer.sessionId, { tool_name: "apply_patch", cwd: t.cwd, tool_input: { command: "*** Begin Patch\n*** Add File: review.md\n+hi\n*** End Patch" } });
+  expect(edit.decision).toBe("deny");
+  expect(await hook(reviewer.sessionId, { tool_name: "Bash", tool_input: { command: "git diff" } })).toEqual({});
+  expect((await hook(reviewer.sessionId, { tool_name: "Bash", tool_input: { command: "git commit -am x" } })).decision).toBe("deny");
+}, 30_000);

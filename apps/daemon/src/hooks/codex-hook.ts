@@ -19,7 +19,7 @@ async function ask(input: Record<string, unknown>): Promise<{ decision?: "deny";
   const res = await fetch(`http://${host}:${port}/api/hooks/codex`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ event, terminalId: process.env.JIN_TERMINAL_ID ?? null, input }),
+    body: JSON.stringify({ event, terminalId: process.env.JIN_TERMINAL_ID ?? null, sessionId: process.env.JIN_SESSION_ID ?? null, input }),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`jin daemon answered ${res.status}`);

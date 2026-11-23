@@ -12,6 +12,8 @@ export interface JinTool {
 }
 
 export interface HarnessRun {
+  /** jin's id for the session (its hooks name it, to check a tool call against the session's rules). */
+  jinSessionId?: string;
   prompt: string;
   cwd: string;
   /** More folders the agent may read and work in (beside cwd). */
@@ -45,7 +47,7 @@ export interface HarnessRun {
  */
 export interface Harness {
   readonly id: "claude" | "codex";
-  /** Which implementation runs it ("claude-agent-sdk", "scripted"). */
+  /** Which implementation runs it ("claude-agent-sdk", "codex-app-server", "scripted"). */
   readonly adapter: string;
   run(run: HarnessRun): Promise<{ sessionId: string }>;
 }

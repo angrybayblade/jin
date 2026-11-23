@@ -31,7 +31,9 @@ import { ClaudeSettings, claudeSettingsRoutes } from "./claude-settings";
 import { ChatSkills, chatSkillRoutes } from "./chat-skills";
 import { Composio, composioRoutes, type LiveEvent } from "./composio";
 import { GithubWatch } from "./github-watch";
-import { claudeHarness } from "./harness";
+import { claudeHarness, type Harness } from "./harness";
+import { CodexHarness } from "./harness/codex";
+import { AgentTools, agentToolRoutes } from "./agent-tools";
 import { HttpError, json, Router } from "./http";
 import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
@@ -120,7 +122,19 @@ let mentions: Mentions | null = null;
 const docs = new Docs(db);
 // A task's agent room (set up below, once sessions exist): its agents are sessions with a role.
 let rooms: Rooms | null = null;
-const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: claudeHarness, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle, mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
+// jin's tools for Codex runs, served to them through an MCP bridge (agent-tools.ts).
+const agentTools = new AgentTools();
+agentToolRoutes(app.router, agentTools);
+const codexHarness = new CodexHarness({ home: config.home, tools: agentTools });
+// Chats and room agents run on Claude through the Agent SDK; on a machine whose agent is Codex,
+// the work in a task (its chats, its room agents) runs on Codex. A resumed session keeps its own.
+// jin's chat, desks and doc chats stay on Claude: they work through claude.ai's connectors.
+const harnessFor = ({ kind, id }: { kind: string; id?: string }): Harness => {
+  if (process.env.JIN_HARNESS === "scripted") return claudeHarness();
+  const codex = id ? id === "codex" : (kind === "task" || kind === "room") && agents.defaultId() === "codex";
+  return codex ? codexHarness : claudeHarness();
+};
+const sessions = new Sessions({ db, config, tasks, adapters, workspaces: app.workspaces, harness: harnessFor, titler: process.env.JIN_HARNESS === "scripted" ? scriptedTitle : haikuTitle, mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
   // The scripted harness (tests) has no Claude Code to ask.
   chatSkills: new ChatSkills(process.env.JIN_HARNESS === "scripted" ? async () => [] : undefined),
   kindTools: (s) => (s.kind === "room" ? (rooms?.toolsFor(s) ?? []) : s.kind === "jin" || s.kind === "desk" || s.kind === "doc" ? docTools(docs) : []),
@@ -250,6 +264,7 @@ agentHookRoutes(app.router, {
     return taskId ? tasks.get(taskId).workspace : app.workspaces[0]?.id;
   },
   onStatus: onClaudeStatus,
+  precheck: (sessionId, tool, input) => sessions.precheck(sessionId, tool, input),
   // The agent created a PR in a task: attach it, whatever it does next.
   onPrsCreated: (terminalId, urls) => {
     const taskId = terminals.get(terminalId).taskId;

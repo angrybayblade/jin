@@ -58,6 +58,8 @@ export interface AgentHookDeps {
   onStatus?: (terminalId: string, before: AgentStatus, after: AgentStatus, event: string, input: Record<string, any>) => void;
   /** A tool call created pull requests (attached to the terminal's task). */
   onPrsCreated?: (terminalId: string, urls: string[]) => void;
+  /** A chat or room agent's tool call (Codex through jin's app-server client): why it may not start, else null. */
+  precheck?: (sessionId: string, tool: string, input: Record<string, unknown>) => string | null;
   /** The task's work journal: turns start, and tool calls leave evidence. */
   journal?: { turnStarted: (terminalId: string) => void; evidence: (terminalId: string, tool: string, input: Record<string, unknown>) => void };
 }
@@ -65,10 +67,20 @@ export interface AgentHookDeps {
 export function agentHookRoutes(router: Router, deps: AgentHookDeps) {
   const { terminals } = deps;
   const handle = async (agent: AgentId, req: Request) => {
-    const { event, terminalId, input } = await body<{ event: string; terminalId: string | null; input: Record<string, any> }>(req);
+    const { event, terminalId, sessionId, input } = await body<{ event: string; terminalId: string | null; sessionId?: string | null; input: Record<string, any> }>(req);
     const tool = String(input.tool_name ?? "");
     const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
     const calls = agent === "codex" ? codexCalls(tool, toolInput, typeof input.cwd === "string" ? input.cwd : undefined) : [{ tool, input: toolInput }];
+    // A chat or room agent (not a terminal): its session's rules decide whether a call may start;
+    // what needs the user's approval comes to the session's gate from the harness.
+    if (sessionId && !terminalId) {
+      if (event !== "PreToolUse" || !deps.precheck) return json({});
+      for (const c of calls) {
+        const reason = deps.precheck(sessionId, c.tool, c.input);
+        if (reason) return json({ decision: "deny", reason });
+      }
+      return json({});
+    }
     const before = terminalId && terminals.isLive(terminalId) ? terminals.get(terminalId).status : null;
     const report = () => {
       if (terminalId && before && deps.onStatus && terminals.isLive(terminalId)) deps.onStatus(terminalId, before, terminals.get(terminalId).status, event, input);

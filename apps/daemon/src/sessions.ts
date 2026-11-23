@@ -100,7 +100,8 @@ export interface SessionDeps {
   tasks: Tasks;
   adapters: Map<string, WorkspaceAdapter>;
   workspaces: WorkspaceConfig[];
-  harness: () => Harness;
+  /** The harness a session runs on: a new one by its kind (and the machine's agent), a resumed one the one it started with. */
+  harness: (s: { kind: SessionKind; id?: string }) => Harness;
   /** Jin's orchestration tools, for jin's own chat. Set after construction (they need this manager). */
   jinTools?: () => JinTool[];
   /** More tools for a chat (a doc chat's, a room agent's), beside jin's. */
@@ -279,6 +280,22 @@ export class Sessions {
     };
   }
 
+  /**
+   * Whether a tool call may even start (asked by a harness's hooks before it runs): why not
+   * (policy denies it, or the session may not, like a read-only room agent editing), else
+   * null. Approvals are not decided here; they come to the gate.
+   */
+  precheck(sessionId: string, tool: string, input: Record<string, unknown>): string | null {
+    const session = this.get(sessionId);
+    const rules = session.workspace ? this.deps.adapters.get(session.workspace)?.policy() : undefined;
+    const reason = this.deps.toolBlock?.(session, tool, input) ?? this.chatEdit(sessionId, tool, input) ?? (() => {
+      const v = evaluate(tool, input, rules);
+      return v.decision === "deny" ? v.reason : null;
+    })();
+    if (reason) this.emit(sessionId, "tool.denied", { tool, input, reason, by: "policy" });
+    return reason;
+  }
+
   /** A chat changing a file in the workspace: why not (changes to its code happen in tasks), else null. */
   private chatEdit(sessionId: string, tool: string, input: Record<string, unknown>): string | null {
     if (!/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) return null;
@@ -317,7 +334,7 @@ export class Sessions {
 
   private create(s: { kind: SessionKind; taskId?: string; workspace?: string; title: string; cwd: string; id?: string }, prompt: string, choice: RunChoice = {}): Session {
     if (!prompt?.trim()) throw new HttpError(400, "prompt is required");
-    const harness = this.deps.harness();
+    const harness = this.deps.harness({ kind: s.kind });
     const id = s.id ?? randomUUID();
     this.db
       .query("insert into sessions (id, kind, task_id, workspace, title, cwd, harness, state, model, effort, created_at) values (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)")
@@ -412,7 +429,7 @@ export class Sessions {
     if (choice.model) this.db.query("update sessions set model = ? where id = ?").run(choice.model, sessionId);
     if (choice.effort !== undefined) this.db.query("update sessions set effort = ? where id = ?").run(choice.effort, sessionId);
     this.setState(sessionId, "running");
-    void this.run(sessionId, prompt, this.deps.harness(), session.harnessSessionId ?? undefined);
+    void this.run(sessionId, prompt, this.deps.harness({ kind: session.kind, id: session.harness }), session.harnessSessionId ?? undefined);
     return this.get(sessionId);
   }
 
@@ -442,6 +459,7 @@ export class Sessions {
     if (used.length) this.emit(sessionId, "prompt.skills", { skills: used });
     try {
       const { sessionId: harnessSessionId } = await harness.run({
+        jinSessionId: sessionId,
         prompt: prompt + mentionContext(mentioned) + skillsNote,
         cwd,
         env,
