@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **pi and opencode on a machine's Sign-ins card.** Each shows the providers it holds a
+  credential for; opencode signs in there with ChatGPT (a device code), and pi's row says to
+  run `/login` in a pi tab, the only way pi signs in.
+
 - **opencode as a machine's agent.** Pick opencode and its tabs, task chats and agent rooms
   run opencode (its own models and sign-ins). jin's plugin, passed per launch, checks every
   tool call: a tab sets every tool to ask and answers what jin allows, so a push or message

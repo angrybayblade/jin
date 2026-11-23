@@ -296,8 +296,10 @@ in its terminal tabs, a task's chats and its agent rooms:
   the same token-scoped MCP bridge as Codex.
 - **pi has no sandbox of its own**, so these checks are the only guard, as
   with Claude Code: guardrails against a misled model, not isolation.
-- **Not covered:** pi's sign-in (run `/login` in a pi tab on that machine);
-  jin's skills plugin; forking a pi session or moving it to another machine.
+- **Sign-in** is pi's own: `/login` in a pi tab on that machine (the Sign-ins
+  card shows which providers pi holds a credential for, never the credential).
+- **Not covered:** jin's skills plugin; forking a pi session or moving it to
+  another machine.
 
 ### 8f. opencode as a machine's agent
 
@@ -317,8 +319,9 @@ its agent rooms. Everything jin adds is passed for that launch in
   decides in the plugin, approvals in jin included; jin's own tools reach
   opencode through the same MCP bridge as Codex and pi.
 - **No sandbox**, as with Claude Code and pi: guardrails against a misled
-  model, not isolation. Its sign-in is opencode's own (`opencode auth login`
-  on that machine); a session cannot be forked or moved.
+  model, not isolation. It signs in on the machine itself (the Sign-ins card
+  runs opencode's ChatGPT device sign-in there; no credential passes through
+  jin); a session cannot be forked or moved.
 
 ### 9. Network
 

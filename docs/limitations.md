@@ -28,13 +28,13 @@ whether it is a design choice for a single-user tool or a gap to close.
   an agent on its own is not built yet. There is no agent-kept state card:
   the room's outputs are its docs and the diff. *Deliberate for the first version.*
 
-- **opencode signs in on its own** (`opencode auth login` on the machine; the Sign-ins card
-  does not cover it). Its chats run one `opencode run` per message; a session cannot be
-  forked or moved, and jin's skills are Claude Code only. *Gap.*
-- **pi signs in on its own.** A pi machine's tabs, task chats and rooms run pi with its own
-  models and sign-ins; sign in with `/login` in a pi tab there (the Sign-ins card does not
-  cover pi yet). A pi session cannot be forked or moved, and jin's skills are Claude Code
-  only. *Gap.*
+- **opencode and pi sign in to their own providers.** A machine's Sign-ins card shows which
+  providers each holds a credential for (credentials from environment variables are not
+  counted). opencode signs in there with ChatGPT; another provider, or an API key, means
+  `opencode providers login` on the machine. pi signs in only in its own terminal: `/login`
+  in a pi tab there (pi has no sign-in command to drive). Their chats run one process per
+  message (`opencode run`) or pi's RPC mode; their sessions cannot be forked or moved, and
+  jin's skills are Claude Code only. *Gap.*
 - **Codex covers a task's work, not jin's own chats.** On a machine set to Codex, its
   terminal tabs, task chats and agent rooms run Codex; jin's chat, the desks and doc chats
   stay on Claude, since they work through claude.ai's connectors. A Codex tab cannot ask you
