@@ -301,6 +301,15 @@ in its terminal tabs, a task's chats and its agent rooms:
 - **Not covered:** jin's skills plugin; forking a pi session or moving it to
   another machine.
 
+### 8e′. Agent versions
+
+jin's hooks for pi and opencode use each agent's extension API, which can change between
+major versions without a word: opencode 2 stopped loading jin's plugin, so its calls would
+have run unchecked. Each agent declares the versions jin has checked (pi 1.x, opencode 1.x);
+jin reads `--version` on the machine and refuses another version as the machine's agent and
+for every new tab and chat, saying why. Codex needs no list: jin refuses it unless Codex
+itself reports jin's hooks as trusted, which an unknown version cannot fake.
+
 ### 8f. opencode as a machine's agent
 
 A machine can run opencode instead, in its terminal tabs, a task's chats and

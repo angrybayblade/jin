@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Fix: jin refuses pi or opencode at a version it has not checked.** opencode 2 changed its
+  plugin system, so jin's plugin did not load there and an opencode tab or chat would have run
+  unchecked (no one had picked it yet). Each agent now declares the versions jin has checked
+  (pi 1.x, opencode 1.x); another version is refused as a machine's agent and for new tabs and
+  chats, and the agent picker says why.
+
 - **pi and opencode on a machine's Sign-ins card.** Each shows the providers it holds a
   credential for; opencode signs in there with ChatGPT (a device code), and pi's row says to
   run `/login` in a pi tab, the only way pi signs in.

@@ -28,6 +28,9 @@ whether it is a design choice for a single-user tool or a gap to close.
   an agent on its own is not built yet. There is no agent-kept state card:
   the room's outputs are its docs and the diff. *Deliberate for the first version.*
 
+- **opencode 2 is not supported.** jin's plugin is written for opencode 1.x; opencode 2
+  changed its plugins, config and tool names, so jin refuses it (the machine's agent picker
+  says so). pi is supported at 1.x. *Gap.*
 - **opencode and pi sign in to their own providers.** A machine's Sign-ins card shows which
   providers each holds a credential for (credentials from environment variables are not
   counted). opencode signs in there with ChatGPT; another provider, or an API key, means
