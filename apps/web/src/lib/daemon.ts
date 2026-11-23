@@ -429,6 +429,10 @@ export interface MachineAuth {
   optional: boolean;
   /** It can take a token instead of a sign-in (what the token looks like). */
   tokenHint: string | null;
+  /** It signs in to model providers (pi, opencode): its account is the providers it has a credential for. */
+  providers?: boolean;
+  /** It signs in only in its own terminal: how, instead of a sign-in here. */
+  signInHint?: string | null;
   state: "unknown" | "signed-in" | "signed-out" | "missing" | "waiting" | "failed";
   account: string | null;
   url: string | null;

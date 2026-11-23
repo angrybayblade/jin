@@ -116,7 +116,9 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
           <span className="machine-auth-tool">{auth.label}</span>
           <span className="meta machine-auth-state">
             {signedIn
-              ? `Signed in${auth.account ? ` as ${auth.account}` : ""}`
+              ? auth.providers
+                ? `Signed in to ${auth.account ?? "a provider"}`
+                : `Signed in${auth.account ? ` as ${auth.account}` : ""}`
               : auth.state === "missing"
                 ? "Not installed"
                 : auth.state === "waiting"
@@ -139,13 +141,15 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
           </button>
         ) : (
           auth.state !== "missing" &&
-          auth.state !== "unknown" && (
+          auth.state !== "unknown" &&
+          !auth.signInHint && (
             <button type="button" className={`button small ${signedIn ? "quiet" : ""}`} onClick={() => act(actions.start(auth.tool))}>
               {signedIn ? "Sign in again" : "Sign in"}
             </button>
           )
         )}
       </div>
+      {auth.signInHint && auth.state !== "missing" && auth.state !== "unknown" && <p className="meta machine-auth-body">{auth.signInHint}</p>}
       {auth.state === "waiting" && !auth.url && (
         <p className="meta machine-auth-body">
           <LoaderCircle size={12} className="spin" /> Starting the sign-in on {actions.where}…
