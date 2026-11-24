@@ -468,11 +468,20 @@ export class Rooms {
   }
 
   /** For the task's Room tab: whether agents work or wait on you, and the last message (to mark it unread). */
-  status(taskId: string): { working: number; waiting: number; lastSeq: number } {
-    if (!this.db.query("select 1 from rooms where task_id = ?").get(taskId)) return { working: 0, waiting: 0, lastSeq: 0 };
+  status(taskId: string): { working: number; waiting: number; lastSeq: number; name: string | null } {
+    const row = this.db.query("select name from rooms where task_id = ?").get(taskId) as { name: string | null } | null;
+    if (!row) return { working: 0, waiting: 0, lastSeq: 0, name: null };
     const views = this.agents(taskId).map((a) => this.view(a));
     const lastSeq = (this.db.query("select coalesce(max(seq), 0) as n from room_messages where task_id = ? and kind = 'message'").get(taskId) as { n: number }).n;
-    return { working: views.filter((a) => a.state === "running" || a.state === "queued").length, waiting: views.filter((a) => a.state === "waiting_approval").length, lastSeq };
+    return { working: views.filter((a) => a.state === "running" || a.state === "queued").length, waiting: views.filter((a) => a.state === "waiting_approval").length, lastSeq, name: row.name };
+  }
+
+  /** Name the room (its tab's title); an empty name goes back to "Room". */
+  rename(taskId: string, name: string) {
+    const n = name.trim().slice(0, 80);
+    this.ensure(taskId);
+    this.db.query("update rooms set name = ? where task_id = ?").run(n || null, taskId);
+    return this.status(taskId);
   }
 
   /** Start the room over: its messages go, and every agent begins a new session. The agents (their profiles) stay. */
@@ -781,6 +790,7 @@ export function roomRoutes(router: Router, rooms: Rooms) {
   router
     .on("GET", "/api/tasks/:id/room", (_req, p, url) => json(rooms.state(p.id!, Number(url.searchParams.get("after") ?? 0))))
     .on("GET", "/api/tasks/:id/room/status", (_req, p) => json(rooms.status(p.id!)))
+    .on("PATCH", "/api/tasks/:id/room", async (req, p) => json(rooms.rename(p.id!, String((await body<{ name?: unknown }>(req)).name ?? ""))))
     .on("DELETE", "/api/tasks/:id/room/messages", (_req, p) => {
       rooms.clear(p.id!);
       return json({ cleared: true });

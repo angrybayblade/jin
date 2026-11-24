@@ -292,6 +292,8 @@ const MIGRATIONS: string[] = [
   alter table terminals add column agent text;
   update terminals set kind = 'agent', agent = 'claude' where kind = 'claude';
   `,
+  // 19: a room can have a name of its own (its tab says "Room" until it does).
+  `alter table rooms add column name text;`,
 ];
 
 export function openDb(home: string): Database {

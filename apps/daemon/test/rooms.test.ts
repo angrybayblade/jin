@@ -170,12 +170,19 @@ test("a read-only agent's file edits are refused; the writer's are not", async (
 
 test("the tab's status, and clearing the room: messages go, agents stay and start over", async () => {
   const { rooms, settle } = setup();
-  expect(rooms.status("T-9")).toEqual({ working: 0, waiting: 0, lastSeq: 0 });
+  expect(rooms.status("T-9")).toEqual({ working: 0, waiting: 0, lastSeq: 0, name: null });
   rooms.post("T-1", "@designer draft");
   await settle(1);
   expect(rooms.status("T-1")).toMatchObject({ working: 0, lastSeq: 2 });
   rooms.clear("T-1");
   expect(rooms.state("T-1")).toMatchObject({ messages: [], agents: [{ handle: "designer", state: "new", sessionId: null }, {}, {}] });
+});
+
+test("a room takes a name for its tab, and an empty one goes back to none", () => {
+  const { rooms } = setup();
+  expect(rooms.rename("T-1", "  Keyring review  ")).toMatchObject({ name: "Keyring review" });
+  expect(rooms.status("T-1").name).toBe("Keyring review");
+  expect(rooms.rename("T-1", " ").name).toBeNull();
 });
 
 test("room_history reads earlier final messages and says so; a doc an agent makes is the task's; an agent naming another runs nobody", async () => {
