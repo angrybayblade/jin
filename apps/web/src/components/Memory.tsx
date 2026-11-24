@@ -124,10 +124,10 @@ export function MemoryPage({ initial, home }: { initial: JournalEntry[]; home: s
           ))}
         </ul>
       ) : (
-        <Empty title={q ? "Nothing matches" : "Nothing kept yet"}>{q ? "Try other words." : "When a task is merged, or you wrap one up, jin keeps what it learned here."}</Empty>
+        <Empty title={q ? "Nothing matches" : "Nothing kept yet"}>{q ? "Try other words." : "When a task is merged, or you wrap one up, jin keeps here what no record holds: its decisions and their reasons, and facts nobody wrote down."}</Empty>
       )}
       <p className="meta">
-        jin keeps a task&apos;s lasting decisions, learnings and a short summary when it is merged or wrapped up; agents never add here themselves. Agents search this memory, and each task starts with what bears on it.
+        Only what no record holds: decisions with the reason behind them, and facts nobody wrote down. What commits, PRs, issues and threads already say stays there; each task&apos;s summary points to them. jin keeps these when a task is merged or wrapped up; agents never add here themselves. Agents search this memory, and each task starts with what bears on it.
       </p>
     </SettingsPage>
   );

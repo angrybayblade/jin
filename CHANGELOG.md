@@ -5,8 +5,10 @@
 - **Memory.** The journal becomes jin's memory: one table, where a task's journal and its
   long-term memory are the same rows. Room agents now keep the task's journal with its tabs, and
   every agent in a task reads all of it. When a task is merged, or you **Wrap up** any task from
-  its menu, jin keeps what it learned: lasting decisions and learnings (reworded for use
-  elsewhere), a short summary with the ids of what it touched; agents never promote. Long-term
+  its menu, jin keeps what it learned that no record holds: decisions with their reasons and
+  facts nobody wrote down (work done stays in commits and PRs, and what threads and issues say
+  stays there), plus a one- or two-line summary that points to the task's records by id; agents
+  never promote. Long-term
   memory lives on the home, scoped by workspace. Each task starts with what earlier tasks kept
   that bears on it (picked by a small model, shown under "From earlier tasks" in its journal),
   and agents search the rest with `memory_search`. A **Memory** page (machine menu) lists,

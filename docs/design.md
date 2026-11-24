@@ -235,10 +235,12 @@ One table, `memory`, holds every memory artifact; a task's journal is its rows.
   the task's rows (`task_context` for tabs, `task_journal` in the room).
 - **Promoting:** only jin does it, when a task is done: the merge cleanup's first step, or
   **Wrap up** on any task (reviews, scratch tasks, abandoned work). It reads the task's rows
-  (`jin_task_memory`), raises the ones that hold beyond the task to long-term (the same row,
-  `level = 'global'`, reworded where needed with the task's wording kept), drops dead ends, and
-  writes one `summary` row with the ids of what the task touched (`jin_keep_memory`). Agents
-  never promote.
+  and its records (`jin_task_memory`), and raises to long-term only what no record holds (the
+  same row, `level = 'global'`, reworded where needed with the task's wording kept): decisions
+  with their reason, and facts nobody wrote down. Work done stays in commits and PRs, and what
+  threads and issues say stays there; one `summary` row points to them by id
+  (`jin_keep_memory`). jin refuses to keep anything but decisions (with a reason) and findings,
+  and anything long-term memory already says. Agents never promote.
 - **Where it lives:** a task's rows on its machine; long-term rows on the home (promotion copies
   the row there under the same id, with its machine). Long-term memory is scoped by workspace.
 - **Reading:** nothing long-term is loaded wholesale. Each task's **pre-context** is picked by a
