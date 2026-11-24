@@ -55,6 +55,27 @@ export interface HookRun {
   error: string | null;
 }
 
+/**
+ * Keeping what a task learned, when it is done (the merge cleanup's first step, and Wrap up): jin
+ * decides what of the task's memory holds beyond it. Agents never promote; this is the only place.
+ */
+export const KEEP_STEP =
+  "Keep what the task learned. Read the task's memory with jin_task_memory (pass the event's machine, if it has one), and search long-term memory with jin_memory_search for what it touches. Promote what holds beyond this task: decisions with lasting reasons, learnings about systems, people or processes, facts with their platform ids (github:…, linear:…, slack:…, notion:…). Reword each so it reads on its own outside the task. Drop dead ends and noise; leave the rest as it is. Then call jin_keep_memory once: promote (ids, with new text where reworded), drop (ids) and summary: two to four sentences on what the task did and why, with refs: the ids of its PRs, issue and threads, never their content. When something you keep contradicts a long-term memory, say so in your reply.";
+
+/** Earlier wordings of jin's default hooks: one still word for word as jin wrote it takes today's (one you edited is left). */
+export const PREVIOUS_DEFAULTS: Record<string, string[]> = {
+  "Clean up after a merge": [
+    [
+      "A task's pull requests are all merged. Clean up after it, step by step, without asking in prose first; each outward step waits for the user's approval in jin.",
+      "1. Archive the task with jin_archive_task (pass the event's machine, if it has one).",
+      "2. The issue: if the event's task has an issue (task.issue), read it as task.issue.read says, then close it as task.issue.close says (it names its tracker's tools). If it is already done, leave it. No issue: skip this step.",
+      "3. Slack: search the last 30 days for messages that link the PR URL(s) or mention the task id or its issue id. On each thread the merge resolves, add a white_check_mark reaction to the thread's first message. No replies or new messages. Skip threads you already reacted to, and ones you are unsure about.",
+      "4. Remove the task's worktrees with jin_remove_task. If it refuses because work would be lost, report what and leave it.",
+      "If the issue tracker's or Slack's tools are missing, say so and go on.",
+    ].join("\n"),
+  ],
+};
+
 export const DEFAULT_HOOKS: Omit<Hook, "id" | "createdAt">[] = [
   {
     name: "Clean up after a merge",
@@ -64,10 +85,11 @@ export const DEFAULT_HOOKS: Omit<Hook, "id" | "createdAt">[] = [
     createdBy: "jin (default)",
     instructions: [
       "A task's pull requests are all merged. Clean up after it, step by step, without asking in prose first; each outward step waits for the user's approval in jin.",
-      "1. Archive the task with jin_archive_task (pass the event's machine, if it has one).",
-      "2. The issue: if the event's task has an issue (task.issue), read it as task.issue.read says, then close it as task.issue.close says (it names its tracker's tools). If it is already done, leave it. No issue: skip this step.",
-      "3. Slack: search the last 30 days for messages that link the PR URL(s) or mention the task id or its issue id. On each thread the merge resolves, add a white_check_mark reaction to the thread's first message. No replies or new messages. Skip threads you already reacted to, and ones you are unsure about.",
-      "4. Remove the task's worktrees with jin_remove_task. If it refuses because work would be lost, report what and leave it.",
+      `1. ${KEEP_STEP}`,
+      "2. Archive the task with jin_archive_task (pass the event's machine, if it has one).",
+      "3. The issue: if the event's task has an issue (task.issue), read it as task.issue.read says, then close it as task.issue.close says (it names its tracker's tools). If it is already done, leave it. No issue: skip this step.",
+      "4. Slack: search the last 30 days for messages that link the PR URL(s) or mention the task id or its issue id. On each thread the merge resolves, add a white_check_mark reaction to the thread's first message. No replies or new messages. Skip threads you already reacted to, and ones you are unsure about.",
+      "5. Remove the task's worktrees with jin_remove_task. If it refuses because work would be lost, report what and leave it.",
       "If the issue tracker's or Slack's tools are missing, say so and go on.",
     ].join("\n"),
   },
@@ -136,7 +158,8 @@ export class Hooks {
     let refreshed = false;
     for (const h of this.hooks) {
       const now = DEFAULT_HOOKS.find((d) => d.name === h.name && d.createdBy === h.createdBy);
-      if (now && h.createdBy === "jin (default)" && h.instructions.includes("(task.issue) in Linear, read it") && h.instructions !== now.instructions) {
+      const older = (PREVIOUS_DEFAULTS[h.name] ?? []).includes(h.instructions);
+      if (now && h.createdBy === "jin (default)" && (older || h.instructions.includes("(task.issue) in Linear, read it")) && h.instructions !== now.instructions) {
         h.instructions = now.instructions;
         refreshed = true;
       }
@@ -189,6 +212,23 @@ export class Hooks {
     this.get(id);
     this.hooks = this.hooks.filter((h) => h.id !== id);
     this.persist();
+  }
+
+  /** Wrap up a task without merging it (a review, a scratch task, abandoned work): only the keep-what-it-learned step. */
+  async wrapUp(ev: { task: { id: string; title: string | null }; machine: string | null }): Promise<{ chatId: string }> {
+    const where = ev.machine ? `The task is on machine \`${ev.machine}\`: pass machine: "${ev.machine}" to jin's tools for it.` : "The task is on this machine.";
+    const prompt = [
+      KEEP_STEP,
+      "This is a Wrap up the user asked for: keep what the task learned, nothing else (no archiving, closing or removing).",
+      "---",
+      `Wrap up of ${ev.task.id}${ev.task.title ? ` (${ev.task.title})` : ""}. ${where}`,
+      "```json",
+      JSON.stringify({ task: ev.task, machine: ev.machine }, null, 2),
+      "```",
+      "End with a short summary: what you kept, what you dropped, and why.",
+    ].join("\n\n");
+    const chat = await this.deps.startChat(`Wrap up: ${ev.task.id}`, prompt);
+    return { chatId: chat.id };
   }
 
   /** An event happened: run each enabled hook it matches, once per occurrence. */
