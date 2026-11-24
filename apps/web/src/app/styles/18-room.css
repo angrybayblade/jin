@@ -485,3 +485,39 @@ button.room-ref {
   border-radius: 50%;
   background: var(--glob-fallback);
 }
+
+/* What you tagged in a message (a PR, doc or file), inline; agents' handles keep their colour. */
+.room-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: var(--radius-control);
+  background: var(--hover);
+  color: var(--ink);
+  vertical-align: baseline;
+}
+.room-tag svg {
+  flex: none;
+  color: var(--secondary);
+}
+.room-tag.mono {
+  font-family: var(--font-code);
+  font-size: var(--type-meta);
+}
+.room-pick-icon {
+  flex: none;
+  width: 16px;
+  color: var(--secondary);
+}
+.room-pick-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+}
+.room-pick .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

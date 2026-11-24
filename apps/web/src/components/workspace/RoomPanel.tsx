@@ -1,7 +1,7 @@
 "use client";
-import { ArrowUp, AtSign, Check, Copy, Eye, FileText, GitCompare, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, AtSign, Check, Copy, Eye, FileCode, FileText, GitCompare, GitPullRequest, ListChecks, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Square, SquareKanban, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { decideRoomApproval, getRoom, modelChoices, pinRoomMessage, postRoomMessage, roomAgentAction, roomAgentEvents, saveRoomAgent } from "@/lib/actions";
+import { decideRoomApproval, getRoom, modelChoices, pinRoomMessage, postRoomMessage, roomAgentAction, roomAgentEvents, roomTagOptions, saveRoomAgent, type RoomTag } from "@/lib/actions";
 import type { ModelChoices, RoomAgent, RoomApproval, RoomMessage, RoomProfile, SessionEvent } from "@/lib/daemon";
 import { openContextMenu, type MenuItem } from "../ContextMenu";
 import { Markdown } from "../Markdown";
@@ -32,7 +32,7 @@ type Side = { view: "roster" } | { view: "edit"; id: string | null } | { view: "
  * you @-mention it; it is given the room since its last turn, and of the others only what they
  * said last (their steps stay in their own sessions: the eye shows you them).
  */
-export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: { /** Show the task's diff (what a writer's turn changed). */ onOpenChanges?: () => void; taskId: string; /** Asked from the Room tab's menu: open the new-agent form (n changes each time). */ intent?: { n: number; action: "add-agent" } | null; /** Open a jin doc (as a tab of the task). */ onOpenDoc?: (id: string) => void; /** The last message shown (the tab's unread mark follows it). */ onSeen?: (seq: number) => void }) {
+export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onOpenFile, onSeen }: { /** Open a file of the task (as a tab). */ onOpenFile?: (path: string) => void; /** Show the task's diff (what a writer's turn changed). */ onOpenChanges?: () => void; taskId: string; /** Asked from the Room tab's menu: open the new-agent form (n changes each time). */ intent?: { n: number; action: "add-agent" } | null; /** Open a jin doc (as a tab of the task). */ onOpenDoc?: (id: string) => void; /** The last message shown (the tab's unread mark follows it). */ onSeen?: (seq: number) => void }) {
   const [agents, setAgents] = useState<RoomAgent[]>([]);
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [pinned, setPinned] = useState<RoomMessage[]>([]);
@@ -160,7 +160,7 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
             m.kind === "note" ? (
               <p key={m.seq} className="room-note">
                 <span>{m.text}</span>
-                <Refs refs={m.refs} onOpenDoc={onOpenDoc} onOpenChanges={onOpenChanges} />
+                <Refs refs={m.refs} onOpenDoc={onOpenDoc} onOpenChanges={onOpenChanges} onOpenFile={onOpenFile} />
               </p>
             ) : (
               <article key={m.seq} id={`room-msg-${m.seq}`} className={`room-msg ${m.author === "you" ? "is-you" : ""}`} data-color={byId.get(m.author)?.color ?? (m.author === "you" ? undefined : "gone")}>
@@ -181,8 +181,8 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
                   </button>
                 </header>
                 <div className="room-msg-body">
-                  {m.author === "you" ? <YourText text={m.text} agents={agents} /> : <Markdown content={m.text} />}
-                  <Refs refs={m.refs} onOpenDoc={onOpenDoc} onOpenChanges={onOpenChanges} />
+                  {m.author === "you" ? <YourText text={m.text} agents={agents} refs={m.refs} /> : <Markdown content={m.text} />}
+                  <Refs refs={m.refs} onOpenDoc={onOpenDoc} onOpenChanges={onOpenChanges} onOpenFile={onOpenFile} />
                 </div>
               </article>
             ),
@@ -222,6 +222,7 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
           )}
           <Composer
             ref={composer}
+            taskId={taskId}
             agents={agents}
             onSend={async (text) => {
               const r = await postRoomMessage(taskId, text);
@@ -293,12 +294,40 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
 }
 
 /** What a turn made or changed: its docs, one chip each (opens the doc). */
-function Refs({ refs, onOpenDoc, onOpenChanges }: { refs: RoomMessage["refs"]; onOpenDoc?: (id: string) => void; onOpenChanges?: () => void }) {
+const TAG_ICON = { pr: GitPullRequest, issue: SquareKanban, task: ListChecks, doc: FileText, file: FileCode } as const;
+
+function Refs({ refs, onOpenDoc, onOpenChanges, onOpenFile }: { refs: RoomMessage["refs"]; onOpenDoc?: (id: string) => void; onOpenChanges?: () => void; onOpenFile?: (path: string) => void }) {
   if (!refs?.length) return null;
   return (
     <span className="room-refs">
       {refs.map((r) =>
-        r.kind === "files" ? (
+        r.kind === "file" ? (
+          <button key={`file:${r.path}`} type="button" className="room-ref" onClick={() => onOpenFile?.(r.path)} title={`${r.path}\n\nOpens the file.`}>
+            <FileCode size={12} />
+            <span className="room-ref-title">{r.path.split("/").pop()}</span>
+            <span className="meta">{r.path.split("/").slice(0, -1).join("/") || "file"}</span>
+          </button>
+        ) : r.kind === "mention" ? (
+          (() => {
+            const Icon = TAG_ICON[r.what];
+            const body = (
+              <>
+                <Icon size={12} />
+                <span className="room-ref-title">{r.title ?? r.label}</span>
+                <span className="meta">{[r.label, r.state].filter(Boolean).join(" · ")}</span>
+              </>
+            );
+            return r.url ? (
+              <a key={`m:${r.label}`} href={r.url} className="room-ref" target={r.url.startsWith("/") ? undefined : "_blank"} rel="noreferrer" title={`${r.title ?? r.label} (${r.label})`}>
+                {body}
+              </a>
+            ) : (
+              <span key={`m:${r.label}`} className="room-ref">
+                {body}
+              </span>
+            );
+          })()
+        ) : r.kind === "files" ? (
           <button key={`files:${r.repo}`} type="button" className="room-ref" onClick={onOpenChanges} title={`Changed in this turn:\n${r.files.join("\n")}${r.count > r.files.length ? `\n… and ${r.count - r.files.length} more` : ""}\n\nOpens the task's changes.`}>
             <GitCompare size={12} />
             <span className="room-ref-title">{r.repo}</span>
@@ -328,21 +357,44 @@ function Refs({ refs, onOpenDoc, onOpenChanges }: { refs: RoomMessage["refs"]; o
   );
 }
 
-/** What you wrote, with the agents you named marked. */
-function YourText({ text, agents }: { text: string; agents: RoomAgent[] }) {
-  const parts = text.split(/(@[a-z][\w-]*)/gi);
+/** What you wrote: the agents you named marked, and what you tagged (a doc by its title). */
+function YourText({ text, agents, refs }: { text: string; agents: RoomAgent[]; refs?: RoomMessage["refs"] }) {
+  const parts = text.split(/(@[^\s),;!?]+?(?=[),.;:!?]*(?:\s|$)))/g);
   return (
     <p className="room-you-text">
       {parts.map((p, i) => {
-        const h = p.startsWith("@") ? p.slice(1).toLowerCase() : null;
-        const a = h ? agents.find((x) => x.handle === h) : null;
-        return a || h === "all" ? (
-          <span key={i} className="room-handle" data-color={a?.color}>
-            {p}
-          </span>
-        ) : (
-          p
-        );
+        if (!p.startsWith("@")) return p;
+        const h = p.slice(1).toLowerCase();
+        const a = agents.find((x) => x.handle === h);
+        if (a || h === "all")
+          return (
+            <span key={i} className="room-handle" data-color={a?.color}>
+              {p}
+            </span>
+          );
+        if (h.startsWith("doc:")) {
+          const doc = refs?.find((r) => r.kind === "doc" && r.id === p.slice(5));
+          return (
+            <span key={i} className="room-tag" title={p}>
+              <FileText size={11} />
+              {doc && doc.kind === "doc" ? doc.title || "Untitled" : p.slice(5)}
+            </span>
+          );
+        }
+        if (h.startsWith("file:"))
+          return (
+            <span key={i} className="room-tag mono" title={p.slice(6)}>
+              <FileCode size={11} />
+              {p.slice(6)}
+            </span>
+          );
+        if (refs?.some((r) => r.kind === "mention" && r.label.toLowerCase() === h))
+          return (
+            <span key={i} className="room-tag">
+              {p.slice(1)}
+            </span>
+          );
+        return p;
       })}
     </p>
   );
@@ -379,7 +431,9 @@ function ApprovalRow({ approval, agent, onDecide }: { approval: RoomApproval; ag
 }
 
 /** The room's composer: @ offers the agents; under it, who will take a turn and how. */
-function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text: string) => Promise<boolean>; ref: React.Ref<{ insert: (handle: string) => void }> }) {
+type Pick = { key: string; insert: string; kind: "agent" | RoomTag["kind"]; label: string; hint: string | null; id?: string | null; color?: string };
+
+function Composer({ taskId, agents, onSend, ref }: { taskId: string; agents: RoomAgent[]; onSend: (text: string) => Promise<boolean>; ref: React.Ref<{ insert: (handle: string) => void }> }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [pick, setPick] = useState<{ start: number; q: string; at: number } | null>(null);
@@ -409,15 +463,30 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
   }, []);
   useImperativeHandle(ref, () => ({ insert }), [insert]);
 
-  const options = useMemo(() => {
+  // Besides the agents: the task's PRs, issues and tasks, docs and files, as the daemon finds them for what is typed.
+  const [tags, setTags] = useState<{ q: string; list: RoomTag[] }>({ q: "", list: [] });
+  const q = pick?.q ?? null;
+  useEffect(() => {
+    if (q === null) return;
+    let live = true;
+    const t = setTimeout(() => void roomTagOptions(taskId, q).then((list) => live && setTags({ q, list })).catch(() => {}), 120);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [q, taskId]);
+
+  const options = useMemo((): Pick[] => {
     if (!pick) return [];
-    const all = [...agents.map((a) => ({ id: a.id as string | null, handle: a.handle, label: a.name, hint: a.access === "writer" ? "writes code" : "read-only", color: a.color as string | undefined })), { id: null, handle: "all", label: "Everyone", hint: "every agent", color: undefined }];
-    return all.filter((o) => o.handle.startsWith(pick.q.toLowerCase()));
-  }, [pick, agents]);
+    const who: Pick[] = [...agents.map((a) => ({ key: `a:${a.id}`, insert: a.handle, kind: "agent" as const, id: a.id as string | null, label: a.name, hint: a.access === "writer" ? "writes code" : "read-only", color: a.color as string | undefined })), { key: "a:all", insert: "all", kind: "agent", id: null, label: "Everyone", hint: "every agent" }];
+    const agentsNow = who.filter((o) => o.insert.startsWith(pick.q.toLowerCase()));
+    const tagsNow = tags.q === pick.q ? tags.list.map((t): Pick => ({ key: `${t.kind}:${t.insert}`, insert: t.insert, kind: t.kind, label: t.label, hint: t.hint })) : [];
+    return [...agentsNow, ...tagsNow].slice(0, 14);
+  }, [pick, agents, tags]);
 
   const update = (value: string, caret: number) => {
     setDraft(value);
-    const m = /(^|\s)@([\w-]*)$/.exec(value.slice(0, caret));
+    const m = /(^|\s)@([\w./#:-]*)$/.exec(value.slice(0, caret));
     setPick(m ? { start: caret - m[2]!.length - 1, q: m[2]!, at: 0 } : null);
   };
   const choose = (handle: string) => {
@@ -440,7 +509,7 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
   const going = named(draft, agents);
   const inOrder = going.some((a) => a.access === "writer") && going.length > 1;
   const plan = !draft.trim()
-    ? "@ an agent to give it a turn"
+    ? "@ an agent to give it a turn · @ a PR, issue, doc or file to hand it over"
     : !going.length
       ? "Nobody is mentioned: it is said to the room, and no agent runs"
       : going.length === 1
@@ -458,18 +527,19 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
       }}
     >
       {pick && options.length > 0 && (
-        <ul className="room-pick" role="listbox" aria-label="Agents">
-          {options.map((o, i) => (
-            <li key={o.handle} role="option" aria-selected={i === pick.at}>
-              <button type="button" className={i === pick.at ? "is-active" : ""} onMouseDown={(e) => (e.preventDefault(), choose(o.handle))} data-color={o.color}>
-                {o.id ? <AgentGlob id={o.id} color={o.color} size={16} /> : <span className="room-dot" aria-hidden="true" />}
-                <span>@{o.handle}</span>
-                <span className="meta">
-                  {o.label} · {o.hint}
-                </span>
-              </button>
-            </li>
-          ))}
+        <ul className="room-pick" role="listbox" aria-label="Agents and what to tag">
+          {options.map((o, i) => {
+            const Icon = o.kind === "agent" ? null : TAG_ICON[o.kind];
+            return (
+              <li key={o.key} role="option" aria-selected={i === pick.at}>
+                <button type="button" className={i === pick.at ? "is-active" : ""} onMouseDown={(e) => (e.preventDefault(), choose(o.insert))} data-color={o.color}>
+                  {Icon ? <Icon size={14} className="room-pick-icon" /> : o.id ? <AgentGlob id={o.id} color={o.color} size={16} /> : <span className="room-dot" aria-hidden="true" />}
+                  <span className={o.kind === "agent" ? undefined : "room-pick-label"}>{o.kind === "agent" ? `@${o.insert}` : o.label}</span>
+                  <span className="meta">{o.kind === "agent" ? `${o.label} · ${o.hint}` : o.hint}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
       <textarea
@@ -477,7 +547,7 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
         value={draft}
         rows={1}
         aria-label="Message the room"
-        placeholder="Message the room… @designer, @engineer, @reviewer"
+        placeholder="Message the room… @ an agent; @ a PR, doc or file to tag it"
         onChange={(e) => update(e.target.value, e.target.selectionStart ?? e.target.value.length)}
         onBlur={() => setTimeout(() => setPick(null), 120)}
         onKeyDown={(e) => {
@@ -489,7 +559,7 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
             }
             if (e.key === "Enter" || e.key === "Tab") {
               e.preventDefault();
-              return choose(options[Math.min(pick.at, options.length - 1)]!.handle);
+              return choose(options[Math.min(pick.at, options.length - 1)]!.insert);
             }
             if (e.key === "Escape") return setPick(null);
           }

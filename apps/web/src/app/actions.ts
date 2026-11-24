@@ -262,6 +262,30 @@ export async function getTaskJob(id: string): Promise<TaskJob> {
 
 // ---------------------------------------------------------------- finder
 
+/** Something a room message can tag, as the picker offers it: `insert` goes after the @. */
+export interface RoomTag {
+  kind: "pr" | "issue" | "task" | "doc" | "file";
+  insert: string;
+  label: string;
+  hint: string | null;
+}
+
+/** What to offer after an @ in a task's room (besides its agents): its files, docs, and PRs, issues and tasks. */
+export async function roomTagOptions(taskId: string, q: string): Promise<RoomTag[]> {
+  const t = encodeURIComponent(taskId);
+  const [files, docs, found] = await Promise.all([
+    q ? daemon<{ path: string }[]>(`/api/tasks/${t}/find?q=${encodeURIComponent(q)}&limit=5`).catch(() => []) : Promise.resolve([]),
+    daemon<DocSummary[]>(`/api/docs${q ? `?q=${encodeURIComponent(q)}` : ""}`).catch(() => [] as DocSummary[]),
+    q ? daemon<Mention[]>(`/api/mentions?q=${encodeURIComponent(q)}`).catch(() => [] as Mention[]) : Promise.resolve([] as Mention[]),
+  ]);
+  const NOUN = { pr: "pull request", issue: "issue", task: "jin task" } as const;
+  return [
+    ...found.slice(0, 5).map((m): RoomTag => ({ kind: m.kind, insert: m.label, label: m.title ?? m.label, hint: [m.kind === "issue" && m.noun ? m.noun : NOUN[m.kind], m.label, m.state].filter(Boolean).join(" · ") })),
+    ...docs.slice(0, 4).map((d): RoomTag => ({ kind: "doc", insert: `doc:${d.id}`, label: d.title || "Untitled", hint: "jin doc" })),
+    ...files.map((f): RoomTag => ({ kind: "file", insert: `file:${f.path}`, label: f.path.split("/").pop() ?? f.path, hint: f.path })),
+  ];
+}
+
 export async function findFiles(taskId: string, q: string): Promise<{ path: string }[]> {
   return failSafe(async () => {
     return daemon<{ path: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/find?q=${encodeURIComponent(q)}&limit=40`);

@@ -808,7 +808,7 @@ export function TaskWorkspace({
         ) : current === "room" ? (
           <div className="room-box">
             <Boundary label="The room" resetKey={scope}>
-            <RoomPanel key={`${scope}:${roomEpoch}`} taskId={taskId} intent={roomIntent} onOpenDoc={openDocTab} onOpenChanges={showChanges} onSeen={seeRoom} />
+            <RoomPanel key={`${scope}:${roomEpoch}`} taskId={taskId} intent={roomIntent} onOpenDoc={openDocTab} onOpenChanges={showChanges} onOpenFile={openFile} onSeen={seeRoom} />
             </Boundary>
           </div>
         ) : current === "changes" ? (

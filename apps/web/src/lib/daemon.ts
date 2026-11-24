@@ -685,7 +685,13 @@ export interface RoomMessage {
   text: string;
   mentions: string[];
   /** What the turn behind it made or changed: docs, and the files a writer touched per repo. */
-  refs: ({ kind: "doc"; id: string; title: string; did: string[] } | { kind: "files"; repo: string; count: number; files: string[] })[];
+  refs: (
+    | { kind: "doc"; id: string; title: string; did: string[] }
+    | { kind: "files"; repo: string; count: number; files: string[] }
+    /** Tagged by the user: a file in the task, or a PR, issue or jin task. */
+    | { kind: "file"; path: string }
+    | { kind: "mention"; what: "pr" | "issue" | "task"; label: string; title: string | null; url: string | null; state: string | null }
+  )[];
   pinned: boolean;
   at: string;
 }
