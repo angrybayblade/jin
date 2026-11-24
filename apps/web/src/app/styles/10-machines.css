@@ -537,6 +537,8 @@ summary.machine-step-line::-webkit-details-marker {
 }
 .machine-auth {
   display: grid;
+  /* A long description (opencode's) shrinks to an ellipsis instead of widening every row past the card. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   padding: 6px var(--space-2) 6px var(--space-3);
 }

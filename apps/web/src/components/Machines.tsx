@@ -114,7 +114,7 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
         <span className={`machine-dot is-${signedIn ? "ok" : auth.state === "waiting" ? "busy" : auth.state === "failed" ? "bad" : "idle"}`} />
         <div className="machine-auth-name">
           <span className="machine-auth-tool">{auth.label}</span>
-          <span className="meta machine-auth-state">
+          <span className="meta machine-auth-state" title={auth.state === "signed-out" ? auth.why : undefined}>
             {signedIn
               ? auth.providers
                 ? `Signed in to ${auth.account ?? "a provider"}`
