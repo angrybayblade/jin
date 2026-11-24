@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readDetections } from "../src/adapters";
-import { describeTool, machineId, readAuthStatus, readSignIn, signInCommand, stripAnsi, validHost } from "../src/machines";
+import { daemonScript, describeTool, machineId, readAuthStatus, readSignIn, signInCommand, stripAnsi, validHost } from "../src/machines";
+import { machineSetup } from "../src/config";
 
 test("a machine's id comes from its host, and never collides", () => {
   expect(machineId("tmp-jin.exe.xyz")).toBe("tmp-jin");
@@ -119,4 +120,19 @@ test("opencode signs in with ChatGPT's device code; pi and opencode report the p
   expect(describeTool("opencode")).toMatchObject({ providers: true, optional: true });
   // pi signs in only in its own terminal: the list says how, and offers no sign-in.
   expect(describeTool("pi")).toMatchObject({ providers: true, signInHint: expect.stringContaining("/login") });
+});
+
+test("a development copy sets itself up on a machine beside the real jin: its own home, port and service", () => {
+  const real = daemonScript(7317, "http://127.0.0.1:3917");
+  expect(real).toContain('H="$HOME/.jin"');
+  expect(real).toContain("jin-daemon.service");
+  const dev = daemonScript(7318, "http://127.0.0.1:3937", machineSetup({ home: ".jin-dev", port: 7318, service: "jin-dev-daemon", source: "worktree" }));
+  expect(dev).toContain('H="$HOME/.jin-dev"; export JIN_HOME="$H"');
+  expect(dev).toContain("~/.config/systemd/user/jin-dev-daemon.service");
+  expect(dev).toContain("Environment=JIN_HOME=$H");
+  expect(dev).toContain("systemctl --user restart jin-dev-daemon");
+  expect(dev).not.toMatch(/~\/\.jin\b|jin-daemon\b/);
+  expect(() => machineSetup({ home: "../etc" })).toThrow("machines.home");
+  expect(() => machineSetup({ service: "x; rm -rf /" })).toThrow("machines.service");
+  expect(machineSetup(undefined)).toEqual({ home: ".jin", port: 7317, service: "jin-daemon", source: "committed" });
 });

@@ -15,6 +15,24 @@ export interface Config {
   port: number;
   /** Model for jin's chats (Agent SDK) and the Claude Code sessions jin starts; `model:` in config.yaml. */
   model: string;
+  /** How jin sets itself up on the machines it adds (`machines:` in config.yaml). */
+  machines: MachineSetup;
+}
+
+/**
+ * Where jin puts itself on a machine it adds. The defaults are the real jin; a development copy
+ * sets its own (`machines: { home: .jin-dev, port: 7318, service: jin-dev-daemon, source: worktree }`)
+ * so its jin on a machine runs beside the real one, from this checkout's working tree.
+ */
+export interface MachineSetup {
+  /** Its home there, relative to the user's home directory. */
+  home: string;
+  /** Its daemon's port there. */
+  port: number;
+  /** Its systemd user service's name there. */
+  service: string;
+  /** What it copies: "committed" (git HEAD) or "worktree" (the files as they are, uncommitted changes included). */
+  source: "committed" | "worktree";
 }
 
 /** One organisation's workspace, from $JIN_HOME/workspaces/<id>.yaml. */
@@ -57,7 +75,21 @@ export function loadConfig(home = jinHome()): Config {
     webOrigins: [...new Set((listed.length ? listed : [webOrigin]).flatMap((o) => [o, alias(o)]))],
     port: Number(process.env.JIN_PORT ?? raw.port ?? 7317),
     model: String(raw.model ?? "claude-opus-5-5"),
+    machines: machineSetup(raw.machines),
   };
+}
+
+/** `machines:` from config.yaml, checked: a plain directory name, a port, a service name. */
+export function machineSetup(raw: unknown): MachineSetup {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const home = String(r.home ?? ".jin").replace(/^~\//, "");
+  if (!/^\.?[\w.-]+$/.test(home) || home === "." || home === "..") throw new Error(`config.yaml: machines.home must be a directory name in the home directory (got ${home})`);
+  const port = Number(r.port ?? 7317);
+  if (!Number.isInteger(port) || port <= 1024 || port >= 65536) throw new Error("config.yaml: machines.port must be a port above 1024");
+  const service = String(r.service ?? "jin-daemon");
+  if (!/^[\w-]+$/.test(service)) throw new Error("config.yaml: machines.service must be a plain service name");
+  const source = r.source === "worktree" ? "worktree" : "committed";
+  return { home, port, service, source };
 }
 
 export function loadWorkspaces(home = jinHome()): WorkspaceConfig[] {

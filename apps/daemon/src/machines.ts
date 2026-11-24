@@ -2,6 +2,7 @@ import { problems } from "./problems";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { type Detected, detectionScript, installPlan, provider, PROVIDERS, providerTools, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
+import { machineSetup, type MachineSetup } from "./config";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 
@@ -106,6 +107,9 @@ export function localVersion(): string | null {
 }
 const REPO = resolve(import.meta.dir, "../../..");
 // Non-interactive ssh sessions often lack XDG_RUNTIME_DIR, which systemctl --user needs.
+/** The real jin's place on a machine (a development copy sets its own in config.yaml). */
+const DEFAULT_SETUP: MachineSetup = machineSetup(undefined);
+
 export const PATH_LINE = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; [ -n "$XDG_RUNTIME_DIR" ] || [ ! -d "/run/user/$(id -u)" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"';
 
 /** A port on the home for this jin's line back: the same every time (two laptops get different ones); `n` moves past ones still held. */
@@ -251,26 +255,28 @@ true
 `;
 
 /** The machine's daemon: jin's config pointed at this web app, a user service (systemd when there is one), and its token. */
-export const daemonScript = (port: number, origin: string) => `
+export const daemonScript = (port: number, origin: string, setup: MachineSetup = DEFAULT_SETUP) => `
 set -e
 ${PATH_LINE}
-mkdir -p ~/.jin/workspaces && chmod 700 ~/.jin
-CFG=~/.jin/config.yaml
+H="$HOME/${setup.home}"; export JIN_HOME="$H"
+mkdir -p "$H/workspaces" && chmod 700 "$H"
+CFG="$H/config.yaml"
 [ -f $CFG ] || printf 'mode: vm\\n' > $CFG
 # Keep the jin apps already allowed here, and add this one.
 ORIGINS=$( { grep -E '^webOrigins?:' $CFG | grep -oE 'https?://[^] ,"]+' ; echo '${origin}'; } | awk '!seen[$0]++' | paste -sd, - | sed 's/,/, /g')
 grep -v -E '^(webOrigins?|port):' $CFG > $CFG.tmp || true
 printf 'webOrigins: [%s]\\nport: %s\\n' "$ORIGINS" '${port}' >> $CFG.tmp && mv $CFG.tmp $CFG
-BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"; MAIN="$HOME/.jin/app/apps/daemon/src/main.ts"
+BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"; MAIN="$H/app/apps/daemon/src/main.ts"
 detach() { if command -v setsid >/dev/null; then nohup setsid "$@"; else nohup "$@"; fi; }
 if systemctl --user show-environment >/dev/null 2>&1; then
   mkdir -p ~/.config/systemd/user
-  cat > ~/.config/systemd/user/jin-daemon.service <<EOF
+  cat > ~/.config/systemd/user/${setup.service}.service <<EOF
 [Unit]
 Description=jin daemon
 [Service]
 ExecStart=$BUN $MAIN
 Environment=PATH=$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=JIN_HOME=$H
 Restart=always
 RestartSec=2
 [Install]
@@ -278,31 +284,33 @@ WantedBy=default.target
 EOF
   systemctl --user daemon-reload
   pkill -f "$MAIN" 2>/dev/null || true # one started without systemd would hold the port
-  systemctl --user enable jin-daemon >/dev/null 2>&1 || true
-  systemctl --user restart jin-daemon
-  echo "running as a systemd user service (jin-daemon)"
+  systemctl --user enable ${setup.service} >/dev/null 2>&1 || true
+  systemctl --user restart ${setup.service}
+  echo "running as a systemd user service (${setup.service})"
   if loginctl enable-linger "$(id -un)" 2>/dev/null || sudo -n loginctl enable-linger "$(id -un)" 2>/dev/null; then echo "keeps running after you log out"; else echo "note: it stops when you log out (could not enable linger)"; fi
 else
   pkill -f "$MAIN" 2>/dev/null || true
-  detach "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null &
+  detach "$BUN" "$MAIN" > "$H/daemon.log" 2>&1 < /dev/null &
   echo "running in the background (no systemd user session)"
 fi
 for i in $(seq 1 60); do curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1 && break; sleep 0.5; done
 if ! curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
   echo "the daemon did not answer; its last lines:"
-  journalctl --user -u jin-daemon -n 20 --no-pager 2>/dev/null || tail -20 ~/.jin/daemon.log 2>/dev/null
+  journalctl --user -u ${setup.service} -n 20 --no-pager 2>/dev/null || tail -20 "$H/daemon.log" 2>/dev/null
   exit 1
 fi
 echo "daemon answering on 127.0.0.1:${port}"
-echo "JIN-TOKEN $(cat ~/.jin/token)"
+echo "JIN-TOKEN $(cat "$H/token")"
 `;
 
-const RESTART_SCRIPT = `
+/** Restart jin's daemon on the machine (after its workspaces changed). */
+const restartScript = (setup: MachineSetup) => `
 ${PATH_LINE}
-if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user restart jin-daemon; else
-  MAIN="$HOME/.jin/app/apps/daemon/src/main.ts"; pkill -f "$MAIN" 2>/dev/null || true; sleep 1
+H="$HOME/${setup.home}"; export JIN_HOME="$H"
+if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user restart ${setup.service}; else
+  MAIN="$H/app/apps/daemon/src/main.ts"; pkill -f "$MAIN" 2>/dev/null || true; sleep 1
   BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
-  if command -v setsid >/dev/null; then nohup setsid "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null & else nohup "$BUN" "$MAIN" > ~/.jin/daemon.log 2>&1 < /dev/null & fi
+  if command -v setsid >/dev/null; then nohup setsid "$BUN" "$MAIN" > "$H/daemon.log" 2>&1 < /dev/null & else nohup "$BUN" "$MAIN" > "$H/daemon.log" 2>&1 < /dev/null & fi
 fi
 `;
 
@@ -480,7 +488,7 @@ export class Machines {
       connected: Boolean(token) && tunnel?.state === "up",
       tunnel: tunnel ? tunnel.state : "off",
       busy: this.busy.has(id),
-      outdated: Boolean(token && m.version && localVersion() && m.version !== localVersion()),
+      outdated: Boolean(token && m.version && localVersion() && m.version !== this.stampFor(localVersion())),
       steps,
       workspaceStep: this.workspaceSteps.get(id) ?? null,
       workspaceCandidates: this.candidates.get(id) ?? null,
@@ -519,7 +527,7 @@ export class Machines {
       return this.view(existing.id);
     }
     const id = machineId(host, new Set(this.records().map((m) => m.id)));
-    this.save({ id, host, label: label?.trim() || id, remotePort: opts.remotePort ?? 7317, localPort: null, token: null, createdAt: new Date().toISOString(), version: null, workspace: null, system: null });
+    this.save({ id, host, label: label?.trim() || id, remotePort: opts.remotePort ?? this.config.machines.port, localPort: null, token: null, createdAt: new Date().toISOString(), version: null, workspace: null, system: null });
     void this.setup(id);
     return this.view(id);
   }
@@ -578,19 +586,24 @@ export class Machines {
       // A checkout sends its committed daemon (git archive); a jin that was itself copied to a
       // machine (the hub) has no git and sends its own files.
       const hasGit = existsSync(join(REPO, ".git"));
-      const archive = hasGit
-        ? Bun.spawnSync(["git", "-C", REPO, "archive", "--format=tar", "HEAD", "--", ...files])
-        : Bun.spawnSync(["tar", "-c", "--exclude=node_modules", "-C", REPO, ...files]);
+      // A development copy (machines.source: worktree) sends its files as they are, uncommitted changes included.
+      const worktree = this.config.machines.source === "worktree";
+      const archive =
+        hasGit && !worktree
+          ? Bun.spawnSync(["git", "-C", REPO, "archive", "--format=tar", "HEAD", "--", ...files])
+          : Bun.spawnSync(["tar", "-c", "--exclude=node_modules", "--exclude=.DS_Store", "-C", REPO, ...files], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
       if (archive.exitCode !== 0) throw new Error(`packing jin failed: ${archive.stderr.toString().trim()}`);
-      say(`copying jin ${version ?? ""} (${Math.round(archive.stdout.length / 1024)} KB)`);
-      const proc = this.spawn(["ssh", ...SSH_OPTS, m.host, `set -e; ${PATH_LINE}; rm -rf ~/.jin/app.new; mkdir -p ~/.jin/app.new; tar -x -C ~/.jin/app.new; echo '${version ?? ""}' > ~/.jin/app.new/VERSION; cd ~/.jin/app.new && bun install --production 2>&1 | tail -2; rm -rf ~/.jin/app; mv ~/.jin/app.new ~/.jin/app`], { stdin: new Blob([new Uint8Array(archive.stdout)]) });
+      // A working tree's copy says so in its version, so a machine never passes it off as a commit.
+      const stamp = this.stampFor(version) ?? "";
+      say(`copying jin ${stamp} (${Math.round(archive.stdout.length / 1024)} KB)${worktree ? " from the working tree" : ""}`);
+      const proc = this.spawn(["ssh", ...SSH_OPTS, m.host, `set -e; ${PATH_LINE}; H="$HOME/${this.config.machines.home}"; mkdir -p "$H"; rm -rf "$H/app.new"; mkdir -p "$H/app.new"; tar -x -C "$H/app.new" 2>/dev/null; echo '${stamp}' > "$H/app.new/VERSION"; cd "$H/app.new" && bun install --production 2>&1 | tail -2; rm -rf "$H/app"; mv "$H/app.new" "$H/app"`], { stdin: new Blob([new Uint8Array(archive.stdout)]) });
       await Promise.all([lines(proc.stdout, say), lines(proc.stderr, say)]);
       if ((await proc.exited) !== 0) throw new Error("copying jin failed; see the log");
-      this.update(id, { version });
+      this.update(id, { version: stamp });
       return;
     }
     if (step === "daemon") {
-      const { code, out } = await this.ssh(m.host, daemonScript(m.remotePort, this.config.webOrigin), say, { quiet: /^JIN-TOKEN / });
+      const { code, out } = await this.ssh(m.host, daemonScript(m.remotePort, this.config.webOrigin, this.config.machines), say, { quiet: /^JIN-TOKEN / });
       const token = out.match(/^JIN-TOKEN (\S+)$/m)?.[1];
       if (code !== 0 || !token) throw new Error("jin's daemon did not start there; see the log");
       this.update(id, { token });
@@ -937,6 +950,11 @@ export class Machines {
     for (const s of this.signIns.values()) s.proc.kill();
   }
 
+  /** The version a machine set up from here reports: this jin's, marked when it came from the working tree. */
+  private stampFor(version: string | null): string | null {
+    return version && this.config.machines.source === "worktree" ? `${version}-worktree` : version;
+  }
+
   /** Forget a machine; with `stop`, also stop jin's daemon there (its files stay in ~/.jin on the machine). */
   async remove(id: string, opts: { stop?: boolean } = {}) {
     const m = this.record(id);
@@ -944,8 +962,8 @@ export class Machines {
     // An attached machine reached this jin itself (no ssh from here): forgetting it never stops it.
     if (opts.stop && m.token && !m.attached) {
       await this.ssh(m.host, `${PATH_LINE}
-if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user disable --now jin-daemon >/dev/null 2>&1 || true; fi
-pkill -f "$HOME/.jin/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}).catch(() => {});
+if systemctl --user show-environment >/dev/null 2>&1; then systemctl --user disable --now ${this.config.machines.service} >/dev/null 2>&1 || true; fi
+pkill -f "$HOME/${this.config.machines.home}/app/apps/daemon/src/main.ts" 2>/dev/null || true`, () => {}).catch(() => {});
     }
     for (const t of authTools()) this.signIns.get(`${id}:${t}`)?.proc.kill();
     rmSync(this.file(id), { force: true });
@@ -1075,11 +1093,11 @@ if [ -n "${path ?? ""}" ]; then
 else
 ${p.install?.script ?? ""}
 fi
-mkdir -p ~/.jin/workspaces
-cat > ~/.jin/workspaces/${wid}.yaml <<EOF
+mkdir -p "$HOME/${this.config.machines.home}/workspaces"
+cat > "$HOME/${this.config.machines.home}/workspaces/${wid}.yaml" <<EOF
 ${yaml}EOF
 echo "jin's daemon there now has the workspace; restarting it"
-${RESTART_SCRIPT}
+${restartScript(this.config.machines)}
 echo "JIN-ROOT $ROOT"
 `;
     const step: Step = { id: "workspace", label: "Set up the workspace", state: "running", log: [], error: null };

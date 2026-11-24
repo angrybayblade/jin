@@ -33,11 +33,24 @@ Run a development copy next to the installed app, with its own home and ports:
 
 ```bash
 export JIN_HOME=$HOME/.jin-dev && mkdir -p $JIN_HOME   # not /tmp: macOS cleans it
-printf 'port: 7417\nwebOrigin: http://127.0.0.1:3937\n' > $JIN_HOME/config.yaml
+cat > $JIN_HOME/config.yaml <<'YAML'
+port: 7417
+webOrigins: [http://127.0.0.1:3937]
+machines:              # on machines it adds, its own jin beside the real one
+  home: .jin-dev
+  port: 7318
+  service: jin-dev-daemon
+  source: worktree     # copies this checkout's files as they are, uncommitted changes included
+YAML
 bun run --cwd apps/daemon start                                   # daemon on 7417
 (cd apps/web && JIN_WEB_DIST=.next-dev bunx next dev --webpack -H 127.0.0.1 -p 3937)
 # desktop window against it: (cd apps/desktop && JIN_URL=http://127.0.0.1:3937 hutch electrobun dev)
 ```
+
+Machines added in the development copy get a second jin in `~/.jin-dev` on port 7318, next to
+the real one in `~/.jin` on 7317; the two share only the tools (bun, gh, the agent CLIs) and
+the workspace you point them at. "Update jin" on a machine there sends the working tree again.
+Leave `machines:` out and a copy sets up the real jin, as the installed app does.
 
 `$JIN_HOME/config.yaml` (all optional):
 
