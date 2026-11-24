@@ -93,8 +93,9 @@ test("A25 a PR becomes a review task with the skills tagged for reviews, and goe
 
   // The task follows the PR; when it merges, the task is archived and removed.
   const prs = await until(async () => {
-    const p = (await d.json("/api/tasks/REV-111701/prs")) as { url: string; state: string }[];
-    return p.length ? p : null;
+    // The row is written before its details are fetched: wait for the details, not just the row.
+    const p = (await d.json("/api/tasks/REV-111701/prs")) as { url: string; state: string | null }[];
+    return p[0]?.state ? p : null;
   }, 10_000, "PR attached");
   expect(prs[0]).toMatchObject({ url: "https://github.com/ComposioHQ/platform/pull/12", state: "OPEN" });
   appendFileSync(join(env.home, "..", "gh-merged"), "12\n");
