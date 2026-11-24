@@ -169,6 +169,16 @@ rooms = new Rooms({
       },
     })),
   linkDoc: (taskId, docId) => retitle([taskLinks.add(taskId, `doc:${docId}`)]),
+  // A doc the user tags: from the home when there is one (docs live there).
+  docInfo: async (id) => {
+    const home = homeLink();
+    try {
+      return home ? await machines.call<{ title: string; body: string }>(home.id, "GET", `/api/docs/${encodeURIComponent(id)}`) : docs.get(id);
+    } catch {
+      return null;
+    }
+  },
+  mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
 });
 roomRoutes(app.router, rooms);
 tasks.onRemoved((taskId) => rooms?.removeTask(taskId));

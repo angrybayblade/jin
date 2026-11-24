@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db";
 import type { HarnessRun } from "../src/harness/types";
-import { mentionsIn, Rooms } from "../src/rooms";
+import { mentionsIn, type RoomDeps, Rooms, tagsIn } from "../src/rooms";
 import { Sessions } from "../src/sessions";
 
 type Act = (r: HarnessRun, turn: number) => Promise<string[]>;
 
 /** A room over a stand-in for Claude: each agent's turn does what `act` says, and is recorded. */
-const setup = () => {
+const setup = (extra: Partial<RoomDeps> = {}) => {
   const home = mkdtempSync(join(tmpdir(), "jin-room-"));
   const db = openDb(home);
   const runs: { who: string; run: HarnessRun; turn: number }[] = [];
@@ -52,6 +52,7 @@ const setup = () => {
       { name: "jin_comment_doc", description: "", input: {}, run: async () => ({ threadId: "t1" }) },
     ],
     linkDoc: (taskId, docId) => void linked.push(`${taskId}:${docId}`),
+    ...extra,
   });
   const settle = async (n = 1) => {
     for (let i = 0; i < 200 && rooms!.state("T-1").messages.filter((m) => m.author !== "you").length < n; i++) await Bun.sleep(5);
@@ -302,4 +303,37 @@ test("after a restart, a turn that was cut off says so in its room, once; one yo
   expect(notes.filter((t) => t.includes("cut off when jin restarted"))).toEqual([expect.stringContaining("@reviewer was cut off")]);
   expect(notes.some((t) => t.startsWith("@designer was cut off"))).toBe(false);
   g.open();
+});
+
+test("a message's tags: docs and files, without the punctuation after them", () => {
+  expect(tagsIn("see @file:keyring/src/a.ts, and @doc:d0123456789. Also @file:x.md")).toEqual({ docs: ["d0123456789"], files: ["keyring/src/a.ts", "x.md"] });
+  expect(tagsIn("an email@doc:x is not a tag")).toEqual({ docs: [], files: [] });
+});
+
+test("tagged docs, files and PRs: chips on the message, and the docs' text and files' paths for the agent", async () => {
+  const { rooms, runs, settle } = setup({
+    docInfo: async (id) => (id === "d0123456789" ? { title: "Keyring plan", body: "Rotate keys monthly." } : null),
+    mentions: async () => [{ label: "platform#12", kind: "pr", key: "github:composiohq/platform#12", title: "Fix the limiter", url: "https://github.com/ComposioHQ/platform/pull/12", state: "open", detail: null }],
+  });
+  const root = (rooms as unknown as { deps: { tasks: { get: (id: string) => { root: string } } } }).deps.tasks.get("T-1").root;
+  mkdirSync(join(root, "keyring"), { recursive: true });
+  writeFileSync(join(root, "keyring", "README.md"), "keyring");
+  rooms.post("T-1", "@designer read @file:keyring/README.md and @doc:d0123456789 (and @file:nope.md, @doc:d9999999999) about @platform#12");
+  await settle(1);
+  await Bun.sleep(20);
+  const mine = rooms.state("T-1").messages.find((m) => m.author === "you")!;
+  expect(mine.refs).toEqual(
+    expect.arrayContaining([
+      { kind: "doc", id: "d0123456789", title: "Keyring plan", did: ["tagged"] },
+      { kind: "file", path: "keyring/README.md" },
+      { kind: "mention", what: "pr", label: "platform#12", title: "Fix the limiter", url: "https://github.com/ComposioHQ/platform/pull/12", state: "open" },
+    ]),
+  );
+  expect(mine.refs).toHaveLength(3);
+  const prompt = runs[0]!.run.prompt;
+  expect(prompt).toContain("[The user tagged:]");
+  expect(prompt).toContain("- file keyring/README.md");
+  expect(prompt).toContain('jin doc "Keyring plan" (id d0123456789)');
+  expect(prompt).toContain("Rotate keys monthly.");
+  expect(prompt).not.toContain("nope.md (in this");
 });

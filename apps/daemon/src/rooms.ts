@@ -11,6 +11,7 @@ import { body, HttpError, json, type Router } from "./http";
 import { type Effort, readChoice } from "./models";
 import type { Approval, Session, SessionEvent, Sessions, SessionState } from "./sessions";
 import type { Tasks } from "./tasks";
+import { MENTION, type Mention } from "./mentions";
 
 /**
  * A task's agent room: several agents, each with a role of its own (a profile: its brief, whether
@@ -88,7 +89,22 @@ export type RoomRef =
       did: string[];
     }
   /** Files a writer's turn changed in one repo's worktree (the first few named). */
-  | { kind: "files"; repo: string; count: number; files: string[] };
+  | { kind: "files"; repo: string; count: number; files: string[] }
+  /** A file the user tagged (@file:repo/path), as a task-relative path. */
+  | { kind: "file"; path: string }
+  /** A PR, issue or jin task the user tagged (@platform#133, @PLEN-1334), as jin resolved it. */
+  | { kind: "mention"; what: Mention["kind"]; label: string; title: string | null; url: string | null; state: string | null };
+
+/** What a message tags besides agents: `@doc:<id>`, `@file:<repo/path>`. */
+const TAG = /(^|[\s(])@(doc|file):([^\s]+?)(?=[),.;:!?]*(?:\s|$))/g;
+export function tagsIn(text: string): { docs: string[]; files: string[] } {
+  const docs = new Set<string>();
+  const files = new Set<string>();
+  for (const m of text.matchAll(TAG)) (m[2] === "doc" ? docs : files).add(m[3]!);
+  return { docs: [...docs], files: [...files] };
+}
+/** How much of a tagged doc an agent is handed with the message (its doc tools read the rest). */
+const DOC_EXCERPT = 4000;
 
 type DocRef = Extract<RoomRef, { kind: "doc" }>;
 
@@ -233,6 +249,10 @@ export interface RoomDeps {
   docTools: (by: `@${string}`) => JinTool[];
   /** Attach a doc an agent made to the task. */
   linkDoc?: (taskId: string, docId: string) => void;
+  /** A doc the user tagged: its title and text (from the home, where docs live). */
+  docInfo?: (id: string) => Promise<{ title: string; body: string } | null>;
+  /** PRs, issues and tasks the user tagged, resolved for the message's chips. */
+  mentions?: (text: string) => Promise<Mention[]>;
 }
 
 export class Rooms {
@@ -517,8 +537,74 @@ export class Rooms {
     const named = mentionsIn(text, agents);
     const msg = this.add(taskId, { id: "you", name: "You", handle: null }, "message", text.trim(), named);
     const list = named.map((h) => agents.find((a) => a.handle === h)!);
-    if (list.length) void this.dispatch(taskId, list, msg.seq);
+    // Tagged docs and files first (the agents are handed them with the message), then its turns;
+    // PRs, issues and tasks show as chips once resolved (the agent's own run resolves them too).
+    void this.tag(taskId, msg)
+      .catch(problems.catch("reading what a room message tags"))
+      .finally(() => list.length && void this.dispatch(taskId, list, msg.seq));
+    void this.tagMentions(msg).catch(problems.catch("resolving a room message's mentions"));
     return msg;
+  }
+
+  /** The docs and files a message tags, as its chips (a file must be in the task; a doc must exist). */
+  private async tag(taskId: string, msg: RoomMessage) {
+    const { docs, files } = tagsIn(msg.text);
+    if (!docs.length && !files.length) return;
+    const refs: RoomRef[] = [];
+    for (const id of docs) {
+      const d = await Promise.race([this.deps.docInfo?.(id).catch(() => null) ?? Promise.resolve(null), Bun.sleep(5000).then(() => null)]);
+      if (d) refs.push({ kind: "doc", id, title: d.title, did: ["tagged"] });
+    }
+    const root = this.rootOf(taskId);
+    for (const path of files) if (root && !path.split("/").includes("..") && existsSync(join(root, path)) && statSync(join(root, path)).isFile()) refs.push({ kind: "file", path });
+    this.addRefs(msg.seq, refs);
+  }
+
+  private async tagMentions(msg: RoomMessage) {
+    if (!this.deps.mentions || !new RegExp(MENTION.source).test(msg.text)) return;
+    const found = await Promise.race([this.deps.mentions(msg.text), Bun.sleep(8000).then(() => [] as Mention[])]);
+    this.addRefs(
+      msg.seq,
+      found.map((m) => ({ kind: "mention", what: m.kind, label: m.label, title: m.title, url: m.url, state: m.state })),
+    );
+  }
+
+  private addRefs(seq: number, add: RoomRef[]) {
+    if (!add.length) return;
+    const r = this.db.query("select refs from room_messages where seq = ?").get(seq) as { refs: string } | null;
+    if (!r) return;
+    const refs = [...(JSON.parse(r.refs || "[]") as RoomRef[]), ...add];
+    this.db.query("update room_messages set refs = ? where seq = ?").run(JSON.stringify(refs), seq);
+  }
+
+  private rootOf(taskId: string): string | null {
+    try {
+      const t = this.deps.tasks.get(taskId);
+      return t.state === "ready" ? t.root : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** For the agent: what each of the user's messages tagged, the docs' text included (up to a point). */
+  private async tagged(delta: RoomMessage[]): Promise<Map<number, string>> {
+    const out = new Map<number, string>();
+    for (const m of delta) {
+      if (m.author !== "you") continue;
+      const lines: string[] = [];
+      for (const r of m.refs) {
+        if (r.kind === "file") lines.push(`- file ${r.path} (in this task's folder; read it there)`);
+        else if (r.kind === "doc" && r.did.includes("tagged")) {
+          const d = await Promise.race([this.deps.docInfo?.(r.id).catch(() => null) ?? Promise.resolve(null), Bun.sleep(5000).then(() => null)]);
+          const body = d?.body ?? "";
+          lines.push(
+            `- jin doc "${r.title}" (id ${r.id}${body.length > DOC_EXCERPT ? `; the first ${DOC_EXCERPT} characters below, your doc tools read the rest` : ""}):\n--- doc ${r.id} ---\n${body.slice(0, DOC_EXCERPT)}\n--- end of doc ${r.id} ---`,
+          );
+        }
+      }
+      if (lines.length) out.set(m.seq, `[The user tagged:]\n${lines.join("\n")}`);
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- turns
@@ -574,8 +660,8 @@ export class Rooms {
   }
 
   /** What an agent is handed: the room since its last turn, final messages only. */
-  private prompt(a: RoomAgent, delta: RoomMessage[], omitted: number, first: boolean): string {
-    const said = (m: RoomMessage) => `${m.author === "you" ? "user" : m.author === a.id ? "you (earlier)" : `@${m.authorHandle}`}: ${m.text}`;
+  private prompt(a: RoomAgent, delta: RoomMessage[], omitted: number, first: boolean, tagged = new Map<number, string>()): string {
+    const said = (m: RoomMessage) => `${m.author === "you" ? "user" : m.author === a.id ? "you (earlier)" : `@${m.authorHandle}`}: ${m.text}${tagged.has(m.seq) ? `\n${tagged.get(m.seq)}` : ""}`;
     return [
       first ? "[Agent room: the conversation so far. Of the other agents you see final messages only.]" : "[Agent room: new since your last turn. Of the other agents you see final messages only.]",
       omitted ? `(${omitted} older message${omitted === 1 ? "" : "s"} not shown; room_history reads them.)` : "",
@@ -599,7 +685,7 @@ export class Rooms {
       .all(...(first ? [a.taskId, a.lastSeen, upto] : [a.taskId, a.lastSeen, upto, a.id]))
       .map(toMessage);
     const delta = rows.slice(-MAX_DELTA);
-    const prompt = this.prompt(a, delta, rows.length - delta.length, first);
+    const prompt = this.prompt(a, delta, rows.length - delta.length, first, await this.tagged(delta));
     this.db.query("update room_agents set last_seen = ? where id = ?").run(upto, a.id);
 
     this.turnRefs.set(a.id, []);
