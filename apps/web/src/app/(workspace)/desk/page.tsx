@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Boundary } from "@/components/Boundary";
 import { Chat } from "@/components/Chat";
 import { Panes } from "@/components/Panes";
@@ -14,17 +15,19 @@ function missing(desks: DeskStatus[] | null): string | undefined {
   return off.length ? `${off.join(", ")} ${off.length === 1 ? "is" : "are"} not connected to your Claude yet: claude.ai → Settings → Connectors${off.includes("GitHub") ? ", and gh auth login for GitHub" : ""}.` : undefined;
 }
 
+/** The notice, once the desks answer: checking them can take seconds (Claude's connectors), so it streams in after the page. */
+async function DeskNotice() {
+  const desks = await daemon<DeskStatus[]>("/api/desks", { timeoutMs: 8000 }).catch(() => null);
+  const text = missing(desks);
+  return text ? <p className="welcome-notice">{text}</p> : null;
+}
+
 /**
  * The desk: what came in from GitHub, Slack, Linear, Notion and Gmail, with one continuing
  * desk agent on the right to catch up, prioritise and summarise it.
  */
 export default async function DeskPage() {
-  const [sessions, approvals, feed, desks] = await Promise.all([
-    daemon<Session[]>("/api/sessions?kind=desk"),
-    daemon<Approval[]>("/api/approvals?state=pending"),
-    daemon<FeedItem[]>("/api/feed"),
-    daemon<DeskStatus[]>("/api/desks", { timeoutMs: 8000 }).catch(() => null),
-  ]);
+  const [sessions, approvals, feed] = await Promise.all([daemon<Session[]>("/api/sessions?kind=desk"), daemon<Approval[]>("/api/approvals?state=pending"), daemon<FeedItem[]>("/api/feed")]);
   // One desk agent: the newest desk chat continues; the first message starts it.
   const session = sessions[0] ?? null;
   const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
@@ -48,7 +51,11 @@ export default async function DeskPage() {
             heading: "Your desk",
             body: "I keep you on top of GitHub, Slack, Linear, Notion and Gmail: catch up, prioritise, summarise, draft replies. This is one conversation that carries on, so I remember what you have seen.",
             suggestions: ["Catch me up", "What should I do first?", "Summarise what came in since this morning"],
-            notice: missing(desks),
+            notice: (
+              <Suspense fallback={null}>
+                <DeskNotice />
+              </Suspense>
+            ),
           }}
           placeholder="Ask your desk…"
         />
