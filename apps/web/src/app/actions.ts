@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -293,6 +293,32 @@ export async function wrapUpTask(taskId: string, machine?: string): Promise<{ ch
   } catch (err) {
     return fail(err);
   }
+}
+
+/** Long-term memory (on the home): kept rows newest first, or found by words; within a workspace when given. */
+export async function listMemory(q?: string, workspace?: string): Promise<JournalEntry[]> {
+  return failSafe(async () => {
+    const qs = new URLSearchParams();
+    if (q) qs.set("q", q);
+    if (workspace) qs.set("workspace", workspace);
+    return daemon<JournalEntry[]>(`/api/memory${qs.size ? `?${qs}` : ""}`);
+  });
+}
+
+/** Reword a kept row, or forget it. */
+export async function editMemory(id: string, change: { text?: string; forget?: boolean }): Promise<JournalEntry> {
+  return failSafe(async () => daemon<JournalEntry>(`/api/memory/${encodeURIComponent(id)}`, { method: "PATCH", json: change }));
+}
+
+/** A task's pre-context; refresh (jin picks again) or remove a pick. */
+export async function getPreContext(taskId: string): Promise<{ picks: PreContextPick[] }> {
+  return failSafe(async () => daemon<{ picks: PreContextPick[] }>(`/api/tasks/${encodeURIComponent(taskId)}/pre-context`));
+}
+export async function refreshPreContext(taskId: string): Promise<{ picks: PreContextPick[] }> {
+  return failSafe(async () => daemon<{ picks: PreContextPick[] }>(`/api/tasks/${encodeURIComponent(taskId)}/pre-context/refresh`, { method: "POST" }));
+}
+export async function removePreContext(taskId: string, memoryId: string): Promise<{ picks: PreContextPick[] }> {
+  return failSafe(async () => daemon<{ picks: PreContextPick[] }>(`/api/tasks/${encodeURIComponent(taskId)}/pre-context/${encodeURIComponent(memoryId)}`, { method: "DELETE" }));
 }
 
 export async function findFiles(taskId: string, q: string): Promise<{ path: string }[]> {

@@ -347,7 +347,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|chat-skills|mentions|models|docs)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|chat-skills|mentions|models|docs|memory)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
@@ -647,6 +647,18 @@ export interface JournalEntry {
   level?: "task" | "global";
   status?: "active" | "superseded" | "dropped";
   supersedes?: string | null;
+  taskId?: string;
+  workspace?: string | null;
+  /** On the home: the machine a kept row's task ran on. */
+  machine?: string | null;
+}
+
+/** A task's pre-context: a long-term row jin (or you) linked to it, as the row is now. */
+export interface PreContextPick {
+  memoryId: string;
+  reason: string | null;
+  by: "jin" | "you";
+  row: JournalEntry | null;
 }
 export interface JournalView {
   concerns: { name: string; startedAt: string; lastAt: string; entries: JournalEntry[] }[];

@@ -1,9 +1,9 @@
 "use client";
 import { Empty, Failed, Loading } from "@/components/States";
-import { BookMarked, CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Hash, Lightbulb, PenLine, Split } from "lucide-react";
+import { BookMarked, CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Hash, Lightbulb, PenLine, RefreshCw, Split, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getJournal } from "@/lib/actions";
-import type { JournalEntry, JournalView } from "@/lib/daemon";
+import { getJournal, getPreContext, refreshPreContext, removePreContext } from "@/lib/actions";
+import type { JournalEntry, JournalView, PreContextPick } from "@/lib/daemon";
 
 const KIND = {
   decision: { Icon: Split, label: "Decision" },
@@ -57,6 +57,69 @@ function Entry({ e, showSession, onOpen }: { e: JournalEntry; showSession: boole
   );
 }
 
+/** What earlier tasks kept that bears on this one (jin's pick, or yours): every agent in the task starts with it. */
+function FromEarlier({ taskId }: { taskId: string }) {
+  const [picks, setPicks] = useState<PreContextPick[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void getPreContext(taskId).then((r) => live && setPicks(r.picks), () => live && setPicks([]));
+    return () => {
+      live = false;
+    };
+  }, [taskId]);
+  if (picks === null) return null;
+  const shown = picks.filter((p) => p.row);
+  return (
+    <details className="jr-concern jr-earlier" open={shown.length > 0}>
+      <summary>
+        <ChevronRight size={12} className="jr-chevron" />
+        <span className="jr-name">From earlier tasks</span>
+        <span className="jr-count">{shown.length}</span>
+        <button
+          type="button"
+          className="button quiet icon-only small jr-earlier-refresh"
+          title="Pick again from long-term memory"
+          aria-label="Pick again"
+          disabled={busy}
+          onClick={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              setPicks((await refreshPreContext(taskId)).picks);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <RefreshCw size={12} className={busy ? "spin" : undefined} />
+        </button>
+      </summary>
+      {shown.length ? (
+        <ul>
+          {shown.map((p) => (
+            <li key={p.memoryId} className={`jr-entry is-${p.row!.kind}`}>
+              <BookMarked size={13} className="jr-kind" aria-label="Kept memory" />
+              <div className="jr-body">
+                <span className="jr-text">{p.row!.text}</span>
+                {p.reason && <div className="jr-why">{p.reason}</div>}
+                <span className="jr-meta">
+                  from {p.row!.taskId} · {p.by === "you" ? "added by you" : "picked by jin"}
+                </span>
+              </div>
+              <button type="button" className="button quiet icon-only small" title="Leave it out of this task" aria-label="Leave it out" onClick={async () => setPicks((await removePreContext(taskId, p.memoryId)).picks)}>
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="meta jr-earlier-none">Nothing from earlier tasks bears on this one yet.</p>
+      )}
+    </details>
+  );
+}
+
 /** What Claude Code decided, did and found in this task, by concern; the hooks add files, commits and tests. */
 export function JournalPanel({ taskId, onOpen }: { taskId: string; onOpen: (path: string) => void }) {
   const [view, setView] = useState<JournalView | null>(null);
@@ -84,10 +147,16 @@ export function JournalPanel({ taskId, onOpen }: { taskId: string; onOpen: (path
   const sessions = new Set([...view.concerns.flatMap((c) => c.entries), ...view.unjournaled].map((e) => e.session));
   const showSession = sessions.size > 1;
   if (!view.concerns.length && !view.unjournaled.length)
-    return <Empty title="Nothing journaled yet">Claude Code records its decisions, work and findings here as it goes.</Empty>;
+    return (
+      <div className="journal" data-scroll="y">
+        <FromEarlier taskId={taskId} />
+        <Empty title="Nothing journaled yet">The task&apos;s agents record their decisions, work and findings here as they go.</Empty>
+      </div>
+    );
   const latest = view.concerns.reduce<string | null>((a, c) => (!a || c.lastAt > (view.concerns.find((x) => x.name === a)?.lastAt ?? "") ? c.name : a), null);
   return (
     <div className="journal" data-scroll="y">
+      <FromEarlier taskId={taskId} />
       {view.concerns.map((c) => (
         <details key={c.name} className="jr-concern" open={c.name === latest || view.concerns.length <= 3}>
           <summary>
