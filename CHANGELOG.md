@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Settings forms for Codex, pi and opencode**, like Claude Code's, in a machine's side
+  panel: model, sandbox and approvals, MCP servers and trusted projects for Codex
+  (`config.toml`); model, tools, resources, compaction and retries for pi (`settings.json`);
+  model, permission rules, MCP servers and instructions for opencode 2 (`opencode.json(c)`).
+  The whole file is there as text too. A save from the forms changes only the keys you
+  changed (Codex writes its own TOML), so comments and everything else stay; it is refused
+  if the file changed since you opened it, and keeps the previous file as `.jin-backup`.
 - **Coding agents live on each machine's page.** Machines → a machine (this one included,
   laid out like a remote machine) has a Coding agent card with a tab per harness; the picked
   one opens in the side panel with its version, a "Use for new sessions" button and its
