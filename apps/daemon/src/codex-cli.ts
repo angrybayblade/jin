@@ -104,7 +104,7 @@ export function codexLaunch(config: Config, binDir?: string, trust: typeof trust
         );
       }
       if (ctx.taskId) {
-        const rules = taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), links: launch.linksOf?.(ctx.taskId) ?? [], brief: launch.briefOf?.(ctx.taskId) });
+        const rules = taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), links: launch.linksOf?.(ctx.taskId) ?? [], preContext: launch.preContextOf?.(ctx.taskId), brief: launch.briefOf?.(ctx.taskId) });
         flags.push("-c", `developer_instructions=${toml(`${rules}\n${SANDBOX_RULE}`)}`);
       }
       if (ctx.resume) return ["codex", ...flags, "resume", ctx.resume];

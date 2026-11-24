@@ -72,7 +72,7 @@ export function opencodeLaunch(config: Config, binDir?: string): AgentLaunch {
     env: (_w, ctx) => {
       const rules =
         ctx?.taskId && ctx.terminalId
-          ? writeInstructions(config.home, ctx.terminalId, taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir), links: launch.linksOf?.(ctx.taskId) ?? [], brief: launch.briefOf?.(ctx.taskId) }))
+          ? writeInstructions(config.home, ctx.terminalId, taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir), links: launch.linksOf?.(ctx.taskId) ?? [], preContext: launch.preContextOf?.(ctx.taskId), brief: launch.briefOf?.(ctx.taskId) }))
           : undefined;
       const mcp = ctx?.taskId && ctx.terminalId && binDir ? { command: [join(binDir, "jin-task"), "mcp"], environment: { JIN_TERMINAL_ID: ctx.terminalId, JIN_HOME: config.home } } : undefined;
       return {

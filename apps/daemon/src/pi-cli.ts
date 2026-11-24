@@ -38,7 +38,7 @@ export function piLaunch(config: Config, binDir?: string): AgentLaunch {
     argv: (ctx) => {
       const args = ["pi", "-e", PI_EXTENSION];
       if (ctx.taskId) {
-        const rules = taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), links: launch.linksOf?.(ctx.taskId) ?? [], brief: launch.briefOf?.(ctx.taskId) });
+        const rules = taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), links: launch.linksOf?.(ctx.taskId) ?? [], preContext: launch.preContextOf?.(ctx.taskId), brief: launch.briefOf?.(ctx.taskId) });
         args.push("--append-system-prompt", rules);
       }
       if (ctx.resume) args.push("--session", ctx.resume);

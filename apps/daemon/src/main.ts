@@ -243,8 +243,14 @@ const prepareSkills = async (taskId: string) => {
   const list = home ? await machines.call<SkillBody[]>(home.id, "GET", `/api/skills/bundle?tags=${encodeURIComponent(tags.join(","))}`) : skills.bundle(tags);
   writeTaskPlugin(config.home, taskId, list);
 };
-terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, agents, prepare: prepareSkills });
-const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, agents, prepare: prepareSkills, feed, db });
+// Before an agent starts in a task: its skills, and its pre-context (picked now if it has not been;
+// a few seconds at most), so its starting instructions carry what earlier tasks kept.
+const prepareAgent = async (taskId: string) => {
+  await prepareSkills(taskId);
+  await Promise.race([preContext.ensure(taskId).then(() => preContext.text(taskId)), Bun.sleep(8_000)]).catch(() => {});
+};
+terminalRoutes(app.router, { terminals, tasks, workspaces: app.workspaces, agents, prepare: prepareAgent });
+const jobs = new TaskJobs({ terminals, tasks, workspaces: app.workspaces, agents, prepare: prepareAgent, feed, db });
 // A task that starts in its agent room: its first prompt is said there.
 jobs.roomPost = (taskId, text) => void rooms?.post(taskId, text);
 jobRoutes(app.router, jobs);
@@ -253,7 +259,7 @@ sessions.provideJinTools(() =>
   jinTools({
     feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, agents, jobs, prs, hooks, links: taskLinks,
     // Defined further down; read when a chat runs.
-    journal: () => journal, linksOf: (id) => linksOf(id),
+    journal: () => journal, linksOf: (id) => linksOf(id), notify: (n) => void notifier.notify(n),
     machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
   }),
 );
@@ -325,11 +331,21 @@ const preContext = new PreContext(db, {
     return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
   }),
 });
-/** The task's pre-context as text, picked first if it has not been (waiting a while at most). */
+/** The task's pre-context as text, picked first if it has not been (agents' starts pick it; a short wait at most here). */
 const preContextText = async (taskId: string) => {
-  await Promise.race([preContext.ensure(taskId), Bun.sleep(20_000)]);
+  await Promise.race([preContext.ensure(taskId), Bun.sleep(3_000)]);
   return preContext.text(taskId);
 };
+// What this machine's tasks kept, resent to the home (only what it lacks), so a keep that reached
+// here but not the home arrives once it answers.
+const resendKept = () => {
+  const home = homeLink();
+  const rows = journal.ownGlobal();
+  if (!home || !rows.length) return;
+  void machines.call(home.id, "POST", "/api/memory/import", { rows, machine: machines.identity?.id ?? null, missingOnly: true }).catch(() => {});
+};
+setTimeout(resendKept, 60_000);
+setInterval(resendKept, 30 * 60_000);
 preContextRoutes(app.router, preContext, homeRows);
 journalRoutes(app.router, journal, {
   longTerm: longTermSearch,
@@ -627,7 +643,7 @@ const briefOf = (taskId: string) => {
   const t = tasks.get(taskId);
   return tasks.adapter(t.workspace).agentBrief({ id: t.id, kind: t.kind, root: t.root, repos: t.repos });
 };
-for (const launch of agents.all()) Object.assign(launch, { linksOf, briefOf });
+for (const launch of agents.all()) Object.assign(launch, { linksOf, briefOf, preContextOf: (taskId: string) => preContext.cached(taskId) });
 jobs.addLinks = (taskId, urls) => {
   const problems: string[] = [];
   for (const u of urls.map((x) => x.trim()).filter(Boolean)) {

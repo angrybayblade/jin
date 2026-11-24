@@ -43,12 +43,15 @@ export interface TaskContext {
   links?: { kind: string; label: string; url: string | null }[];
   /** What its workspace says about working there (its provider's brief). */
   brief?: AgentBrief;
+  /** What jin picked for it from long-term memory, as agents read it ("" or absent: nothing). */
+  preContext?: string;
 }
 
 /** The task's context: what it follows, and how to get more when the work needs it. */
 function contextRule(c: TaskContext): string {
   const follows = (c.links ?? []).map((l) => `  - ${l.label}${l.url ? ` ${l.url}` : ""}`);
   return [
+    c.preContext ?? "",
     follows.length ? `THIS TASK FOLLOWS (as of when you started):\n${follows.join("\n")}` : "",
     "TASK CONTEXT: discussions, tickets and docs around this task live outside the code. When the work depends on one (a decision made in a Slack thread, the issue's scope, a Notion spec, review comments on a PR), call the `task_context` tool (or run `jin-task context`): it lists the PRs, Linear issue, Slack threads and channels and Notion pages the task follows, with the latest on each and how to read each in full. Then read only what you need with the Slack, Linear and Notion tools or gh. Don't load everything up front; ask again later to see what changed (links can be added while you work).",
   ]
@@ -170,7 +173,7 @@ export function claudeLaunch(config: Config, settingsFile: string, binDir?: stri
       config.model,
       // The whole workspace is readable from a task's folder; the task's context and rules go in the system prompt.
       ...(ctx.taskId && ctx.workspaceRoot ? ["--add-dir", ctx.workspaceRoot] : []),
-      ...(ctx.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId), brief: brief(ctx.taskId) })] : []),
+      ...(ctx.taskId ? ["--append-system-prompt", taskRules({ ...ctx, taskId: ctx.taskId, journal: Boolean(binDir && ctx.terminalId), skills: taskSkills(config.home, ctx.taskId), links: links(ctx.taskId), brief: brief(ctx.taskId), preContext: launch.preContextOf?.(ctx.taskId) })] : []),
       ...(ctx.resume ? ["--resume", ctx.resume] : ctx.fork ? ["--resume", ctx.fork, "--fork-session"] : ctx.prompt?.trim() ? [ctx.prompt.trim()] : []),
     ],
     env: (w: WorkspaceConfig | undefined) => ({

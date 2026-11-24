@@ -10,7 +10,8 @@ import type { Tasks } from "./tasks";
 import type { TaskJobs } from "./jobs";
 import { HOOK_EVENTS, type Hook, type Hooks } from "./hooks";
 import type { TaskLink, TaskLinks } from "./links";
-import { type Journal, type JournalEntry, type JournalView, keepMemory, memoryText } from "./journal";
+import { type Journal, type JournalEntry, type JournalView, keepMemory, keepOnMachine, memoryText } from "./journal";
+import type { Notice } from "./notify";
 import { startReview } from "./reviews";
 import type { Agents } from "./agents";
 import { openTerminal, type Terminals } from "./terminals";
@@ -109,7 +110,7 @@ export interface MachineAccess {
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; agents: Agents; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks; journal?: () => Journal; linksOf?: (taskId: string) => TaskLink[] }): JinTool[] {
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; agents: Agents; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks; journal?: () => Journal; linksOf?: (taskId: string) => TaskLink[]; notify?: (n: Notice) => void }): JinTool[] {
   const { feed, tasks, sessions, adapters, workspaces, terminals, agents, jobs, prs, machines, hooks, links } = deps;
   const remote = (id: string | undefined) => (id && id !== "local" ? id : null);
   const connected = () => (machines?.list() ?? []).filter((m) => m.connected);
@@ -473,12 +474,8 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
         const id = String(a.taskId);
         const args = { promote: a.promote as { id: string; text?: string }[] | undefined, drop: a.drop as string[] | undefined, summary: a.summary as { text: string; refs?: string[] } | undefined };
         // The task's rows change where the task is; long-term memory is here (chats run on the home).
-        if (on) {
-          const r = await machines!.call<{ kept: JournalEntry[]; dropped: number; summary: JournalEntry | null }>(on, "POST", `/api/tasks/${encodeURIComponent(id)}/memory/keep`, args);
-          journal.importGlobal([...r.kept, ...(r.summary ? [r.summary] : [])], on);
-          return { kept: r.kept.length, dropped: r.dropped, summary: r.summary?.id ?? null };
-        }
-        return keepMemory({ task: { promote: async (items, by) => journal.promote(id, items, by), drop: async (ids) => journal.drop(id, ids), summarize: async (s) => journal.summarize(id, s) }, home: journal, machine: null }, args);
+        if (on) return keepOnMachine({ call: (method, path, body) => machines!.call(on, method, path, body), home: journal, machine: on, notify: deps.notify }, id, args);
+        return keepMemory({ task: { promote: async (items, by) => journal.promote(id, items, by), drop: async (ids) => journal.drop(id, ids), summarize: async (s) => journal.summarize(id, s) }, home: journal, machine: null, notify: deps.notify }, args);
       },
     },
     {

@@ -46,6 +46,8 @@ export interface AgentLaunch {
   /** What a task follows and what its workspace says, for its starting context (set once known). */
   linksOf?: (taskId: string) => { kind: string; label: string; url: string | null }[];
   briefOf?: (taskId: string) => AgentBrief | undefined;
+  /** What jin picked for the task from long-term memory, for its starting instructions ("" if nothing yet). */
+  preContextOf?: (taskId: string) => string;
 }
 
 export interface AgentView {
