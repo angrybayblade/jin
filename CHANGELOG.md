@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Room agents have animated globs as pictures**, each in its own colours and shape, moving
+  faster while the agent works. All of a room's globs share one WebGL canvas.
+- **Rename a room** from its tab's menu (or double-click the tab); naming it "Room" again drops
+  the name.
 - **Settings forms for Codex, pi and opencode**, like Claude Code's, in a machine's side
   panel: model, sandbox and approvals, MCP servers and trusted projects for Codex
   (`config.toml`); model, tools, resources, compaction and retries for pi (`settings.json`);
