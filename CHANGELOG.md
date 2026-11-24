@@ -3,9 +3,16 @@
 ## Unreleased
 
 - **Coding agents live on each machine's page.** Machines → a machine (this one included,
-  now a page of its own) shows which agent new sessions start and a card for each harness
-  installed there: Claude Code's settings editor, and where the others keep theirs. The
-  Claude Code entry is gone from the settings menu (`/claude` redirects).
+  laid out like a remote machine) has a Coding agent card with a tab per harness; the picked
+  one opens in the side panel with its version, a "Use for new sessions" button and its
+  settings (Claude Code's editor, or where the others keep theirs). The machine and the side
+  panel scroll on their own, and a machine's facts become rows in a narrow column. The Claude
+  Code entry is gone from the settings menu (`/claude` redirects).
+- **Every agent shows its version**, Claude Code and Codex included.
+- **The dev app's machines run a dev jin.** With `machines:` in the dev home's config, a
+  machine added there gets its own jin (home, port, service) beside the real one, copied from
+  the working tree.
+- **Fix: a long sign-in description pushed the Sign in buttons out of the card.**
 - **Fix: saving Claude Code's settings showed no "Saved" and did not reload the file.**
 
 - **opencode 2.** jin's opencode support moves to opencode 2 (and only 2): its plugin uses
