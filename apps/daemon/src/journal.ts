@@ -304,8 +304,54 @@ export class Journal {
   }
 }
 
-export function journalRoutes(router: Router, journal: Journal) {
+/** Long-term rows as an agent reads them: one line each, with the task it came from and its id. */
+export function memoryText(rows: JournalEntry[]): string {
+  if (!rows.length) return "Nothing in long-term memory matches.";
+  return rows
+    .map((e) => `- ${e.kind}${e.concern && e.kind !== "summary" ? ` (${e.concern})` : ""}: ${e.text}${e.why ? ` (why: ${e.why})` : ""}${e.refs.some((r) => r.type === "id") ? ` [refs: ${e.refs.filter((r) => r.type === "id").map((r) => r.text).join(", ")}]` : ""} [from ${e.taskId}${e.machine ? ` on ${e.machine}` : ""}, ${e.at.slice(0, 10)}, id ${e.id}]`)
+    .join("\n");
+}
+
+export function journalRoutes(
+  router: Router,
+  journal: Journal,
+  more: {
+    /** Long-term memory for a workspace, from the home when there is one. */
+    longTerm?: (workspace: string | null, query: string) => Promise<JournalEntry[]>;
+    /** A terminal's task and its workspace. */
+    taskOfTerminal?: (terminalId: string) => { taskId: string; workspace: string | null } | null;
+    /** Wrap up a task (keep what it learned), through the home when there is one. */
+    wrapUp?: (taskId: string) => Promise<{ chatId: string }>;
+  } = {},
+) {
   router
+    // Long-term memory, as this machine holds it (the home's is everyone's).
+    .on("GET", "/api/memory/search", (_req, _p, url) => json(journal.search(url.searchParams.get("q") ?? "", { workspace: url.searchParams.get("workspace") || undefined, level: "global" })))
+    .on("POST", "/api/memory/import", async (req) => {
+      const b = await body<{ rows?: JournalEntry[]; machine?: string | null }>(req);
+      journal.importGlobal(Array.isArray(b.rows) ? b.rows : [], b.machine ?? null);
+      return json({ ok: true });
+    })
+    // A tab's memory_search: long-term memory of its task's workspace.
+    .on("GET", "/api/terminals/:id/memory-search", async (_req, p, url) => {
+      const t = more.taskOfTerminal?.(p.id!);
+      if (!t) throw new HttpError(404, "this terminal is not in a task");
+      const rows = more.longTerm ? await more.longTerm(t.workspace, url.searchParams.get("q") ?? "") : journal.search(url.searchParams.get("q") ?? "", { workspace: t.workspace ?? undefined, level: "global" });
+      return new Response(memoryText(rows), { headers: { "content-type": "text/plain; charset=utf-8" } });
+    })
+    // jin's merge cleanup and Wrap up: the task's rows, and keeping what it learned.
+    .on("GET", "/api/tasks/:id/memory", (_req, p) => json(journal.view(p.id!)))
+    .on("POST", "/api/tasks/:id/memory/keep", async (req, p) => {
+      const b = await body<{ promote?: { id: string; text?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } }>(req);
+      const kept = b.promote?.length ? journal.promote(p.id!, b.promote, "jin") : [];
+      const dropped = b.drop?.length ? journal.drop(p.id!, b.drop) : 0;
+      const summary = b.summary?.text ? journal.summarize(p.id!, { ...b.summary, by: "jin" }) : null;
+      return json({ kept, dropped, summary });
+    })
+    .on("POST", "/api/tasks/:id/wrap-up", async (_req, p) => {
+      if (!more.wrapUp) throw new HttpError(501, "wrap up is not available here");
+      return json(await more.wrapUp(p.id!), 202);
+    })
     .on("POST", "/api/terminals/:id/journal", async (req, p) => {
       const r = journal.add(p.id!, await body<{ concern?: string; kind?: string; text?: string; why?: string }>(req));
       return json(r, 201);

@@ -48,7 +48,7 @@ import { claudeLaunch, writeClaudeSettings, writeJinTaskCommand } from "./claude
 import { codexLaunch } from "./codex-cli";
 import { agentHookRoutes } from "./agent-hooks";
 import { Agents, agentRoutes } from "./agents";
-import { Journal, journalRoutes } from "./journal";
+import { Journal, type JournalEntry, journalRoutes, memoryText } from "./journal";
 import { prRoutes, rollup, TaskPRs } from "./prs";
 import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
@@ -181,6 +181,7 @@ rooms = new Rooms({
   mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
   // The task's journal, shared with its terminal tabs (made further down; reached when a turn runs).
   journal: { write: (taskId, by, e) => journal.write(taskId, by, e), contextText: (taskId) => journal.contextText(taskId) },
+  memorySearch: async (taskId, query) => memoryText(await longTermSearch(tasks.get(taskId).workspace, query)),
 });
 roomRoutes(app.router, rooms);
 tasks.onRemoved((taskId) => rooms?.removeTask(taskId));
@@ -262,9 +263,21 @@ const hooks = new Hooks(config.home, {
   notify: (n) => void notifier.notify(n),
 });
 hookRoutes(app.router, hooks);
+// Wrap up, asked from a machine whose task it is: the home's jin keeps what the task learned.
+app.router.on("POST", "/api/memory/wrap-up", async (req) => {
+  const b = (await req.json().catch(() => ({}))) as { task?: { id: string; title: string | null }; machine?: string | null };
+  if (!b.task?.id) throw new HttpError(400, "a task is required");
+  return json(await hooks.wrapUp({ task: b.task, machine: b.machine ?? null }), 202);
+});
 const onClaudeStatus = watchForNotifications(notifier, { sessions, jobs, terminals });
 // A task's work journal: Claude Code writes decisions, work and findings by concern (jin's
 // `journal` MCP tool); the hooks add the files, commits and test runs they see.
+/** Long-term memory of a workspace: the home holds everyone's (this machine's own when there is no home). */
+async function longTermSearch(workspace: string | null, query: string): Promise<JournalEntry[]> {
+  const home = homeLink();
+  if (home) return machines.call<JournalEntry[]>(home.id, "GET", `/api/memory/search?q=${encodeURIComponent(query)}&workspace=${encodeURIComponent(workspace ?? "")}`);
+  return journal.search(query, { workspace: workspace ?? undefined, level: "global" });
+}
 const journal = new Journal(db, (terminalId) => {
   try {
     const t = terminals.get(terminalId);
@@ -287,7 +300,24 @@ const journal = new Journal(db, (terminalId) => {
 });
 // Rows from before memory had workspaces (live tasks come from their workspace, not jin's own table).
 journal.fillWorkspaces();
-journalRoutes(app.router, journal);
+journalRoutes(app.router, journal, {
+  longTerm: longTermSearch,
+  taskOfTerminal: (terminalId) => {
+    try {
+      const t = terminals.get(terminalId);
+      return t.taskId ? { taskId: t.taskId, workspace: tasks.get(t.taskId).workspace } : null;
+    } catch {
+      return null;
+    }
+  },
+  // Wrap up runs where chats do: on the home, told which machine the task is on.
+  wrapUp: async (taskId) => {
+    const t = tasks.get(taskId);
+    const task = { id: t.id, title: t.title ?? t.slug };
+    const home = homeLink();
+    return home ? machines.call<{ chatId: string }>(home.id, "POST", "/api/memory/wrap-up", { task, machine: machines.identity?.id ?? null }) : hooks.wrapUp({ task, machine: null });
+  },
+});
 agentHookRoutes(app.router, {
   terminals,
   adapters,

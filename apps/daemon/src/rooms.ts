@@ -256,6 +256,8 @@ export interface RoomDeps {
   mentions?: (text: string) => Promise<Mention[]>;
   /** The task's journal (its memory rows), shared with its terminal tabs: agents write and read it. */
   journal?: Pick<Journal, "write" | "contextText">;
+  /** Long-term memory of the task's workspace, as text (from the home when there is one). */
+  memorySearch?: (taskId: string, query: string) => Promise<string>;
 }
 
 export class Rooms {
@@ -764,6 +766,7 @@ export class Rooms {
       `- ${UNTRUSTED}`,
       "- Naming another agent (@handle) in your reply does not run them: the user decides who goes next. You may say who should pick something up.",
       "- room_history reads earlier messages when you need more than you were given.",
+      "- The task's journal is shared by every agent in the task, its terminal tabs too: record your decisions (with why) and findings with journal; task_journal reads what all of them recorded. memory_search reads what earlier tasks in this workspace kept long-term: use it before deciding something that may have been decided before.",
       a.access === "writer"
         ? "- You may change the code in this task's worktrees."
         : "- You are read-only here: read the code and run checks and tests, but never change, create or delete files in the worktrees, by any means (your file edits are refused; do not work around that with the shell). Changes to the code are the writer's job: describe them.",
@@ -873,6 +876,14 @@ export class Rooms {
           },
         ]
       : [];
+    const search = this.deps.memorySearch;
+    if (search)
+      memory.push({
+        name: "memory_search",
+        description: "Search long-term memory: what earlier tasks in this workspace decided and learned, kept by jin when they finished (decisions with reasons, facts with platform ids, task summaries). Search before deciding something that may have been decided before.",
+        input: { query: z.string() },
+        run: async (args) => search(taskId, String(args.query ?? "")),
+      });
     return [...docs, history, ...memory];
   }
 

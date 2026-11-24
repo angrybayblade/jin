@@ -8,7 +8,7 @@
 //   jin-task context           the task's context: its PRs, what it follows (Slack threads and
 //                              channels, Notion pages, its Linear issue) and the latest on each
 //   jin-task doc <id>          a jin doc (a spec, an RFC) the task links, as markdown
-//   jin-task mcp               jin's MCP server for Claude Code (stdio): `journal`, `task_context`, `read_doc`
+//   jin-task mcp               jin's MCP server for coding agents (stdio): `journal`, `task_context`, `read_doc`, `memory_search`
 // The terminal names the task (JIN_TERMINAL_ID, set by jin); the daemon's token is in JIN_HOME.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -147,16 +147,32 @@ async function serveMcp() {
     description: "Read a jin doc (a spec, RFC or design the user wrote with jin) as markdown, by its id. task_context lists the docs this task links.",
     inputSchema: { type: "object", properties: { docId: { type: "string" } }, required: ["docId"] },
   };
+  const MEMORY_TOOL = {
+    name: "memory_search",
+    description: "Search long-term memory: what earlier tasks in this workspace decided and learned, kept by jin when they finished (decisions with reasons, facts with platform ids, task summaries). Search before a decision that may have been made before.",
+    inputSchema: { type: "object", properties: { query: { type: "string", description: "words to find" } }, required: ["query"] },
+  };
+  const memorySearch = async (q: string): Promise<{ ok: string } | { error: string }> => {
+    try {
+      const res = await fetch(`http://${daemon.host}:${daemon.port}/api/terminals/${terminal}/memory-search?q=${encodeURIComponent(q)}`, { headers: { authorization: `Bearer ${daemon.token}` } });
+      const text = await res.text();
+      if (!res.ok) return { error: (JSON.parse(text || "{}") as { error?: string }).error ?? `jin answered ${res.status}` };
+      return { ok: text };
+    } catch (e) {
+      return { error: `could not reach jin: ${(e as Error).message}` };
+    }
+  };
   const send = (msg: unknown) => process.stdout.write(`${JSON.stringify(msg)}\n`);
   const answer = async (m: { id?: number | string; method?: string; params?: any }) => {
     if (m.id === undefined) return; // a notification
     if (m.method === "initialize") return send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "jin", version: "1" } } });
     if (m.method === "ping") return send({ jsonrpc: "2.0", id: m.id, result: {} });
-    if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: [TOOL, CONTEXT_TOOL, DOC_TOOL] } });
+    if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: [TOOL, CONTEXT_TOOL, DOC_TOOL, MEMORY_TOOL] } });
     if (m.method === "tools/call") {
       const text = await (async () => {
         if (m.params?.name === "task_context") return context();
         if (m.params?.name === "read_doc") return readDoc(String(m.params?.arguments?.docId ?? ""));
+        if (m.params?.name === "memory_search") return memorySearch(String(m.params?.arguments?.query ?? ""));
         if (m.params?.name !== "journal") return { error: `unknown tool ${m.params?.name}` };
         try {
           const res = await fetch(`http://${daemon.host}:${daemon.port}/api/terminals/${terminal}/journal`, {

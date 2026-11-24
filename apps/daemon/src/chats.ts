@@ -10,7 +10,7 @@ import type { Tasks } from "./tasks";
 import type { TaskJobs } from "./jobs";
 import { HOOK_EVENTS, type Hook, type Hooks } from "./hooks";
 import type { TaskLink, TaskLinks } from "./links";
-import type { Journal, JournalEntry, JournalView } from "./journal";
+import { type Journal, type JournalEntry, type JournalView, keepMemory, memoryText } from "./journal";
 import { startReview } from "./reviews";
 import type { Agents } from "./agents";
 import { openTerminal, type Terminals } from "./terminals";
@@ -53,6 +53,7 @@ export function chatInstructions(kind: SessionKind, workspace: WorkspaceConfig |
         "- To work on something: propose a task id, type and the repos it touches (read the workspace's own docs, e.g. its README or CLAUDE.md, when unsure which repos), confirm with the user, then call jin_start_task with a clear prompt for Claude Code. To just try something out (no issue, thrown away afterwards), call jin_start_task with scratch: true and no id: the workspace numbers it EXP-<month><day><n>. To review someone's pull requests, call jin_review_prs with the links (no issue needed). It returns at once and sets up in the background. Use jin_start_agent only to open another Claude Code session in an existing task. Coding happens there, not here.",
         "- Hooks run an agent with fixed instructions when an event happens (a task's PR merged, all its PRs merged, a live event from Slack, Linear, Notion, Gmail or GitHub). jin_list_hooks shows them; jin_save_hook creates or changes one once the user agrees; jin_delete_hook removes one.",
         "- jin_update_feed snoozes, dismisses or marks items done once the user decides (several at once with itemIds).",
+        "- Long-term memory: jin_memory_search reads what finished tasks kept. Keeping a task's learnings (jin_task_memory, then jin_keep_memory) is only for the merge cleanup or a Wrap up the user asked for.",
         "- jin_archive_task closes tasks the user is finished with: they leave the sidebar, their worktrees and branches stay (archived: false brings one back). jin_remove_task deletes a finished task's worktrees and branches; it refuses if work would be lost, and the user approves each call. Use it only when the user asks or during a merge cleanup.",
         "- Work can live on other machines (dev VMs the user added): jin_list_machines lists them; jin_list_tasks and jin_catch_up cover every connected machine. To start a task or a Claude Code session on one, pass its id as `machine`; when the user does not say where and more than one machine has the workspace, ask. Links to another machine's task look like /m/<machine>/t/<task>.",
         "- jin docs are the user's specs, RFCs and notes: jin_list_docs and jin_read_doc read them; jin_create_doc starts one when the user asks; jin_suggest_doc_edit and jin_comment_doc propose changes and comment (you never edit a doc's text directly). A doc links to a task with jin_link_task (url doc:<id>).",
@@ -432,6 +433,52 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
         }
         const t = await openTerminal({ terminals, tasks, workspaces, agents }, { taskId: a.taskId as string, kind: "agent", prompt: a.prompt as string });
         return { terminalId: t.id, taskId: t.taskId, open: `/t/${t.taskId}` };
+      },
+    },
+    {
+      name: "jin_memory_search",
+      description: "Search jin's long-term memory: what finished tasks decided and learned, kept when they were done (decisions with reasons, facts with platform ids, task summaries), within a workspace when given.",
+      input: { query: z.string(), workspace: z.string().optional() },
+      run: async (a) => memoryText(deps.journal?.().search(String(a.query ?? ""), { workspace: (a.workspace as string | undefined) || undefined, level: "global" }) ?? []),
+    },
+    {
+      name: "jin_task_memory",
+      description: "A task's memory (its journal, from every agent in it): each row with its id, kind, concern, text, why, who wrote it, its status (active, superseded, dropped) and level (task, or global once kept). For keeping what a finished task learned.",
+      input: { taskId: z.string(), machine: machineArg },
+      run: async (a) => {
+        const on = remote(a.machine as string | undefined);
+        const id = String(a.taskId);
+        const v = on ? await machines!.call<JournalView>(on, "GET", `/api/tasks/${encodeURIComponent(id)}/memory`) : deps.journal?.().view(id);
+        if (!v) return { error: "no journal here" };
+        return v.concerns.flatMap((c) =>
+          c.entries.map((e) => ({ id: e.id, kind: e.kind, concern: c.name, text: e.text, ...(e.why ? { why: e.why } : {}), by: e.session, status: e.status, level: e.level, ...(e.refs.length ? { refs: e.refs.map((r) => `${r.type}: ${r.text}`) } : {}) })),
+        );
+      },
+    },
+    {
+      name: "jin_keep_memory",
+      description:
+        "Keep what a finished task learned, in one call: promote rows (ids from jin_task_memory, each with new text when reworded for use outside the task) to long-term memory, drop dead ends and noise, and write the task's summary (two to four sentences, refs: platform ids like github:org/repo#n, linear:ID, never their content). Only for the merge cleanup or a Wrap up.",
+      input: {
+        taskId: z.string(),
+        machine: machineArg,
+        promote: z.array(z.object({ id: z.string(), text: z.string().optional() })).optional(),
+        drop: z.array(z.string()).optional(),
+        summary: z.object({ text: z.string(), refs: z.array(z.string()).optional() }).optional(),
+      },
+      run: async (a) => {
+        const journal = deps.journal?.();
+        if (!journal) return { error: "no memory here" };
+        const on = remote(a.machine as string | undefined);
+        const id = String(a.taskId);
+        const args = { promote: a.promote as { id: string; text?: string }[] | undefined, drop: a.drop as string[] | undefined, summary: a.summary as { text: string; refs?: string[] } | undefined };
+        // The task's rows change where the task is; long-term memory is here (chats run on the home).
+        if (on) {
+          const r = await machines!.call<{ kept: JournalEntry[]; dropped: number; summary: JournalEntry | null }>(on, "POST", `/api/tasks/${encodeURIComponent(id)}/memory/keep`, args);
+          journal.importGlobal([...r.kept, ...(r.summary ? [r.summary] : [])], on);
+          return { kept: r.kept.length, dropped: r.dropped, summary: r.summary?.id ?? null };
+        }
+        return keepMemory({ task: { promote: async (items, by) => journal.promote(id, items, by), drop: async (ids) => journal.drop(id, ids), summarize: async (s) => journal.summarize(id, s) }, home: journal, machine: null }, args);
       },
     },
     {
