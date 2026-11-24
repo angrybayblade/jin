@@ -1,3 +1,4 @@
+import { arch as osArch, release as osRelease, type as osType, userInfo } from "node:os";
 import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import type { Config, WorkspaceConfig } from "./config";
@@ -62,10 +63,24 @@ export async function handle(app: App, req: Request, url: URL): Promise<Response
   }
 }
 
+let system: string | null | undefined;
+/** This machine, as a machine's page shows one: its OS and version, its architecture, the user (read once). */
+export function systemLine(): string | null {
+  if (system !== undefined) return system;
+  try {
+    const mac = process.platform === "darwin" ? Bun.spawnSync(["sw_vers", "-productVersion"]).stdout.toString().trim() : "";
+    const os = mac ? `macOS ${mac}` : `${osType()} ${osRelease()}`;
+    system = [os, osArch(), userInfo().username].filter(Boolean).join(" · ");
+  } catch {
+    system = null;
+  }
+  return system;
+}
+
 export function coreRoutes(app: App) {
   app.router
     .on("GET", "/api/status", () =>
-      json({ mode: app.config.mode, jobs: app.jobs(), workspaces: app.workspaces.map((w) => w.id), version: app.version?.() ?? null }),
+      json({ mode: app.config.mode, jobs: app.jobs(), workspaces: app.workspaces.map((w) => w.id), version: app.version?.() ?? null, system: systemLine() }),
     )
     .on("POST", "/api/tickets", async (req) => {
       const { path } = await body<{ path?: string }>(req);
