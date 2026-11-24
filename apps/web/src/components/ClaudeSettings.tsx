@@ -1,17 +1,15 @@
 "use client";
-import { Eye, EyeOff, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { saveClaudeSettings } from "@/lib/actions";
 import type { ClaudeSettingsFile } from "@/lib/daemon";
+import { Card, Env, isObj, List, type Obj, setIn, strs, Tri } from "@/components/SettingsFields";
 
 /**
  * Claude Code's user settings (~/.claude/settings.json) on a machine: forms for what people
  * change most, and the whole file as JSON for the rest. jin's chats and terminals read this
  * file, and so does `claude` started in a plain shell.
  */
-
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
 const MODES = [
   { id: "default", label: "Ask (default)" },
@@ -25,137 +23,6 @@ const MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "cla
 const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification", "Stop", "SubagentStop", "SessionStart", "SessionEnd", "PreCompact"];
 /** Events whose hooks take a matcher (a tool name or pattern). */
 const MATCHED = new Set(["PreToolUse", "PostToolUse", "PreCompact", "SessionStart", "Notification"]);
-
-/** `settings` with `path` set to `value`; an empty value removes the key, and an object it empties. */
-function setIn(settings: Obj, path: string[], value: unknown): Obj {
-  const [k, ...rest] = path;
-  const next = { ...settings };
-  if (rest.length) {
-    const inner = setIn(isObj(next[k!]) ? (next[k!] as Obj) : {}, rest, value);
-    if (Object.keys(inner).length) next[k!] = inner;
-    else delete next[k!];
-  } else if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0) || (isObj(value) && Object.keys(value).length === 0)) delete next[k!];
-  else next[k!] = value;
-  return next;
-}
-const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-
-function Card({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section className="md-card">
-      <div className="md-card-head is-static">
-        <h3>{title}</h3>
-        {hint && <span className="meta">{hint}</span>}
-      </div>
-      <div className="md-card-body">{children}</div>
-    </section>
-  );
-}
-
-/** true / false / not set: absent is not the same as false (Claude Code's own default applies). */
-function Tri({ label, value, onChange, hint }: { label: string; value: unknown; onChange: (v: boolean | undefined) => void; hint?: string }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value === true ? "on" : value === false ? "off" : ""} onChange={(e) => onChange(e.target.value === "on" ? true : e.target.value === "off" ? false : undefined)}>
-        <option value="">Not set{hint ? ` (${hint})` : ""}</option>
-        <option value="on">On</option>
-        <option value="off">Off</option>
-      </select>
-    </label>
-  );
-}
-
-/** A list of strings: edit in place, remove, add with Enter. */
-function List({ label, items, onChange, placeholder, mono = true }: { label: string; items: string[]; onChange: (v: string[]) => void; placeholder: string; mono?: boolean }) {
-  const [add, setAdd] = useState("");
-  const commit = () => {
-    const v = add.trim();
-    if (v && !items.includes(v)) onChange([...items, v]);
-    setAdd("");
-  };
-  return (
-    <div className="field cs-list">
-      <span>
-        {label} <span className="cs-count">{items.length || ""}</span>
-      </span>
-      {items.map((it, i) => (
-        <div className="cs-row" key={`${i}:${it}`}>
-          <input className={mono ? "mono" : undefined} defaultValue={it} spellCheck={false} onBlur={(e) => e.target.value.trim() !== it && onChange(items.map((x, j) => (j === i ? e.target.value.trim() : x)).filter(Boolean))} />
-          <button type="button" className="button quiet icon-only small" aria-label={`Remove ${it}`} onClick={() => onChange(items.filter((_, j) => j !== i))}>
-            <X size={13} />
-          </button>
-        </div>
-      ))}
-      <div className="cs-row">
-        <input
-          className={mono ? "mono" : undefined}
-          value={add}
-          spellCheck={false}
-          placeholder={placeholder}
-          onChange={(e) => setAdd(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          onBlur={commit}
-        />
-        <button type="button" className="button quiet icon-only small" aria-label="Add" disabled={!add.trim()} onClick={commit}>
-          <Plus size={13} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Environment variables: values hidden until you ask (they are often tokens). */
-function Env({ env, onChange }: { env: Obj; onChange: (v: Obj) => void }) {
-  const [shown, setShown] = useState<string[]>([]);
-  const [name, setName] = useState("");
-  const [value, setValue] = useState("");
-  const entries = Object.entries(env).map(([k, v]) => [k, typeof v === "string" ? v : String(v)] as const);
-  const add = () => {
-    const k = name.trim();
-    if (!k) return;
-    onChange({ ...env, [k]: value });
-    setName("");
-    setValue("");
-  };
-  return (
-    <div className="field cs-list">
-      {entries.map(([k, v]) => (
-        <div className="cs-row is-env" key={k}>
-          <input className="mono" value={k} readOnly aria-label="Name" />
-          <input className="mono" type={shown.includes(k) ? "text" : "password"} defaultValue={v} spellCheck={false} autoComplete="off" aria-label={`Value of ${k}`} onBlur={(e) => e.target.value !== v && onChange({ ...env, [k]: e.target.value })} />
-          <button type="button" className="button quiet icon-only small" aria-label={shown.includes(k) ? "Hide" : "Show"} onClick={() => setShown((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))}>
-            {shown.includes(k) ? <EyeOff size={13} /> : <Eye size={13} />}
-          </button>
-          <button
-            type="button"
-            className="button quiet icon-only small"
-            aria-label={`Remove ${k}`}
-            onClick={() => {
-              const { [k]: _, ...rest } = env;
-              onChange(rest);
-            }}
-          >
-            <X size={13} />
-          </button>
-        </div>
-      ))}
-      <div className="cs-row is-env">
-        <input className="mono" value={name} placeholder="NAME" spellCheck={false} onChange={(e) => setName(e.target.value.replace(/\s/g, ""))} aria-label="New name" />
-        <input className="mono" type="password" value={value} placeholder="value" autoComplete="off" onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} aria-label="New value" />
-        <button type="button" className="button quiet icon-only small" aria-label="Add" disabled={!name.trim()} onClick={add}>
-          <Plus size={13} />
-        </button>
-        <span />
-      </div>
-    </div>
-  );
-}
 
 type HookGroup = { matcher?: string; hooks: Obj[] };
 
