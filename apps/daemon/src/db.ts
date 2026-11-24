@@ -332,6 +332,8 @@ export const MIGRATIONS: string[] = [
   alter table memory add column task_text text;
   alter table memory add column machine text;
   `,
+  // 23: a task's pre-context: links to the long-term rows (on the home) jin picked for it, or you did.
+  `create table task_context (task_id text not null, memory_id text not null, reason text, by text not null, at text not null, primary key (task_id, memory_id));`,
 ];
 
 export function openDb(home: string): Database {

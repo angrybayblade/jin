@@ -184,10 +184,11 @@ export class Journal {
    * workspace when given; superseded and dropped rows only when asked. What is typed is words to
    * find, never query syntax.
    */
-  search(query: string, opts: { workspace?: string; superseded?: boolean; level?: "task" | "global"; limit?: number } = {}): JournalEntry[] {
+  search(query: string, opts: { workspace?: string; superseded?: boolean; level?: "task" | "global"; limit?: number; any?: boolean } = {}): JournalEntry[] {
     const words = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
     if (!words.length) return [];
-    const match = words.map((w) => `"${w}"`).join(" ");
+    // Every word by default; any of them (ranked by how well they match) when asked.
+    const match = words.map((w) => `"${w}"`).join(opts.any ? " OR " : " ");
     const where = ["memory_fts match ?", "m.concern is not null"];
     const args: (string | number)[] = [match];
     if (opts.workspace) (where.push("m.workspace = ?"), args.push(opts.workspace));
@@ -195,6 +196,16 @@ export class Journal {
     if (opts.level) (where.push("m.level = ?"), args.push(opts.level));
     args.push(Math.min(opts.limit ?? 20, 100));
     return (this.db.query(`select m.* from memory_fts join memory m on m.rowid = memory_fts.rowid where ${where.join(" and ")} order by bm25(memory_fts) limit ?`).all(...args) as any[]).map(toEntry);
+  }
+
+  /** A workspace's latest long-term decisions (newest first). */
+  recentGlobal(workspace: string, limit = 20): JournalEntry[] {
+    return (this.db.query("select * from memory where level = 'global' and workspace = ? and status = 'active' and kind = 'decision' order by at desc limit ?").all(workspace, limit) as any[]).map(toEntry);
+  }
+
+  /** Long-term rows by id (the ones a task's pre-context links to). */
+  rows(ids: string[]): JournalEntry[] {
+    return ids.map((id) => this.db.query("select * from memory where id = ? and level = 'global'").get(id)).filter(Boolean).map(toEntry);
   }
 
   /** A task's rows by id, refusing any that are not its own. */
