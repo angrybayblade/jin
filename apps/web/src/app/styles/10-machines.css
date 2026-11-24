@@ -832,7 +832,8 @@ p.machine-auth-body {
 }
 .machine-side .md-card + .md-card,
 .machine-side .claude-settings > .md-card,
-.machine-side .claude-settings > details.md-card {
+.machine-side .claude-settings > details.md-card,
+.machine-side .cs-forms > .md-card:first-child {
   border-top: 1px solid var(--line);
   padding-top: var(--space-2);
 }
@@ -844,6 +845,7 @@ p.machine-auth-body {
 .machine-side .md-card-body {
   padding: var(--space-2) 0 var(--space-3);
 }
-.machine-side .claude-settings > .md-card {
+.machine-side .claude-settings > .md-card,
+.machine-side .cs-forms > .md-card:first-child {
   margin-top: var(--space-2);
 }

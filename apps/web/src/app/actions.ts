@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -824,6 +824,23 @@ export async function getClaudeSettings(machine: string): Promise<ClaudeSettings
 export async function saveClaudeSettings(machine: string, settings: Record<string, unknown>, base: string): Promise<ClaudeSettingsFile | { error: string }> {
   try {
     return await daemon<ClaudeSettingsFile>("/api/claude-settings", { machine, method: "PUT", json: { settings, base } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function getAgentSettings(machine: string, agent: HarnessSettingsFile["agent"]): Promise<HarnessSettingsFile | { error: string }> {
+  try {
+    return await daemon<HarnessSettingsFile>(`/api/agents/${agent}/settings`, { machine });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Save a coding agent's settings: the forms' object, or the file's text edited by hand. */
+export async function saveAgentSettings(machine: string, agent: HarnessSettingsFile["agent"], change: { settings: Record<string, unknown> } | { text: string }, base: string): Promise<HarnessSettingsFile | { error: string }> {
+  try {
+    return await daemon<HarnessSettingsFile>(`/api/agents/${agent}/settings`, { machine, method: "PUT", json: { ...change, base } });
   } catch (err) {
     return fail(err);
   }

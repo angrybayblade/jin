@@ -1,9 +1,10 @@
 "use client";
 import { LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AgentSettingsEditor } from "@/components/AgentSettings";
 import { ClaudeSettingsEditor } from "@/components/ClaudeSettings";
-import { getClaudeSettings, listAgents, setDefaultAgent } from "@/lib/actions";
-import type { AgentId, ClaudeSettingsFile, MachineAgents } from "@/lib/daemon";
+import { getAgentSettings, getClaudeSettings, listAgents, setDefaultAgent } from "@/lib/actions";
+import type { AgentId, ClaudeSettingsFile, HarnessSettingsFile, MachineAgents } from "@/lib/daemon";
 
 /**
  * A machine's coding agents, split the way its page is: the main column picks one (and marks the
@@ -11,14 +12,6 @@ import type { AgentId, ClaudeSettingsFile, MachineAgents } from "@/lib/daemon";
  */
 
 type Agent = MachineAgents["agents"][number];
-
-/** Where each harness keeps its own settings on a machine (jin adds its hooks per launch and leaves these files alone). */
-const CONFIG: Record<AgentId, string> = {
-  claude: "~/.claude/settings.json",
-  codex: "~/.codex/config.toml",
-  pi: "~/.pi/agent/settings.json",
-  opencode: "~/.config/opencode/opencode.json",
-};
 
 /** A machine's agents, loaded once for its page (once it can answer); `pick` is the one its side panel shows (the default until another is picked). */
 export function useMachineAgents(machine: string, enabled = true) {
@@ -153,22 +146,8 @@ export function AgentPanel({ agent, isDefault, machine, name, makeDefault }: { a
       {agent.installed && agent.problem && <p className="machine-error">{agent.problem}</p>}
       {!agent.installed && <p className="meta">{agent.label} is not installed on {name}. Install it there, then it can run jin&apos;s sessions.</p>}
       {agent.installed &&
-        (agent.id === "claude" ? (
-          <ClaudeSettingsCard machine={machine} name={name} />
-        ) : (
-          <section className="md-card">
-            <div className="md-card-head is-static">
-              <h3>Settings</h3>
-              <span className="meta mono">{CONFIG[agent.id]}</span>
-            </div>
-            <div className="md-card-body">
-              <p className="meta">
-                {agent.label} keeps its own settings in <span className="mono">{CONFIG[agent.id]}</span> on {name}. jin passes its hooks, tools and the task&apos;s rules with each launch and does not edit that
-                file{agent.id === "codex" ? " (apart from trusting jin's hooks, a hooks.state entry)" : ""}.
-              </p>
-            </div>
-          </section>
-        ))}
+        !agent.problem &&
+        (agent.id === "claude" ? <ClaudeSettingsCard machine={machine} name={name} /> : <AgentSettingsCard key={agent.id} agent={agent.id} label={agent.label} machine={machine} name={name} />)}
     </SidePanel>
   );
 }
@@ -198,4 +177,30 @@ function ClaudeSettingsCard({ machine, name }: { machine: string; name: string }
       </p>
     );
   return <ClaudeSettingsEditor key={file.hash} initial={file} machine={machine} name={name} onSaved={setFile} />;
+}
+
+/** Codex's, pi's or opencode's settings file on a machine, in the side panel. */
+function AgentSettingsCard({ agent, label, machine, name }: { agent: HarnessSettingsFile["agent"]; label: string; machine: string; name: string }) {
+  const [file, setFile] = useState<HarnessSettingsFile | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (file) return;
+    let live = true;
+    void getAgentSettings(machine, agent).then((r) => {
+      if (!live) return;
+      if ("hash" in r) setFile(r);
+      else setError(r.error);
+    });
+    return () => {
+      live = false;
+    };
+  }, [file, machine, agent]);
+  if (error) return <p className="machine-error">{error}</p>;
+  if (!file)
+    return (
+      <p className="meta">
+        <LoaderCircle size={12} className="spin" /> Reading {label}&apos;s settings on {name}…
+      </p>
+    );
+  return <AgentSettingsEditor key={file.hash} initial={file} machine={machine} name={name} label={label} onSaved={setFile} />;
 }

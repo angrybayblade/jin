@@ -161,6 +161,19 @@ export interface ClaudeSettingsFile {
   error: string | null;
 }
 
+/** A coding agent's own settings file on a machine (Codex, pi or opencode), as its daemon reads it. */
+export interface HarnessSettingsFile {
+  agent: "codex" | "pi" | "opencode";
+  path: string;
+  exists: boolean;
+  format: "toml" | "json" | "jsonc";
+  text: string;
+  /** null: the file does not parse (see error); fix it as text. */
+  settings: Record<string, unknown> | null;
+  hash: string;
+  error: string | null;
+}
+
 export type SessionState = "running" | "waiting_approval" | "idle" | "failed" | "interrupted";
 
 export type ChatKind = "jin" | "desk" | "slack" | "linear" | "notion" | "gmail" | "github" | "doc";

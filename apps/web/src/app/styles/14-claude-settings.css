@@ -129,3 +129,39 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Codex's, pi's and opencode's editors: MCP servers, Codex's projects and opencode's permission rules. */
+.cs-forms {
+  display: contents;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.cs-forms:disabled > * {
+  opacity: 0.55;
+}
+.cs-row.is-server {
+  grid-template-columns: auto minmax(80px, 1fr) minmax(0, 2fr) auto;
+}
+.cs-row.is-server-plain {
+  grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr) auto;
+}
+.cs-row.is-new-server {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+}
+.cs-row.is-project {
+  grid-template-columns: minmax(0, 1fr) 130px auto;
+}
+.cs-row.is-rule {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 84px auto;
+}
+.cs-server-name {
+  font-size: var(--type-meta);
+}
+.cs-server-what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-meta);
+}
