@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 
 // Ordered migrations; pragma user_version records how many have run.
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   `
   create table workspaces (
     id text primary key,
@@ -294,6 +294,22 @@ const MIGRATIONS: string[] = [
   `,
   // 19: a room can have a name of its own (its tab says "Room" until it does).
   `alter table rooms add column name text;`,
+  // 20: memory: every memory artifact in one table. A task's journal is its rows (level 'task');
+  // promotion raises a row's level, so the journal and long-term memory are the same row. A row
+  // that replaces another names it (supersedes) and the old one is kept, marked.
+  `
+  alter table journal rename to memory;
+  alter table memory add column level text not null default 'task';
+  alter table memory add column workspace text;
+  alter table memory add column status text not null default 'active';
+  alter table memory add column supersedes text;
+  alter table memory add column promoted_at text;
+  alter table memory add column promoted_by text;
+  update memory set workspace = (select workspace from tasks where tasks.id = memory.task_id);
+  drop index if exists journal_task;
+  create index memory_task on memory (task_id, at);
+  create index memory_scope on memory (level, workspace);
+  `,
 ];
 
 export function openDb(home: string): Database {

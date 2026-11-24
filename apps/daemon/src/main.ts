@@ -273,6 +273,15 @@ const journal = new Journal(db, (terminalId) => {
   } catch {
     return null;
   }
+}, {
+  // A row belongs to its task's workspace (long-term memory is scoped by workspace).
+  workspaceOf: (taskId) => {
+    try {
+      return tasks.get(taskId).workspace;
+    } catch {
+      return null;
+    }
+  },
 });
 journalRoutes(app.router, journal);
 agentHookRoutes(app.router, {

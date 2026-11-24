@@ -5,7 +5,8 @@ import { now } from "./db";
 import { body, HttpError, json, type Router } from "./http";
 
 /**
- * A task's work journal. Claude Code writes the decisions, the work done and what it found,
+ * A task's work journal, kept as rows of jin's memory (one table for every memory artifact; a
+ * task's journal is its task-level rows). Claude Code writes the decisions, the work done and what it found,
  * each under a concern (through jin's `journal` MCP tool); jin's hooks add the evidence: the
  * files it changed, its commits and test runs, attached to its latest entry in the same turn.
  * Changes with no entry in their turn are kept as "not journaled", so gaps show.
@@ -30,6 +31,12 @@ export interface JournalEntry {
   why: string | null;
   refs: JournalRef[];
   at: string;
+  /** Memory: "task" (the task's own) until promoted; the workspace it belongs to. */
+  level: "task" | "global";
+  workspace: string | null;
+  /** A row a later one replaced is kept, "superseded". */
+  status: "active" | "superseded" | "dropped";
+  supersedes: string | null;
 }
 
 export interface JournalView {
@@ -52,6 +59,10 @@ const toEntry = (r: any): JournalEntry => ({
   why: r.why,
   refs: JSON.parse(r.refs ?? "[]"),
   at: r.at,
+  level: r.level ?? "task",
+  workspace: r.workspace ?? null,
+  status: r.status ?? "active",
+  supersedes: r.supersedes ?? null,
 });
 
 const TEST_CMD = /\b(bun test|vitest|jest|pytest|go test|cargo test|(?:npm|pnpm|yarn)(?: run)? test|make test)\b/;
@@ -80,16 +91,24 @@ export class Journal {
   constructor(
     private db: Database,
     private terminalOf: TerminalOf,
+    private opts: { workspaceOf?: (taskId: string) => string | null } = {},
   ) {}
 
   private concerns(taskId: string): string[] {
-    return (this.db.query("select concern from journal where task_id = ? and concern is not null group by concern order by min(at)").all(taskId) as { concern: string }[]).map((r) => r.concern);
+    return (this.db.query("select concern from memory where task_id = ? and concern is not null group by concern order by min(at)").all(taskId) as { concern: string }[]).map((r) => r.concern);
   }
 
   /** Claude Code writes an entry. Returns the reply it sees: short, with the existing concerns when it names a new one. */
-  add(terminalId: string, e: { concern?: string; kind?: string; text?: string; why?: string }): { entry: JournalEntry; reply: string } {
+  add(terminalId: string, e: { concern?: string; kind?: string; text?: string; why?: string; supersedes?: string }): { entry: JournalEntry; reply: string } {
     const t = this.terminalOf(terminalId);
     if (!t?.taskId) throw new HttpError(400, "the journal is for Claude Code in a task");
+    return this.write(t.taskId, { terminalId, session: t.title }, e);
+  }
+
+  /** Write a row of a task's journal, for an agent named `session` (a tab's title, a room agent's @handle). */
+  write(taskId: string, by: { terminalId: string | null; session: string }, e: { concern?: string; kind?: string; text?: string; why?: string; supersedes?: string }): { entry: JournalEntry; reply: string } {
+    const terminalId = by.terminalId;
+    const t = { taskId, title: by.session };
     const name = (e.concern ?? "").trim().replace(/\s+/g, " ").slice(0, 60);
     const text = (e.text ?? "").trim().replace(/\s+/g, " ").slice(0, 300);
     if (!name || !text) throw new HttpError(400, "concern and text are required");
@@ -98,11 +117,21 @@ export class Journal {
     // The same concern in another case or spacing is that concern.
     const same = existing.find((c) => c.toLowerCase() === name.toLowerCase());
     const concern = same ?? name;
-    const entry: JournalEntry = { id: randomUUID(), taskId: t.taskId, terminalId, session: t.title, concern, kind: e.kind as JournalKind, text, why: e.why?.trim().slice(0, 300) || null, refs: [], at: now() };
-    this.db
-      .query("insert into journal (id, task_id, terminal_id, session, concern, kind, text, why, refs, at) values (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)")
-      .run(entry.id, entry.taskId, terminalId, entry.session, concern, entry.kind, text, entry.why, entry.at);
-    this.current.set(terminalId, { entry: entry.id, change: null });
+    // A row replaces another of the same task; the old one stays, marked.
+    const supersedes = e.supersedes?.trim() || null;
+    if (supersedes) {
+      const old = this.db.query("select task_id from memory where id = ?").get(supersedes) as { task_id: string } | null;
+      if (!old || old.task_id !== t.taskId) throw new HttpError(400, `${supersedes} is not in this task's memory`);
+    }
+    const workspace = this.opts.workspaceOf?.(t.taskId) ?? null;
+    const entry: JournalEntry = { id: randomUUID(), taskId: t.taskId, terminalId, session: t.title, concern, kind: e.kind as JournalKind, text, why: e.why?.trim().slice(0, 300) || null, refs: [], at: now(), level: "task", workspace, status: "active", supersedes };
+    this.db.transaction(() => {
+      this.db
+        .query("insert into memory (id, task_id, terminal_id, session, concern, kind, text, why, refs, at, level, workspace, status, supersedes) values (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, 'task', ?, 'active', ?)")
+        .run(entry.id, entry.taskId, terminalId, entry.session, concern, entry.kind, text, entry.why, entry.at, workspace, supersedes);
+      if (supersedes) this.db.query("update memory set status = 'superseded' where id = ?").run(supersedes);
+    })();
+    if (terminalId) this.current.set(terminalId, { entry: entry.id, change: null });
     const reply = same || !existing.length ? "ok" : `ok; new concern "${concern}" (existing: ${existing.slice(0, 12).join(", ")})`;
     return { entry, reply };
   }
@@ -120,31 +149,36 @@ export class Journal {
     if (!ref) return;
     const cur = this.current.get(terminalId) ?? { entry: null, change: null };
     const target = cur.entry ?? cur.change;
-    const row = target ? (this.db.query("select refs from journal where id = ?").get(target) as { refs: string } | null) : null;
+    const row = target ? (this.db.query("select refs from memory where id = ?").get(target) as { refs: string } | null) : null;
     if (target && row) {
       const refs = JSON.parse(row.refs) as JournalRef[];
       if (!refs.some((r) => r.type === ref.type && r.text === ref.text)) {
         refs.push(ref);
-        this.db.query("update journal set refs = ? where id = ?").run(JSON.stringify(refs.slice(-50)), target);
+        this.db.query("update memory set refs = ? where id = ?").run(JSON.stringify(refs.slice(-50)), target);
       }
       return;
     }
     // Nothing journaled yet this turn: one "change" row per turn collects the evidence.
     const id = randomUUID();
     this.db
-      .query("insert into journal (id, task_id, terminal_id, session, concern, kind, text, why, refs, at) values (?, ?, ?, ?, null, 'change', 'Changes without a journal entry', null, ?, ?)")
-      .run(id, t.taskId, terminalId, t.title, JSON.stringify([ref]), now());
+      .query("insert into memory (id, task_id, terminal_id, session, concern, kind, text, why, refs, at, workspace) values (?, ?, ?, ?, null, 'change', 'Changes without a journal entry', null, ?, ?, ?)")
+      .run(id, t.taskId, terminalId, t.title, JSON.stringify([ref]), now(), this.opts.workspaceOf?.(t.taskId) ?? null);
     this.current.set(terminalId, { entry: null, change: id });
   }
 
   /** Journal entries (not the unjournaled changes) since a time, across tasks, newest first. */
   recent(since: string, limit = 200): JournalEntry[] {
-    return (this.db.query("select * from journal where at > ? and concern is not null order by at desc, rowid desc limit ?").all(since, limit) as any[]).map(toEntry);
+    return (this.db.query("select * from memory where at > ? and concern is not null order by at desc, rowid desc limit ?").all(since, limit) as any[]).map(toEntry);
+  }
+
+  /** The task's live rows (its journal entries, superseded and dropped ones left out), oldest first. */
+  forTask(taskId: string): JournalEntry[] {
+    return (this.db.query("select * from memory where task_id = ? and concern is not null and status = 'active' order by at, rowid").all(taskId) as any[]).map(toEntry);
   }
 
   /** The task's journal: concerns in the order they started, entries in order within each. */
   view(taskId: string): JournalView {
-    const rows = (this.db.query("select * from journal where task_id = ? order by at, rowid").all(taskId) as any[]).map(toEntry);
+    const rows = (this.db.query("select * from memory where task_id = ? order by at, rowid").all(taskId) as any[]).map(toEntry);
     const byConcern = new Map<string, JournalView["concerns"][number]>();
     const unjournaled: JournalEntry[] = [];
     for (const e of rows) {
