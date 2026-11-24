@@ -1,8 +1,8 @@
 "use client";
 import { Empty, Failed, Loading } from "@/components/States";
-import { BookMarked, CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Hash, Lightbulb, PenLine, RefreshCw, Split, X } from "lucide-react";
+import { BookMarked, CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Hash, Lightbulb, PenLine, Plus, RefreshCw, Split, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getJournal, getPreContext, refreshPreContext, removePreContext } from "@/lib/actions";
+import { addPreContext, getJournal, getPreContext, listMemory, refreshPreContext, removePreContext } from "@/lib/actions";
 import type { JournalEntry, JournalView, PreContextPick } from "@/lib/daemon";
 
 const KIND = {
@@ -54,6 +54,39 @@ function Entry({ e, showSession, onOpen }: { e: JournalEntry; showSession: boole
         </span>
       </div>
     </li>
+  );
+}
+
+/** Find a kept memory and add it to the task's pre-context (yours: a refresh keeps it). */
+function AddFromMemory({ taskId, picked, onPicks }: { taskId: string; picked: Set<string>; onPicks: (p: PreContextPick[]) => void }) {
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState<JournalEntry[]>([]);
+  useEffect(() => {
+    if (!q.trim()) return setFound([]);
+    let live = true;
+    const t = setTimeout(() => void listMemory(q.trim()).then((r) => live && setFound(r.slice(0, 6)), () => {}), 200);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [q]);
+  return (
+    <div className="jr-add">
+      <input value={q} placeholder="Add from memory…" onChange={(e) => setQ(e.target.value)} aria-label="Find a kept memory to add to this task" />
+      {found.length > 0 && (
+        <ul className="jr-add-list">
+          {found.map((e) => (
+            <li key={e.id}>
+              <button type="button" disabled={picked.has(e.id)} onClick={async () => (onPicks((await addPreContext(taskId, e.id)).picks), setQ(""))} title={picked.has(e.id) ? "Already in this task's pre-context" : "Add to this task"}>
+                <Plus size={11} />
+                <span>{e.text}</span>
+                <span className="meta">{e.taskId}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -116,6 +149,7 @@ function FromEarlier({ taskId }: { taskId: string }) {
       ) : (
         <p className="meta jr-earlier-none">Nothing from earlier tasks bears on this one yet.</p>
       )}
+      <AddFromMemory taskId={taskId} picked={new Set(picks.map((p) => p.memoryId))} onPicks={setPicks} />
     </details>
   );
 }

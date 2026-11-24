@@ -317,6 +317,9 @@ export async function getPreContext(taskId: string): Promise<{ picks: PreContext
 export async function refreshPreContext(taskId: string): Promise<{ picks: PreContextPick[] }> {
   return failSafe(async () => daemon<{ picks: PreContextPick[] }>(`/api/tasks/${encodeURIComponent(taskId)}/pre-context/refresh`, { method: "POST" }));
 }
+export async function addPreContext(taskId: string, memoryId: string): Promise<{ picks: PreContextPick[] }> {
+  return failSafe(async () => daemon<{ picks: PreContextPick[] }>(`/api/tasks/${encodeURIComponent(taskId)}/pre-context`, { method: "POST", json: { memoryId } }));
+}
 export async function removePreContext(taskId: string, memoryId: string): Promise<{ picks: PreContextPick[] }> {
   return failSafe(async () => daemon<{ picks: PreContextPick[] }>(`/api/tasks/${encodeURIComponent(taskId)}/pre-context/${encodeURIComponent(memoryId)}`, { method: "DELETE" }));
 }

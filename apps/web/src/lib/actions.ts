@@ -77,6 +77,7 @@ export const editMemory = rethrow(server.editMemory);
 export const getPreContext = rethrow(server.getPreContext);
 export const refreshPreContext = rethrow(server.refreshPreContext);
 export const removePreContext = rethrow(server.removePreContext);
+export const addPreContext = rethrow(server.addPreContext);
 export const archiveDoc = rethrow(server.archiveDoc);
 export const askDoc = rethrow(server.askDoc);
 export const docVersions = rethrow(server.docVersions);
