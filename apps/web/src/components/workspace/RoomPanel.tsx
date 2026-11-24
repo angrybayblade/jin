@@ -5,9 +5,10 @@ import { decideRoomApproval, getRoom, modelChoices, pinRoomMessage, postRoomMess
 import type { ModelChoices, RoomAgent, RoomApproval, RoomMessage, RoomProfile, SessionEvent } from "@/lib/daemon";
 import { openContextMenu, type MenuItem } from "../ContextMenu";
 import { Markdown } from "../Markdown";
-import { ActionMark, StatusMark } from "../ThermalMark";
+import { ActionMark } from "../ThermalMark";
 import { Transcript } from "../Transcript";
 import { AGENT_LABEL, fromRoom } from "@/lib/agent-state";
+import { AgentGlob, globState } from "@/components/AgentGlob";
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const busy = (a: RoomAgent) => a.state === "running" || a.state === "waiting_approval" || a.state === "queued";
@@ -164,7 +165,11 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
             ) : (
               <article key={m.seq} id={`room-msg-${m.seq}`} className={`room-msg ${m.author === "you" ? "is-you" : ""}`} data-color={byId.get(m.author)?.color ?? (m.author === "you" ? undefined : "gone")}>
                 <header className="room-msg-head">
-                  <span className="room-dot" aria-hidden="true" />
+                  {m.author === "you" ? (
+                    <AgentGlob id="you" color="you" size={22} animated={false} />
+                  ) : (
+                    <AgentGlob id={m.author} color={byId.get(m.author)?.color ?? "gone"} size={22} state={byId.get(m.author) ? globState(fromRoom(byId.get(m.author)!.state)) : "idle"} animated={byId.has(m.author)} />
+                  )}
                   <span className="room-msg-name">{m.author === "you" ? "You" : m.authorName}</span>
                   {m.authorHandle && <span className="meta">@{m.authorHandle}</span>}
                   <span className="meta">{clock(m.at)}</span>
@@ -189,7 +194,7 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
                   <Markdown content={a.draft} streaming />
                 </div>
               )}
-              <StatusMark state={fromRoom(a.state)} />
+              <AgentGlob id={a.id} color={a.color} size={22} state={globState(fromRoom(a.state))} label={`${a.name}: ${STATE(a.state)}`} />
               <span className="room-msg-name">{a.name}</span>
               <span className="meta room-working-what">{a.state === "queued" ? "waiting its turn" : a.state === "waiting_approval" ? "needs your approval" : (a.activity ?? "working")}</span>
               <button type="button" className="button quiet small" onClick={() => setSide({ view: "activity", id: a.id })}>
@@ -246,7 +251,7 @@ export function RoomPanel({ taskId, intent, onOpenDoc, onOpenChanges, onSeen }: 
               {agents.map((a) => (
                 <li key={a.id} className="room-agent" data-color={a.color} onContextMenu={(e) => openContextMenu(e, agentMenu(a))}>
                   <button type="button" className="room-agent-main" onClick={() => composer.current?.insert(a.handle)} title={`Mention @${a.handle}\n\n${a.brief}`}>
-                    <span className="room-dot" aria-hidden="true" />
+                    <AgentGlob id={a.id} color={a.color} size={30} state={globState(fromRoom(a.state))} />
                     <span className="room-agent-text">
                       <span className="room-agent-name">
                         {a.name} <span className="meta">@{a.handle}</span>
@@ -406,7 +411,7 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
 
   const options = useMemo(() => {
     if (!pick) return [];
-    const all = [...agents.map((a) => ({ handle: a.handle, label: a.name, hint: a.access === "writer" ? "writes code" : "read-only", color: a.color as string | undefined })), { handle: "all", label: "Everyone", hint: "every agent", color: undefined }];
+    const all = [...agents.map((a) => ({ id: a.id as string | null, handle: a.handle, label: a.name, hint: a.access === "writer" ? "writes code" : "read-only", color: a.color as string | undefined })), { id: null, handle: "all", label: "Everyone", hint: "every agent", color: undefined }];
     return all.filter((o) => o.handle.startsWith(pick.q.toLowerCase()));
   }, [pick, agents]);
 
@@ -457,7 +462,7 @@ function Composer({ agents, onSend, ref }: { agents: RoomAgent[]; onSend: (text:
           {options.map((o, i) => (
             <li key={o.handle} role="option" aria-selected={i === pick.at}>
               <button type="button" className={i === pick.at ? "is-active" : ""} onMouseDown={(e) => (e.preventDefault(), choose(o.handle))} data-color={o.color}>
-                <span className="room-dot" aria-hidden="true" />
+                {o.id ? <AgentGlob id={o.id} color={o.color} size={16} /> : <span className="room-dot" aria-hidden="true" />}
                 <span>@{o.handle}</span>
                 <span className="meta">
                   {o.label} · {o.hint}

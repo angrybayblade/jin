@@ -68,7 +68,8 @@
 }
 .room-msg-body {
   min-width: 0;
-  padding-left: 14px;
+  /* Under the name, past the agent's picture. */
+  padding-left: 28px;
   overflow-wrap: anywhere;
 }
 .room-you-text {
@@ -249,8 +250,8 @@ button.room-handle:hover {
   text-align: left;
   cursor: pointer;
 }
-.room-agent-main .room-dot {
-  margin-top: 6px;
+.room-agent-main .agent-glob {
+  margin-top: 2px;
 }
 .room-agent-text {
   display: grid;
@@ -466,4 +467,21 @@ button.room-handle:hover {
 button.room-ref {
   font-family: inherit;
   cursor: pointer;
+}
+
+/* An agent's picture: its glob (components/AgentGlob), or a gradient without WebGL. */
+.agent-glob {
+  flex: none;
+  display: inline-block;
+  width: var(--glob-size);
+  height: var(--glob-size);
+}
+.agent-glob canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.agent-glob.is-fallback {
+  border-radius: 50%;
+  background: var(--glob-fallback);
 }
