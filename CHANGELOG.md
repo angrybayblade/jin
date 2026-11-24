@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Tag context in a task's room.** `@` in the room offers, besides the agents, the task's PRs,
+  issues and tasks, jin docs and the files in its worktree. Your message shows what you tagged
+  (chips open the file, doc or PR), and the agents are handed it: a doc's text, a file's path, a
+  PR's or issue's live state.
+- **Fix: a task with several repos was cleaned up when the PRs it knew of merged,** even if
+  another repo still had work outside a PR (its PR not opened yet). It now stays open, and jin
+  tells you which repo holds it, until that work is in a merged PR too.
 - **Faster pages.** The desk shows at once (a cold desk took ~3.7 s waiting on the check of
   Claude's connectors; that notice now streams in after), and Live no longer waits on three
   Composio CLI calls per visit (576 ms → 41 ms: the last reading is served, refreshed behind).
