@@ -530,11 +530,13 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
         <dl className="md-facts">
           <div>
             <dt>System</dt>
-            <dd>{m.system ?? "—"}</dd>
+            <dd title={m.system ?? undefined}>{m.system ?? "—"}</dd>
           </div>
           <div>
             <dt>jin</dt>
-            <dd className="mono">{m.version ?? "—"}</dd>
+            <dd className="mono" title={m.version ?? undefined}>
+              {m.version ?? "—"}
+            </dd>
           </div>
           <div>
             <dt>Tunnel</dt>
