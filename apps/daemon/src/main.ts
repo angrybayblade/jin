@@ -354,9 +354,20 @@ prs.onMerged((taskId, pr) => {
   const task = { id: t.id, title: t.title ?? t.slug, issue: t.issue && { ...t.issue, url: t.issue.url ?? tracker?.urlOf(t.issue.id) ?? null, noun: tracker?.noun ?? "issue", read: tracker?.howToRead(t.issue.id) ?? null, close: tracker?.howToClose ?? null } };
   fireEvent({ event: "pr.merged", key: pr.url, payload: { task, pr: { url: pr.url, repo: pr.repo, number: pr.number, title: pr.title } } });
   const all = prs.list(taskId);
-  if (all.every((p) => p.state === "MERGED" || p.state === "CLOSED")) {
-    fireEvent({ event: "task.merged", key: taskId, payload: { task, prs: all.map((p) => ({ url: p.url, repo: p.repo, number: p.number, title: p.title, state: p.state })) } });
+  if (!all.every((p) => p.state === "MERGED" || p.state === "CLOSED")) return;
+  // A repo with work but no PR yet (its PR not opened, or not attached) holds the task open: its
+  // merge, once attached, comes back here.
+  const unfinished = tasks.unfinished(taskId, all.map((p) => p.repo.split("/").pop() ?? p.repo));
+  if (unfinished.length) {
+    notifier.notify({
+      key: `unfinished:${taskId}`,
+      title: `${t.id}: a PR merged; the task stays open`,
+      body: `Not in a pull request yet: ${unfinished.map((u) => `${u.repo} (${u.problem})`).join(", ")}. jin cleans up once those are merged too.`,
+      path: `/t/${t.id}`,
+    });
+    return;
   }
+  fireEvent({ event: "task.merged", key: taskId, payload: { task, prs: all.map((p) => ({ url: p.url, repo: p.repo, number: p.number, title: p.title, state: p.state })) } });
 });
 historyRoutes(app.router, db, { home: config.home, claudeDir: chatClaudeDir });
 // What a machine's agents want you to know shows here, under its name; a click opens it there.

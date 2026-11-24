@@ -248,6 +248,11 @@ export class Tasks {
     return out;
   }
 
+  /** Work the task still has outside its pull requests (see workOutsidePRs); `covered`: the repos that have one. */
+  unfinished(id: string, covered: string[]): { repo: string; problem: string }[] {
+    return workOutsidePRs(this.get(id).dirs, covered);
+  }
+
   /** Remove a task only when nothing would be lost (see unsaved). */
   async removeIfClean(id: string): Promise<Task> {
     const problems = this.unsaved(id);
@@ -313,4 +318,31 @@ export function taskRoutes(router: Router, tasks: Tasks, adapters: Map<string, W
     .on("DELETE", "/api/tasks/:id", (req, p) => json(tasks.startRemoval(p.id!, { discard: new URL(req.url).searchParams.get("discard") === "1" }), 202))
     .on("GET", "/api/tasks/:id/unsaved", (_req, p) => json(tasks.unsaved(p.id!)))
     .on("POST", "/api/tasks/:id/remove-if-clean", async (_req, p) => json(await tasks.removeIfClean(p.id!)));
+}
+
+/**
+ * Per repo of a task that has no pull request (by name, case-insensitive): uncommitted changes,
+ * and commits that are not on its remote's default branch. Such a repo's work is not done when
+ * the other repos' PRs merge, so the task is not either.
+ */
+export function workOutsidePRs(dirs: Record<string, string>, covered: string[]): { repo: string; problem: string }[] {
+  const git = (dir: string, args: string[]) => {
+    const r = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+    return r.exitCode === 0 ? r.stdout.toString().trim() : null;
+  };
+  const prs = new Set(covered.map((c) => c.toLowerCase()));
+  const out: { repo: string; problem: string }[] = [];
+  for (const [repo, dir] of Object.entries(dirs)) {
+    if (prs.has(repo.toLowerCase()) || !existsSync(dir)) continue;
+    const status = git(dir, ["status", "--porcelain"]);
+    const changed = status ? status.split("\n").length : 0;
+    if (changed) out.push({ repo, problem: `${changed} uncommitted change${changed === 1 ? "" : "s"}` });
+    const base = ["origin/HEAD", "origin/main", "origin/master"].find((ref) => git(dir, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) !== null);
+    if (!base) continue;
+    const ahead = Number(git(dir, ["rev-list", "--count", "HEAD", "--not", base]) ?? 0);
+    // origin/HEAD names the default branch it points at (origin/main).
+    const branch = (base === "origin/HEAD" ? (git(dir, ["rev-parse", "--abbrev-ref", base]) ?? base) : base).replace(/^origin\//, "");
+    if (ahead > 0) out.push({ repo, problem: `${ahead} commit${ahead === 1 ? "" : "s"} not on ${branch}` });
+  }
+  return out;
 }
