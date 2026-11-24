@@ -28,6 +28,7 @@ import { Desks, deskRoutes } from "./desks";
 import { subtaskRoutes } from "./subtasks";
 import { type FiredEvent, Hooks, hookRoutes } from "./hooks";
 import { ClaudeSettings, claudeSettingsRoutes } from "./claude-settings";
+import { harnessSettings, harnessSettingsRoutes } from "./harness-settings";
 import { ChatSkills, chatSkillRoutes } from "./chat-skills";
 import { Composio, composioRoutes, type LiveEvent } from "./composio";
 import { GithubWatch } from "./github-watch";
@@ -220,6 +221,7 @@ tasks.onRemoved((taskId) => {
 const skills = new Skills(config.home);
 skillRoutes(app.router, skills);
 claudeSettingsRoutes(app.router, new ClaudeSettings());
+harnessSettingsRoutes(app.router, harnessSettings());
 const prepareSkills = async (taskId: string) => {
   const tags = tagsFor(tasks.get(taskId).kind);
   const home = homeLink();
