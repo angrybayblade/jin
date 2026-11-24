@@ -310,6 +310,22 @@ export const MIGRATIONS: string[] = [
   create index memory_task on memory (task_id, at);
   create index memory_scope on memory (level, workspace);
   `,
+  // 21: memory is searched by its words: a full-text index over each row's text, reason and
+  // concern, kept in step with the table.
+  `
+  create virtual table memory_fts using fts5(text, why, concern, content = 'memory', content_rowid = 'rowid');
+  insert into memory_fts (memory_fts) values ('rebuild');
+  create trigger memory_fts_insert after insert on memory begin
+    insert into memory_fts (rowid, text, why, concern) values (new.rowid, new.text, new.why, new.concern);
+  end;
+  create trigger memory_fts_delete after delete on memory begin
+    insert into memory_fts (memory_fts, rowid, text, why, concern) values ('delete', old.rowid, old.text, old.why, old.concern);
+  end;
+  create trigger memory_fts_update after update of text, why, concern on memory begin
+    insert into memory_fts (memory_fts, rowid, text, why, concern) values ('delete', old.rowid, old.text, old.why, old.concern);
+    insert into memory_fts (rowid, text, why, concern) values (new.rowid, new.text, new.why, new.concern);
+  end;
+  `,
 ];
 
 export function openDb(home: string): Database {

@@ -171,6 +171,23 @@ export class Journal {
     return (this.db.query("select * from memory where at > ? and concern is not null order by at desc, rowid desc limit ?").all(since, limit) as any[]).map(toEntry);
   }
 
+  /**
+   * Rows whose text, reason or concern has every word of `query` (best matches first), within a
+   * workspace when given; superseded and dropped rows only when asked. What is typed is words to
+   * find, never query syntax.
+   */
+  search(query: string, opts: { workspace?: string; superseded?: boolean; limit?: number } = {}): JournalEntry[] {
+    const words = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
+    if (!words.length) return [];
+    const match = words.map((w) => `"${w}"`).join(" ");
+    const where = ["memory_fts match ?", "m.concern is not null"];
+    const args: (string | number)[] = [match];
+    if (opts.workspace) (where.push("m.workspace = ?"), args.push(opts.workspace));
+    if (!opts.superseded) where.push("m.status = 'active'");
+    args.push(Math.min(opts.limit ?? 20, 100));
+    return (this.db.query(`select m.* from memory_fts join memory m on m.rowid = memory_fts.rowid where ${where.join(" and ")} order by bm25(memory_fts) limit ?`).all(...args) as any[]).map(toEntry);
+  }
+
   /** The task's live rows (its journal entries, superseded and dropped ones left out), oldest first. */
   forTask(taskId: string): JournalEntry[] {
     return (this.db.query("select * from memory where task_id = ? and concern is not null and status = 'active' order by at, rowid").all(taskId) as any[]).map(toEntry);
