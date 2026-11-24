@@ -1,6 +1,6 @@
 "use client";
 import { Empty, Failed, Loading } from "@/components/States";
-import { CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Lightbulb, PenLine, Split } from "lucide-react";
+import { BookMarked, CheckCircle2, ChevronRight, FileText, FlaskConical, GitCommitHorizontal, Hash, Lightbulb, PenLine, Split } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getJournal } from "@/lib/actions";
 import type { JournalEntry, JournalView } from "@/lib/daemon";
@@ -10,6 +10,7 @@ const KIND = {
   done: { Icon: CheckCircle2, label: "Done" },
   found: { Icon: Lightbulb, label: "Found" },
   change: { Icon: PenLine, label: "Changed" },
+  summary: { Icon: BookMarked, label: "Summary" },
 } as const;
 
 const ago = (iso: string) => {
@@ -19,11 +20,18 @@ const ago = (iso: string) => {
 
 function Entry({ e, showSession, onOpen }: { e: JournalEntry; showSession: boolean; onOpen: (path: string) => void }) {
   const { Icon, label } = KIND[e.kind];
+  const status = e.status ?? "active";
   return (
-    <li className={`jr-entry is-${e.kind}`}>
+    <li className={`jr-entry is-${e.kind} is-${status}`}>
       <Icon size={13} className="jr-kind" aria-label={label} />
       <div className="jr-body">
         <span className="jr-text">{e.text}</span>
+        {status !== "active" && <span className="jr-flag" title={status === "superseded" ? "A later entry replaced this one" : "Dropped when the task was wrapped up"}>{status === "superseded" ? "replaced" : "dropped"}</span>}
+        {e.level === "global" && status === "active" && (
+          <span className="jr-flag is-kept" title="Kept in long-term memory: agents in later tasks of this workspace find it">
+            kept
+          </span>
+        )}
         {e.why && <div className="jr-why">{e.why}</div>}
         {e.refs.length > 0 && (
           <div className="jr-refs">
@@ -34,7 +42,7 @@ function Entry({ e, showSession, onOpen }: { e: JournalEntry; showSession: boole
                 </button>
               ) : (
                 <span key={`${r.type}:${r.text}`} className="jr-ref" title={r.text}>
-                  {r.type === "commit" ? <GitCommitHorizontal size={11} /> : <FlaskConical size={11} />} <span>{r.text}</span>
+                  {r.type === "commit" ? <GitCommitHorizontal size={11} /> : r.type === "id" ? <Hash size={11} /> : <FlaskConical size={11} />} <span>{r.text}</span>
                 </span>
               ),
             )}

@@ -5,6 +5,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowRight,
+  BookMarked,
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
@@ -23,7 +24,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, Suspense, useEffect, useState } from "react";
-import { openTerminal, removeTask, revealTask, updateTask } from "@/lib/actions";
+import { openTerminal, removeTask, revealTask, updateTask, wrapUpTask } from "@/lib/actions";
 import type { DocSummary, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
 import { splitPath, taskHref } from "@/lib/paths";
 import { setDrawer } from "@/lib/phone";
@@ -113,6 +114,17 @@ export function Sidebar({
     { label: "Copy path", icon: ClipboardCopy, run: () => copy(t.root) },
     ...(machine === "local" ? [{ label: "Reveal in Finder", icon: FolderOpen, run: () => revealTask(t.id, machine) }] : []),
     { divider: true },
+    {
+      label: "Wrap up",
+      icon: BookMarked,
+      hint: "keep what it learned",
+      // jin reads the task's journal and keeps what holds beyond it (a merged task does this itself).
+      run: async () => {
+        const res = await wrapUpTask(t.id, machine);
+        if ("error" in res) setError(res.error);
+        else router.refresh();
+      },
+    },
     t.archived
       ? { label: "Unarchive", icon: ArchiveRestore, run: () => updateTask(t.id, { archived: false }, machine).then(() => router.refresh()) }
       : { label: "Archive", icon: Archive, hint: "hide from the list", run: () => updateTask(t.id, { archived: true }, machine).then(() => router.refresh()) },

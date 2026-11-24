@@ -453,3 +453,32 @@ button.jr-ref:hover {
 .side-panel.is-main .feed-groups {
   padding: var(--space-2) var(--space-3);
 }
+
+/* Memory: a replaced or dropped entry stays in the journal, struck or faded; a kept one is long-term. */
+.jr-entry.is-superseded .jr-text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.jr-entry.is-dropped {
+  opacity: 0.5;
+}
+.jr-flag {
+  display: inline-block;
+  justify-self: start;
+  align-self: start;
+  width: fit-content;
+  margin: 2px 0 0;
+  padding: 0 5px;
+  border-radius: var(--radius-control);
+  background: var(--hover);
+  color: var(--secondary);
+  font-size: 11px;
+  vertical-align: 1px;
+}
+.jr-flag.is-kept {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+.jr-entry.is-summary .jr-kind {
+  color: var(--accent, var(--ink));
+}

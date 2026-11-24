@@ -286,6 +286,15 @@ export async function roomTagOptions(taskId: string, q: string): Promise<RoomTag
   ];
 }
 
+/** Wrap up a task (a review, a scratch task, work you stopped): jin keeps what it learned, nothing else. */
+export async function wrapUpTask(taskId: string, machine?: string): Promise<{ chatId: string } | { error: string }> {
+  try {
+    return await daemon<{ chatId: string }>(`/api/tasks/${encodeURIComponent(taskId)}/wrap-up`, { method: "POST", ...(machine ? { machine } : {}) });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function findFiles(taskId: string, q: string): Promise<{ path: string }[]> {
   return failSafe(async () => {
     return daemon<{ path: string }[]>(`/api/tasks/${encodeURIComponent(taskId)}/find?q=${encodeURIComponent(q)}&limit=40`);

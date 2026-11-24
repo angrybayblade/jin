@@ -630,18 +630,23 @@ export interface HooksStatus {
 // ---------------------------------------------------------------- work journal
 
 export interface JournalRef {
-  type: "file" | "commit" | "test";
+  /** id: a platform id (github:org/repo#n, linear:ID, slack:…) a kept memory or a summary names. */
+  type: "file" | "commit" | "test" | "id";
   text: string;
 }
+/** A row of jin's memory: a task's journal entry, or (once kept) long-term memory; the same row either way. */
 export interface JournalEntry {
   id: string;
   session: string | null;
   concern: string | null;
-  kind: "decision" | "done" | "found" | "change";
+  kind: "decision" | "done" | "found" | "change" | "summary";
   text: string;
   why: string | null;
   refs: JournalRef[];
   at: string;
+  level?: "task" | "global";
+  status?: "active" | "superseded" | "dropped";
+  supersedes?: string | null;
 }
 export interface JournalView {
   concerns: { name: string; startedAt: string; lastAt: string; entries: JournalEntry[] }[];
