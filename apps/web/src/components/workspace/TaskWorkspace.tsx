@@ -4,7 +4,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import { Activity, Archive, ArchiveRestore, ClipboardCopy, File, FileText, FolderTree, GitCompare, GitPullRequest, MoreHorizontal, NotebookPen, PanelRightClose, Users, UserPlus, Square, Trash2, GitFork, PanelRightOpen, Pencil, Play, Plus, RotateCcw, SquareTerminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archivedTerminals, listAgents, clearRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/lib/actions";
+import { archivedTerminals, listAgents, clearRoom, renameRoom, closeTerminal, createTaskDoc, docTab, getRoom, listDocs, roomAgentAction, roomStatus, relabelTaskDoc, renameDoc, openTerminal, readFile, restartTerminal, startTerminal, updateTerminal, writeFile } from "@/lib/actions";
 import { DocPage } from "../docs/DocPage";
 import { docMenu } from "../docs/docMenu";
 import type { DocFull, Session, SessionEvent } from "@/lib/daemon";
@@ -188,7 +188,16 @@ export function TaskWorkspace({
   }, [currentDoc, docData]);
   const openRoom = () => setActive("room");
   // The Room tab says what goes on in it: agents working or waiting on you, and messages you have not seen.
-  const [room, setRoom] = useState<{ working: number; waiting: number; lastSeq: number }>({ working: 0, waiting: 0, lastSeq: 0 });
+  const [room, setRoom] = useState<{ working: number; waiting: number; lastSeq: number; name: string | null }>({ working: 0, waiting: 0, lastSeq: 0, name: null });
+  const [roomRenaming, setRoomRenaming] = useState(false);
+  const roomName = room.name || "Room";
+  const saveRoomName = async (v: string) => {
+    setRoomRenaming(false);
+    // Naming it "Room" again drops the name (an empty field just cancels, as everywhere).
+    const r = await renameRoom(taskId, v.trim().toLowerCase() === "room" ? "" : v);
+    if ("error" in r) setError(r.error);
+    else setRoom(r);
+  };
   const [roomSeen, setRoomSeen] = useState(0);
   const [roomIntent, setRoomIntent] = useState<{ n: number; action: "add-agent" } | null>(null);
   const [roomEpoch, setRoomEpoch] = useState(0);
@@ -213,6 +222,8 @@ export function TaskWorkspace({
     } catch {}
   };
   const roomMenu = (): MenuItem[] => [
+    { label: "Rename", icon: Pencil, run: () => (openRoom(), setRoomRenaming(true)) },
+    { divider: true },
     { label: "Add an agent", icon: UserPlus, run: () => (openRoom(), setRoomIntent((i) => ({ n: (i?.n ?? 0) + 1, action: "add-agent" }))) },
     {
       label: "Copy the conversation",
@@ -631,9 +642,9 @@ export function TaskWorkspace({
             );
           })}
           {roomOpen && (
-            <div role="tab" tabIndex={0} aria-selected={current === "room"} className={`term-tab ${current === "room" ? "is-active" : ""}`} title="Agent room: several agents, each with a role, that you direct" onClick={() => (setActive("room"), toBody())} {...contextMenu(roomMenu)}>
+            <div role="tab" tabIndex={0} aria-selected={current === "room"} className={`term-tab is-closeless ${current === "room" ? "is-active" : ""}`} title={`${room.name ? `${room.name} · ` : ""}Agent room: several agents, each with a role, that you direct`} onClick={() => (setActive("room"), toBody())} onDoubleClick={() => setRoomRenaming(true)} {...contextMenu(roomMenu)}>
               {room.waiting > 0 ? <StatusMark state="needs-you" /> : room.working > 0 ? <StatusMark state="working" /> : <Users size={13} className="tab-icon" />}
-              <span className="term-tab-name">Room</span>
+              {roomRenaming ? <RenameInput value={roomName} label="Rename the room" onCancel={() => setRoomRenaming(false)} onSave={(v) => void saveRoomName(v)} /> : <span className="term-tab-name">{roomName}</span>}
               {current !== "room" && room.lastSeq > roomSeen && <span className="dirty-dot" aria-label="new messages" title="New messages" />}
             </div>
           )}

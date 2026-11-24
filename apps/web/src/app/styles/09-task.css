@@ -33,6 +33,10 @@
   border-radius: var(--radius-control);
   font-size: 12px;
 }
+/* A tab without a close button (the room): as much room on the right as on the left. */
+.task-tabs .term-tab.is-closeless {
+  padding-right: 7px;
+}
 .task-tabs .term-tab .thermal-mark,
 .task-tabs .term-tab canvas {
   width: 12px !important;

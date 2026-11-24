@@ -1108,8 +1108,18 @@ export async function decideRoomApproval(taskId: string, approvalId: string, dec
 }
 
 /** For the task's Room tab: agents working, agents waiting on you, the last message. */
-export async function roomStatus(taskId: string): Promise<{ working: number; waiting: number; lastSeq: number } | null> {
-  return daemon<{ working: number; waiting: number; lastSeq: number }>(roomPath(taskId, "/status")).catch(() => null);
+export async function roomStatus(taskId: string): Promise<RoomTabStatus | null> {
+  return daemon<RoomTabStatus>(roomPath(taskId, "/status")).catch(() => null);
+}
+export type RoomTabStatus = { working: number; waiting: number; lastSeq: number; name: string | null };
+
+/** Name the room (its tab's title); an empty name goes back to "Room". */
+export async function renameRoom(taskId: string, name: string): Promise<RoomTabStatus | { error: string }> {
+  try {
+    return await daemon<RoomTabStatus>(roomPath(taskId, ""), { method: "PATCH", json: { name } });
+  } catch (err) {
+    return fail(err);
+  }
 }
 
 /** Start the room over: its messages go, every agent begins a new session (the agents stay). */
