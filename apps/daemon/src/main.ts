@@ -310,7 +310,9 @@ const homeRows = async (ids: string[]): Promise<JournalEntry[]> => {
 const preContext = new PreContext(db, {
   task: (taskId) => {
     const t = tasks.get(taskId);
-    const about = [t.title ?? t.slug, t.issue ? `Issue: ${t.issue.id}` : "", ...linksOf(taskId).map((l) => `Follows: ${l.label}`)];
+    // What it is, and what its agents have been working on (the journal's concerns).
+    const concerns = [...new Set(journal.forTask(taskId).map((e) => e.concern).filter(Boolean))];
+    const about = [t.title ?? t.slug, t.repos.length ? `Repos: ${t.repos.join(", ")}` : "", t.issue ? `Issue: ${t.issue.id}` : "", ...linksOf(taskId).map((l) => `Follows: ${l.label}`), concerns.length ? `Working on: ${concerns.join(", ")}` : ""];
     return { workspace: t.workspace, brief: about.filter(Boolean).join("\n") };
   },
   candidates: async (workspace, text) => {

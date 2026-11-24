@@ -69,7 +69,8 @@ export class PreContext {
   /** Pick (again): jin's earlier picks go, yours stay. */
   async select(taskId: string): Promise<Pick[]> {
     const t = this.deps.task(taskId);
-    const candidates = await this.deps.candidates(t.workspace, t.brief);
+    // The task's own kept rows are in its journal already.
+    const candidates = (await this.deps.candidates(t.workspace, t.brief)).filter((c) => c.taskId !== taskId);
     const chosen = candidates.length ? await this.deps.choose(t.brief, candidates) : [];
     const known = new Set(candidates.map((c) => c.id));
     const at = now();

@@ -97,3 +97,10 @@ test("memory p3: picking runs once per task: not twice at the same time, and not
   await pre.select("NEW-1");
   expect(calls()).toBe(2);
 });
+
+test("memory p3: a task's own kept rows are not its pre-context (they are in its journal)", async () => {
+  const { pre, proxy, chosen } = setup();
+  await pre.select("OLD-1");
+  expect(chosen.flatMap((c) => c.ids)).not.toContain(proxy.id);
+  expect(pre.list("OLD-1")).toEqual([]);
+});
