@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Memory.** The journal becomes jin's memory: one table, where a task's journal and its
+  long-term memory are the same rows. Room agents now keep the task's journal with its tabs, and
+  every agent in a task reads all of it. When a task is merged, or you **Wrap up** any task from
+  its menu, jin keeps what it learned: lasting decisions and learnings (reworded for use
+  elsewhere), a short summary with the ids of what it touched; agents never promote. Long-term
+  memory lives on the home, scoped by workspace. Each task starts with what earlier tasks kept
+  that bears on it (picked by a small model, shown under "From earlier tasks" in its journal),
+  and agents search the rest with `memory_search`. A **Memory** page (machine menu) lists,
+  searches, rewords and forgets what was kept. Replaced and dropped journal entries stay, marked.
 - **Tag context in a task's room.** `@` in the room offers, besides the agents, the task's PRs,
   issues and tasks, jin docs and the files in its worktree. Your message shows what you tagged
   (chips open the file, doc or PR), and the agents are handed it: a doc's text, a file's path, a

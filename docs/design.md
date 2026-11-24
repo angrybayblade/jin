@@ -225,6 +225,31 @@ archive) · `task_prs` · `sessions` (kind: jin, a desk, or task) · `events` ·
 `terminals` (tabs, Claude Code session ids). Remote machines are files in
 `$JIN_HOME/machines` (mode 0600: each holds its daemon's token).
 
+## Memory
+
+One table, `memory`, holds every memory artifact; a task's journal is its rows.
+
+- **Writing:** every agent in a task (terminal tabs of any coding agent, room agents) writes the
+  task's rows with the `journal` tool: decisions with why, work done, findings. A row that
+  replaces another names it (`supersedes`); the old one stays, marked. Every agent reads all of
+  the task's rows (`task_context` for tabs, `task_journal` in the room).
+- **Promoting:** only jin does it, when a task is done: the merge cleanup's first step, or
+  **Wrap up** on any task (reviews, scratch tasks, abandoned work). It reads the task's rows
+  (`jin_task_memory`), raises the ones that hold beyond the task to long-term (the same row,
+  `level = 'global'`, reworded where needed with the task's wording kept), drops dead ends, and
+  writes one `summary` row with the ids of what the task touched (`jin_keep_memory`). Agents
+  never promote.
+- **Where it lives:** a task's rows on its machine; long-term rows on the home (promotion copies
+  the row there under the same id, with its machine). Long-term memory is scoped by workspace.
+- **Reading:** nothing long-term is loaded wholesale. Each task's **pre-context** is picked by a
+  small model from the workspace's long-term rows (candidates: rows covering the task's words,
+  then recent decisions) and stored as links (`task_context`), never copies; every agent in the
+  task starts with it, and you add or remove picks in the task's journal. Beyond that, agents
+  search with `memory_search` (full-text, SQLite FTS5).
+- **Never stored:** Slack, Linear, Notion or GitHub content; only facts drawn from them, with
+  their ids (`github:org/repo#n`, `linear:ID`), resolved live when read.
+- **You:** the Memory page lists, searches, rewords and forgets long-term rows.
+
 ## Status and next
 
 Released as 0.1.0 (see [CHANGELOG.md](../CHANGELOG.md)). `bun run check` runs the type
