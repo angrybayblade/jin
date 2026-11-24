@@ -1,9 +1,9 @@
 "use client";
-import { HarnessSettings } from "@/components/HarnessSettings";
+import { AgentPanel, AgentSelector, SidePanel, useMachineAgents } from "@/components/MachineAgents";
 import { Empty } from "@/components/States";
-import { Bot, Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   addMachine,
   cancelMachineSignIn,
@@ -19,8 +19,14 @@ import {
   setupMachineWorkspace,
   startMachineSignIn,
   submitMachineSignInCode,
+  cancelSetupSignIn,
+  checkSetupAuth,
+  getLocalStatus,
+  getSetup,
+  startSetupSignIn,
+  submitSetupSignInCode,
 } from "@/lib/actions";
-import type { Machine, MachineAuth, MachineStep, WorkspaceProviderView } from "@/lib/daemon";
+import type { Machine, MachineAuth, MachineStep, SetupState, WorkspaceProviderView } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 
 
@@ -483,6 +489,7 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
   const remove = { armed: confirm.armed === "forget", onClick: () => confirm.ask("forget") && void removeMachine(m.id).then(onRemoved) };
   const state = machineState(m);
   const ready = m.steps.every((s) => s.state === "done");
+  const ag = useMachineAgents(m.id, ready && m.connected);
   const signInActions: SignInActions = {
     where: m.label,
     start: (t) => startMachineSignIn(m.id, t),
@@ -581,54 +588,125 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
             </ul>
           </section>
           <Workspace machine={m} refresh={refresh} />
+          <AgentSelector agents={ag.agents} error={ag.error} pick={ag.pick} onPick={ag.setPick} name={m.label} />
           <Home machine={m} refresh={refresh} />
         </>
       )}
     </article>
     {/* The machine's coding agents and their settings, beside it on a wide screen. */}
-    {ready && (
-      <aside className="machine-side" aria-label={`Coding agents on ${m.label}`}>
-        <header className="md-head">
-          <span className="md-icon">
-            <Bot size={16} />
-          </span>
-          <div className="md-title">
-            <div className="md-name">
-              <h2>Coding agents</h2>
-            </div>
-            <span className="meta">the harnesses on {m.label}, and their settings</span>
-          </div>
-        </header>
-        <HarnessSettings machine={m.id} name={m.label} />
-      </aside>
-    )}
+    {ready && <AgentSide ag={ag} machine={m.id} name={m.label} />}
     </div>
   );
 }
 
-/** This machine: its coding agents and their settings, and the way to its setup. */
+/** The side panel for a machine's page: the agent picked in its main column, configured. */
+function AgentSide({ ag, machine, name }: { ag: ReturnType<typeof useMachineAgents>; machine: string; name: string }) {
+  const agent = ag.agents?.agents.find((a) => a.id === ag.pick);
+  if (!agent || !ag.agents)
+    return (
+      <SidePanel title="Coding agent" meta={ag.error ? `could not read ${name}'s agents` : `looking for agents on ${name}…`}>
+        {ag.error && <p className="machine-error">{ag.error}</p>}
+      </SidePanel>
+    );
+  return <AgentPanel agent={agent} isDefault={ag.agents.default === agent.id} machine={machine} name={name} makeDefault={ag.makeDefault} />;
+}
+
+const localSignIns: SignInActions = { where: "this machine", start: startSetupSignIn, cancel: cancelSetupSignIn, code: submitSetupSignInCode };
+
+/** This machine, laid out as a remote machine is: what it is, its sign-ins and workspaces, and its coding agents beside them. */
 function LocalMachine() {
   const router = useRouter();
+  const [setup, setSetup] = useState<SetupState | null>(null);
+  const [status, setStatus] = useState<{ version: string | null; system: string | null } | null>(null);
+  const refresh = useCallback(() => {
+    void getSetup().then((s) => (s && "auth" in s ? setSetup(s) : null));
+    void getLocalStatus().then((s) => ("error" in s ? null : setStatus(s)));
+  }, []);
+  useEffect(() => refresh(), [refresh]);
+  // A sign-in in progress reports its link and code as it goes.
+  const waiting = setup?.auth.some((a) => a.state === "waiting") ?? false;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(refresh, 2000);
+    return () => clearInterval(t);
+  }, [waiting, refresh]);
+  const workspace = setup?.workspaces[0]?.root ?? null;
+  const ag = useMachineAgents("local");
   return (
-    <article className="machine-detail">
-      <header className="md-head">
-        <span className="md-icon">
-          <Monitor size={16} />
-        </span>
-        <div className="md-title">
-          <div className="md-name">
-            <h2>This machine</h2>
+    <div className="machine-page">
+      <article className="machine-detail">
+        <header className="md-head">
+          <span className="md-icon">
+            <Monitor size={16} />
+          </span>
+          <div className="md-title">
+            <div className="md-name">
+              <h2>This machine</h2>
+            </div>
+            <span className="meta">where this app and its daemon run</span>
           </div>
-          <span className="meta">where this app and its daemon run</span>
-        </div>
-        <div className="md-actions">
-          <button type="button" className="button small" onClick={() => router.push("/setup")}>
-            <Wrench size={12} /> Set up jin
-          </button>
-        </div>
-      </header>
-      <HarnessSettings machine="local" name="this machine" />
-    </article>
+          <div className="md-actions">
+            <button type="button" className="button small" onClick={() => router.push("/setup")}>
+              <Wrench size={12} /> Set up jin
+            </button>
+          </div>
+        </header>
+        <dl className="md-facts">
+          <div>
+            <dt>System</dt>
+            <dd>{status?.system ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>jin</dt>
+            <dd className="mono">{status?.version ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Daemon</dt>
+            <dd>
+              <span className={`machine-dot is-${status ? "ok" : "busy"}`} /> {status ? "running here" : "…"}
+            </dd>
+          </div>
+          <div>
+            <dt>Workspace</dt>
+            <dd className="md-ellipsis" title={workspace ?? undefined}>
+              {setup ? (workspace ?? "none yet") : "—"}
+            </dd>
+          </div>
+        </dl>
+        <section className="md-card">
+          <div className="md-card-head is-static">
+            <h3>Sign-ins</h3>
+            <span className="meta">on this machine</span>
+            <button type="button" className="button small quiet md-card-action" onClick={() => void checkSetupAuth().then(refresh)} title="Check again">
+              <RefreshCw size={12} />
+            </button>
+          </div>
+          <ul className="machine-auths">
+            {(setup?.auth ?? []).map((a) => (
+              <SignIn key={a.tool} actions={localSignIns} auth={a} refresh={refresh} />
+            ))}
+          </ul>
+        </section>
+        <section className="md-card">
+          <div className="md-card-head is-static">
+            <h3>Workspace</h3>
+            {!setup?.workspaces.length && <span className="meta">jin&apos;s tasks here run in it</span>}
+          </div>
+          <div className="md-card-body">
+            {setup?.workspaces.map((w) => (
+              <p key={w.id} className="setup-done">
+                <Check size={14} className="step-done" /> {w.id} at {w.root}
+              </p>
+            ))}
+            <button type="button" className="button small quiet setup-other" onClick={() => router.push("/setup")}>
+              {setup?.workspaces.length ? "Add another…" : "Set one up…"}
+            </button>
+          </div>
+        </section>
+        <AgentSelector agents={ag.agents} error={ag.error} pick={ag.pick} onPick={ag.setPick} name="this machine" />
+      </article>
+      <AgentSide ag={ag} machine="local" name="this machine" />
+    </div>
   );
 }
 

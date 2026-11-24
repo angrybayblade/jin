@@ -509,6 +509,16 @@ export async function getSetup(): Promise<SetupState> {
   });
 }
 
+/** This machine's jin: its version and system line, for its page in Machines. */
+export async function getLocalStatus(): Promise<{ version: string | null; system: string | null } | { error: string }> {
+  try {
+    const s = await daemon<{ version?: string | null; system?: string | null }>("/api/status", { local: true });
+    return { version: s.version ?? null, system: s.system ?? null };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function checkSetupAuth(): Promise<void> {
   return failSafe(async () => {
     await daemon("/api/setup/auth", { method: "POST", local: true });
