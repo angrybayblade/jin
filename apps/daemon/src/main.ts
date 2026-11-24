@@ -49,6 +49,7 @@ import { codexLaunch } from "./codex-cli";
 import { agentHookRoutes } from "./agent-hooks";
 import { Agents, agentRoutes } from "./agents";
 import { Journal, type JournalEntry, journalRoutes, memoryText } from "./journal";
+import { candidatesFor, haikuChooser, PreContext, preContextRoutes, scriptedChooser } from "./precontext";
 import { prRoutes, rollup, TaskPRs } from "./prs";
 import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
 import { Terminals, terminalRoutes, type AttachSocket } from "./terminals";
@@ -182,6 +183,7 @@ rooms = new Rooms({
   // The task's journal, shared with its terminal tabs (made further down; reached when a turn runs).
   journal: { write: (taskId, by, e) => journal.write(taskId, by, e), contextText: (taskId) => journal.contextText(taskId) },
   memorySearch: async (taskId, query) => memoryText(await longTermSearch(tasks.get(taskId).workspace, query)),
+  preContext: (taskId) => preContextText(taskId),
 });
 roomRoutes(app.router, rooms);
 tasks.onRemoved((taskId) => rooms?.removeTask(taskId));
@@ -300,8 +302,36 @@ const journal = new Journal(db, (terminalId) => {
 });
 // Rows from before memory had workspaces (live tasks come from their workspace, not jin's own table).
 journal.fillWorkspaces();
+// A task's pre-context: what jin picks for it from long-term memory (the home's), as links.
+const homeRows = async (ids: string[]): Promise<JournalEntry[]> => {
+  const home = homeLink();
+  return home ? machines.call<JournalEntry[]>(home.id, "GET", `/api/memory/rows?ids=${ids.map(encodeURIComponent).join(",")}`) : journal.rows(ids);
+};
+const preContext = new PreContext(db, {
+  task: (taskId) => {
+    const t = tasks.get(taskId);
+    const about = [t.title ?? t.slug, t.issue ? `Issue: ${t.issue.id}` : "", ...linksOf(taskId).map((l) => `Follows: ${l.label}`)];
+    return { workspace: t.workspace, brief: about.filter(Boolean).join("\n") };
+  },
+  candidates: async (workspace, text) => {
+    const home = homeLink();
+    return home ? machines.call<JournalEntry[]>(home.id, "GET", `/api/memory/candidates?workspace=${encodeURIComponent(workspace ?? "")}&text=${encodeURIComponent(text.slice(0, 1500))}`) : candidatesFor(journal, workspace, text);
+  },
+  rows: homeRows,
+  choose: process.env.JIN_HARNESS === "scripted" ? scriptedChooser : haikuChooser((): Record<string, string> => {
+    const dir = chatClaudeDir();
+    return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
+  }),
+});
+/** The task's pre-context as text, picked first if it has not been (waiting a while at most). */
+const preContextText = async (taskId: string) => {
+  await Promise.race([preContext.ensure(taskId), Bun.sleep(20_000)]);
+  return preContext.text(taskId);
+};
+preContextRoutes(app.router, preContext, homeRows);
 journalRoutes(app.router, journal, {
   longTerm: longTermSearch,
+  candidates: (workspace, text) => candidatesFor(journal, workspace, text),
   taskOfTerminal: (terminalId) => {
     try {
       const t = terminals.get(terminalId);
@@ -582,7 +612,7 @@ linkRoutes(app.router, {
     taskOf: (terminalId) => terminals.get(terminalId).taskId ?? null,
     task: (id) => tasks.get(id),
     prs: (taskId) => prs.list(taskId),
-    journal: (taskId) => journal.contextText(taskId),
+    journal: async (taskId) => [await preContextText(taskId).catch(() => ""), journal.contextText(taskId)].filter(Boolean).join("\n\n"),
   },
   // Events are read on the home: a task's Activity comes from its feed.
   feedItems: async () => {

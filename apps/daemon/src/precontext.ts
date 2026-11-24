@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { TITLE_MODEL } from "./titles";
 import { now } from "./db";
-import { HttpError } from "./http";
+import { body, HttpError, json, type Router } from "./http";
 import type { Journal, JournalEntry } from "./journal";
 
 /**
@@ -113,4 +115,58 @@ export class PreContext {
     });
     return lines.length ? ["What earlier tasks in this workspace kept that bears on this one (memory_search finds more):", ...lines].join("\n") : "";
   }
+}
+
+const CHOOSE =
+  "You pick what an agent starting a task should know from long-term memory (what earlier tasks in the same workspace kept). Below are the task and the candidates. Pick only candidates that bear on this task's work: a decision it must respect, a fact about a system it touches, a summary of closely related work. Fewer is better; none is fine. Reply with JSON only: an array of {\"id\": ..., \"reason\": ...} (reason: a few words on why it bears on the task), at most 8.";
+
+/** A small model picks (the same one that titles chats); on any failure, nothing is picked. */
+export function haikuChooser(env: () => Record<string, string> = () => ({})): PreContextDeps["choose"] {
+  return async (brief, candidates) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+    try {
+      const list = candidates.map((c) => `${c.id}: ${c.kind}${c.concern ? ` (${c.concern})` : ""}: ${c.text}${c.why ? ` (why: ${c.why})` : ""}`).join("\n");
+      let text = "";
+      const q = query({
+        prompt: `${CHOOSE}\n\n<task>\n${brief.slice(0, 3000)}\n</task>\n\n<candidates>\n${list.slice(0, 20000)}\n</candidates>`,
+        options: { model: TITLE_MODEL, maxTurns: 1, settingSources: [], allowedTools: [], canUseTool: async () => ({ behavior: "deny", message: "no tools" }), env: { ...process.env, ...env() } as Record<string, string>, abortController: controller },
+      });
+      for await (const m of q) if (m.type === "result" && m.subtype === "success") text = m.result;
+      const json = text.slice(text.indexOf("["), text.lastIndexOf("]") + 1);
+      const picked = JSON.parse(json || "[]") as { id?: unknown; reason?: unknown }[];
+      return picked.filter((p) => typeof p.id === "string").slice(0, 8).map((p) => ({ id: p.id as string, reason: typeof p.reason === "string" ? p.reason : "" }));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+/** Tests: the first few candidates. */
+export const scriptedChooser: PreContextDeps["choose"] = async (_brief, candidates) => candidates.slice(0, 3).map((c) => ({ id: c.id, reason: "matches the task" }));
+
+/** A task's pre-context for the app: the picks with their rows as they are now; refresh, add, remove. */
+export function preContextRoutes(router: Router, pre: PreContext, rows: (ids: string[]) => Promise<JournalEntry[]>) {
+  const view = async (taskId: string) => {
+    const picks = pre.list(taskId);
+    const byId = new Map((picks.length ? await rows(picks.map((p) => p.memoryId)) : []).map((r) => [r.id, r]));
+    return { picks: picks.map((p) => ({ ...p, row: byId.get(p.memoryId) ?? null })) };
+  };
+  router
+    .on("GET", "/api/tasks/:id/pre-context", async (_req, p) => json(await view(p.id!)))
+    .on("POST", "/api/tasks/:id/pre-context/refresh", async (_req, p) => {
+      await pre.select(p.id!);
+      return json(await view(p.id!));
+    })
+    .on("POST", "/api/tasks/:id/pre-context", async (req, p) => {
+      const b = await body<{ memoryId?: string; reason?: string }>(req);
+      pre.add(p.id!, String(b.memoryId ?? ""), b.reason);
+      return json(await view(p.id!), 201);
+    })
+    .on("DELETE", "/api/tasks/:id/pre-context/:mid", async (_req, p) => {
+      pre.remove(p.id!, p.mid!);
+      return json(await view(p.id!));
+    });
 }

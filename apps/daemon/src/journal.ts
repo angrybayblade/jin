@@ -333,11 +333,16 @@ export function journalRoutes(
     taskOfTerminal?: (terminalId: string) => { taskId: string; workspace: string | null } | null;
     /** Wrap up a task (keep what it learned), through the home when there is one. */
     wrapUp?: (taskId: string) => Promise<{ chatId: string }>;
+    /** This machine's candidates for a task's pre-context (see precontext.ts). */
+    candidates?: (workspace: string | null, text: string) => JournalEntry[];
   } = {},
 ) {
   router
     // Long-term memory, as this machine holds it (the home's is everyone's).
     .on("GET", "/api/memory/search", (_req, _p, url) => json(journal.search(url.searchParams.get("q") ?? "", { workspace: url.searchParams.get("workspace") || undefined, level: "global" })))
+    // The home's long-term rows a task on another machine needs: candidates for its pre-context, and rows by id.
+    .on("GET", "/api/memory/candidates", (_req, _p, url) => json(more.candidates?.(url.searchParams.get("workspace") || null, url.searchParams.get("text") ?? "") ?? []))
+    .on("GET", "/api/memory/rows", (_req, _p, url) => json(journal.rows((url.searchParams.get("ids") ?? "").split(",").filter(Boolean).slice(0, 100))))
     .on("POST", "/api/memory/import", async (req) => {
       const b = await body<{ rows?: JournalEntry[]; machine?: string | null }>(req);
       journal.importGlobal(Array.isArray(b.rows) ? b.rows : [], b.machine ?? null);

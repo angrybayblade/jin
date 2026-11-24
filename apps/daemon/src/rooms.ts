@@ -258,6 +258,8 @@ export interface RoomDeps {
   journal?: Pick<Journal, "write" | "contextText">;
   /** Long-term memory of the task's workspace, as text (from the home when there is one). */
   memorySearch?: (taskId: string, query: string) => Promise<string>;
+  /** The task's pre-context: what jin picked from long-term memory for it, as text ("" if nothing). */
+  preContext?: (taskId: string) => Promise<string>;
 }
 
 export class Rooms {
@@ -690,7 +692,8 @@ export class Rooms {
       .all(...(first ? [a.taskId, a.lastSeen, upto] : [a.taskId, a.lastSeen, upto, a.id]))
       .map(toMessage);
     const delta = rows.slice(-MAX_DELTA);
-    const prompt = this.prompt(a, delta, rows.length - delta.length, first, await this.tagged(delta));
+    const pre = first && this.deps.preContext ? await Promise.race([this.deps.preContext(a.taskId).catch(() => ""), Bun.sleep(20_000).then(() => "")]) : "";
+    const prompt = [pre, this.prompt(a, delta, rows.length - delta.length, first, await this.tagged(delta))].filter(Boolean).join("\n\n");
     this.db.query("update room_agents set last_seen = ? where id = ?").run(upto, a.id);
 
     this.turnRefs.set(a.id, []);
@@ -872,7 +875,7 @@ export class Rooms {
             name: "task_journal",
             description: "Read this task's work journal: the decisions, work done and findings of every agent in the task (its terminal tabs, this room, its subtasks), by concern, with who wrote each and its id.",
             input: {},
-            run: async () => journal.contextText(taskId),
+            run: async () => [await this.deps.preContext?.(taskId).catch(() => ""), journal.contextText(taskId)].filter(Boolean).join("\n\n"),
           },
         ]
       : [];
