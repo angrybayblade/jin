@@ -380,3 +380,17 @@ test("memory: every agent in the task reads all its rows: a tab's context has th
   expect(tab).toContain("The proxy already backs off");
   expect(tab).toContain("@reviewer");
 });
+
+test("memory p2: a room agent searches long-term memory, in its task's workspace", async () => {
+  const asked: [string, string][] = [];
+  const { rooms, act, settle } = setup({ memorySearch: async (taskId, q) => (asked.push([taskId, q]), "- decision: Retries belong in the proxy layer [id m1]") });
+  let found = "";
+  act.set("engineer", async (r) => {
+    found = String(await r.tools!.find((t) => t.name === "memory_search")!.run({ query: "retries" }));
+    return ["ok"];
+  });
+  rooms.post("T-1", "@engineer where do retries go?");
+  await settle(1);
+  expect(asked).toEqual([["T-1", "retries"]]);
+  expect(found).toContain("Retries belong in the proxy layer");
+});
