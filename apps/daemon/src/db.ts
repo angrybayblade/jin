@@ -334,6 +334,17 @@ export const MIGRATIONS: string[] = [
   `,
   // 23: a task's pre-context: links to the long-term rows (on the home) jin picked for it, or you did.
   `create table task_context (task_id text not null, memory_id text not null, reason text, by text not null, at text not null, primary key (task_id, memory_id));`,
+  // 24: a daemon from before memory (after a rollback) still has its \`journal\`: a view of memory
+  // that takes its reads, inserts and evidence updates.
+  `
+  create view journal as select id, task_id, terminal_id, session, concern, kind, text, why, refs, at from memory;
+  create trigger journal_insert instead of insert on journal begin
+    insert into memory (id, task_id, terminal_id, session, concern, kind, text, why, refs, at) values (new.id, new.task_id, new.terminal_id, new.session, new.concern, new.kind, new.text, new.why, new.refs, new.at);
+  end;
+  create trigger journal_update instead of update on journal begin
+    update memory set refs = new.refs, text = new.text, why = new.why, concern = new.concern where id = old.id;
+  end;
+  `,
 ];
 
 export function openDb(home: string): Database {
