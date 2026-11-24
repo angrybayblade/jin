@@ -92,3 +92,13 @@ test("memory: a row supersedes an earlier one in its task: the old one is kept, 
   // Only a row of the same task can be superseded.
   expect(() => j.add("t2", { concern: "auth", kind: "decision", text: "x", supersedes: second.id })).toThrow("not in this task");
 });
+
+test("memory: rows written before workspaces get their task's when jin knows it", () => {
+  const { db, j } = setup();
+  db.query("insert into memory (id, task_id, session, concern, kind, text, refs, at) values ('x', 'PLEN-2', 'Claude 1', 'c', 'done', 't', '[]', '2026-01-01'), ('y', 'GONE-1', 'Claude 1', 'c', 'done', 't', '[]', '2026-01-01')").run();
+  expect(j.fillWorkspaces()).toBe(1);
+  expect(db.query("select id, workspace from memory order by id").all()).toEqual([
+    { id: "x", workspace: "jin" },
+    { id: "y", workspace: null },
+  ]);
+});

@@ -285,6 +285,8 @@ const journal = new Journal(db, (terminalId) => {
     }
   },
 });
+// Rows from before memory had workspaces (live tasks come from their workspace, not jin's own table).
+journal.fillWorkspaces();
 journalRoutes(app.router, journal);
 agentHookRoutes(app.router, {
   terminals,

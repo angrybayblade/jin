@@ -188,6 +188,16 @@ export class Journal {
     return (this.db.query(`select m.* from memory_fts join memory m on m.rowid = memory_fts.rowid where ${where.join(" and ")} order by bm25(memory_fts) limit ?`).all(...args) as any[]).map(toEntry);
   }
 
+  /** Rows whose workspace is not known yet (written before memory had one) get their task's, where jin knows it. Returns how many. */
+  fillWorkspaces(): number {
+    let n = 0;
+    for (const { task_id } of this.db.query("select distinct task_id from memory where workspace is null and task_id is not null").all() as { task_id: string }[]) {
+      const w = this.opts.workspaceOf?.(task_id);
+      if (w) n += this.db.query("update memory set workspace = ? where task_id = ? and workspace is null").run(w, task_id).changes;
+    }
+    return n;
+  }
+
   /** The task's live rows (its journal entries, superseded and dropped ones left out), oldest first. */
   forTask(taskId: string): JournalEntry[] {
     return (this.db.query("select * from memory where task_id = ? and concern is not null and status = 'active' order by at, rowid").all(taskId) as any[]).map(toEntry);
