@@ -67,7 +67,7 @@ test("memory: search finds rows by their text, reason or concern, within a works
   j.add("t1", { concern: "rate limiter", kind: "decision", text: "Retry on 429 in the proxy", why: "per-call retries doubled Stripe errors" });
   const old = j.add("t1", { concern: "auth", kind: "found", text: "Tokens refresh every hour" }).entry;
   j.add("t1", { concern: "auth", kind: "found", text: "Tokens refresh every 15 minutes", supersedes: old.id });
-  j.add("t2", { concern: "rate limiter", kind: "decision", text: "No retries in the desktop app" });
+  j.add("t2", { concern: "rate limiter", kind: "decision", text: "No retries in the desktop app", why: "the reason it was decided" });
 
   expect(j.search("stripe", { workspace: "composio" }).map((e) => e.text)).toEqual(["Retry on 429 in the proxy"]);
   expect(j.search("rate limiter", { workspace: "composio" }).map((e) => e.text)).toEqual(["Retry on 429 in the proxy"]);
@@ -90,7 +90,7 @@ test("memory: a row supersedes an earlier one in its task: the old one is kept, 
   ]);
   expect(j.forTask("PLEN-1").map((e) => e.text)).toEqual(["Use OAuth"]);
   // Only a row of the same task can be superseded.
-  expect(() => j.add("t2", { concern: "auth", kind: "decision", text: "x", supersedes: second.id })).toThrow("not in this task");
+  expect(() => j.add("t2", { concern: "auth", kind: "decision", text: "x", why: "the reason it was decided", supersedes: second.id })).toThrow("not in this task");
 });
 
 test("memory: rows written before workspaces get their task's when jin knows it", () => {
@@ -168,7 +168,7 @@ test("memory p2: keeping a task's memory promotes, drops and summarizes on its m
 test("memory p4: the Memory page lists kept rows newest first; you reword one (its first wording kept) or forget it", () => {
   const { db, j } = setup();
   const a = j.add("t1", { concern: "auth", kind: "found", text: "Tokens refresh every 15 minutes" }).entry;
-  const b = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry;
+  const b = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" }).entry;
   j.add("t1", { concern: "tests", kind: "done", text: "Not kept" });
   j.promote("PLEN-1", [{ id: a.id }], "jin");
   j.promote("PLEN-1", [{ id: b.id }], "jin");

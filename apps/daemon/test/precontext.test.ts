@@ -22,9 +22,9 @@ const setup = (choose?: (brief: string, ids: string[]) => { id: string; reason: 
   const keep = (term: string, task: string, e: Parameters<Journal["add"]>[1]) => j.promote(task, [{ id: j.add(term, e).entry.id }], "jin")[0]!;
   const proxy = keep("a", "OLD-1", { concern: "rate limiter", kind: "decision", text: "Retries belong in the proxy layer", why: "per-call retries doubled 429s" });
   const tokens = keep("a", "OLD-1", { concern: "auth", kind: "found", text: "Stripe tokens refresh every 15 minutes" });
-  const oldWay = keep("b", "OLD-2", { concern: "rate limiter", kind: "decision", text: "Retries per call with jitter" });
+  const oldWay = keep("b", "OLD-2", { concern: "rate limiter", kind: "decision", text: "Retries per call with jitter", why: "the reason it was decided" });
   j.drop("OLD-2", [oldWay.id]);
-  const other = keep("c", "JIN-1", { concern: "rate limiter", kind: "decision", text: "The desktop app never retries" });
+  const other = keep("c", "JIN-1", { concern: "rate limiter", kind: "decision", text: "The desktop app never retries", why: "the reason it was decided" });
   const chosen: { brief: string; ids: string[] }[] = [];
   let calls = 0;
   const pre = new PreContext(db, {

@@ -110,7 +110,7 @@ export interface MachineAccess {
 }
 
 /** Orchestration tools for jin's own chat. */
-export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; agents: Agents; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks; journal?: () => Journal; linksOf?: (taskId: string) => TaskLink[]; notify?: (n: Notice) => void }): JinTool[] {
+export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; adapters: Map<string, WorkspaceAdapter>; workspaces: WorkspaceConfig[]; terminals: Terminals; agents: Agents; jobs: TaskJobs; prs?: TaskPRs; machines?: MachineAccess; hooks?: Hooks; links?: TaskLinks; journal?: () => Journal; linksOf?: (taskId: string) => TaskLink[]; notify?: (n: Notice) => void; recordsOf?: (taskId: string) => string[] }): JinTool[] {
   const { feed, tasks, sessions, adapters, workspaces, terminals, agents, jobs, prs, machines, hooks, links } = deps;
   const remote = (id: string | undefined) => (id && id !== "local" ? id : null);
   const connected = () => (machines?.list() ?? []).filter((m) => m.connected);
@@ -444,26 +444,30 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
     },
     {
       name: "jin_task_memory",
-      description: "A task's memory (its journal, from every agent in it): each row with its id, kind, concern, text, why, who wrote it, its status (active, superseded, dropped) and level (task, or global once kept). For keeping what a finished task learned.",
+      description: "A task's memory (its journal, from every agent in it): each row with its id, kind, concern, text, why, who wrote it, its status (active, superseded, dropped) and level (task, or global once kept); and its records (PRs, issue, threads, pages) as ids, which its summary refers to. For keeping what a finished task learned.",
       input: { taskId: z.string(), machine: machineArg },
       run: async (a) => {
         const on = remote(a.machine as string | undefined);
         const id = String(a.taskId);
-        const v = on ? await machines!.call<JournalView>(on, "GET", `/api/tasks/${encodeURIComponent(id)}/memory`) : deps.journal?.().view(id);
+        const v = on ? await machines!.call<JournalView & { records?: string[] }>(on, "GET", `/api/tasks/${encodeURIComponent(id)}/memory`) : deps.journal ? { ...deps.journal().view(id), records: deps.recordsOf?.(id) ?? [] } : null;
         if (!v) return { error: "no journal here" };
-        return v.concerns.flatMap((c) =>
-          c.entries.map((e) => ({ id: e.id, kind: e.kind, concern: c.name, text: e.text, ...(e.why ? { why: e.why } : {}), by: e.session, status: e.status, level: e.level, ...(e.refs.length ? { refs: e.refs.map((r) => `${r.type}: ${r.text}`) } : {}) })),
-        );
+        return {
+          // What the summary refers to: the task's records, by id (never copied into memory).
+          records: v.records ?? [],
+          rows: v.concerns.flatMap((c) =>
+            c.entries.map((e) => ({ id: e.id, kind: e.kind, concern: c.name, text: e.text, ...(e.why ? { why: e.why } : {}), by: e.session, status: e.status, level: e.level, ...(e.refs.length ? { evidence: e.refs.map((r) => `${r.type}: ${r.text}`) } : {}) })),
+          ),
+        };
       },
     },
     {
       name: "jin_keep_memory",
       description:
-        "Keep what a finished task learned, in one call: promote rows (ids from jin_task_memory, each with new text when reworded for use outside the task) to long-term memory, drop dead ends and noise, and write the task's summary (two to four sentences, refs: platform ids like github:org/repo#n, linear:ID, never their content). Only for the merge cleanup or a Wrap up.",
+        "Keep what a finished task learned, in one call: promote rows (ids from jin_task_memory; only decisions, with why, and findings no record holds; text when reworded for use outside the task) to long-term memory, drop dead ends, and write the task's summary (one or two sentences, refs: the record ids jin_task_memory lists, never their content). Only for the merge cleanup or a Wrap up.",
       input: {
         taskId: z.string(),
         machine: machineArg,
-        promote: z.array(z.object({ id: z.string(), text: z.string().optional() })).optional(),
+        promote: z.array(z.object({ id: z.string(), text: z.string().optional(), why: z.string().optional() })).optional(),
         drop: z.array(z.string()).optional(),
         summary: z.object({ text: z.string(), refs: z.array(z.string()).optional() }).optional(),
       },
@@ -472,7 +476,7 @@ export function jinTools(deps: { feed: Feed; tasks: Tasks; sessions: Sessions; a
         if (!journal) return { error: "no memory here" };
         const on = remote(a.machine as string | undefined);
         const id = String(a.taskId);
-        const args = { promote: a.promote as { id: string; text?: string }[] | undefined, drop: a.drop as string[] | undefined, summary: a.summary as { text: string; refs?: string[] } | undefined };
+        const args = { promote: a.promote as { id: string; text?: string; why?: string }[] | undefined, drop: a.drop as string[] | undefined, summary: a.summary as { text: string; refs?: string[] } | undefined };
         // The task's rows change where the task is; long-term memory is here (chats run on the home).
         if (on) return keepOnMachine({ call: (method, path, body) => machines!.call(on, method, path, body), home: journal, machine: on, notify: deps.notify }, id, args);
         return keepMemory({ task: { promote: async (items, by) => journal.promote(id, items, by), drop: async (ids) => journal.drop(id, ids), summarize: async (s) => journal.summarize(id, s) }, home: journal, machine: null, notify: deps.notify }, args);

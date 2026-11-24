@@ -259,7 +259,7 @@ sessions.provideJinTools(() =>
   jinTools({
     feed, tasks, sessions, adapters, workspaces: app.workspaces, terminals, agents, jobs, prs, hooks, links: taskLinks,
     // Defined further down; read when a chat runs.
-    journal: () => journal, linksOf: (id) => linksOf(id), notify: (n) => void notifier.notify(n),
+    journal: () => journal, linksOf: (id) => linksOf(id), notify: (n) => void notifier.notify(n), recordsOf: (id) => recordsOf(id),
     machines: { list: () => machines.list(), call: (id, method, path, payload) => machines.call(id, method, path, payload) },
   }),
 );
@@ -347,8 +347,15 @@ const resendKept = () => {
 setTimeout(resendKept, 60_000);
 setInterval(resendKept, 30 * 60_000);
 preContextRoutes(app.router, preContext, homeRows);
+/** A task's records as platform ids (its PRs, issue, and the threads and pages it follows): what its summary points to. */
+const recordsOf = (taskId: string): string[] => {
+  const t = tasks.get(taskId);
+  const ids = [...prs.list(taskId).map((p) => `github:${p.repo.toLowerCase()}#${p.number}`), t.issue ? `${t.issue.tracker}:${t.issue.id}` : "", ...linksOf(taskId).map((l) => l.key)];
+  return [...new Set(ids.filter(Boolean))];
+};
 journalRoutes(app.router, journal, {
   longTerm: longTermSearch,
+  recordsOf,
   candidates: (workspace, text) => candidatesFor(journal, workspace, text),
   taskOfTerminal: (terminalId) => {
     try {

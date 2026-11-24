@@ -19,7 +19,7 @@ const journalIn = () => {
 
 test("memory review T1: a failed pick is not a pick: the task is picked again, but not before a pause", async () => {
   const { db, j } = journalIn();
-  const kept = j.promote("PLEN-1", [{ id: j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry.id }], "jin")[0]!;
+  const kept = j.promote("PLEN-1", [{ id: j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" }).entry.id }], "jin")[0]!;
   let now = 1_000_000;
   let fail = true;
   let calls = 0;
@@ -50,7 +50,7 @@ test("memory review T2: what you forget or reword on the home stays so when the 
   const home = journalIn().j;
   const [a, b] = j.promote(
     "PLEN-1",
-    [{ id: j.add("t1", { concern: "auth", kind: "found", text: "Tokens refresh hourly" }).entry.id }, { id: j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry.id }],
+    [{ id: j.add("t1", { concern: "auth", kind: "found", text: "Tokens refresh hourly" }).entry.id }, { id: j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" }).entry.id }],
     "jin",
   );
   home.importGlobal([a!, b!], "mac");
@@ -63,7 +63,7 @@ test("memory review T2: what you forget or reword on the home stays so when the 
 test("memory review T3: keeping on another machine survives the home failing, and kept rows reach it later", async () => {
   const { j } = journalIn();
   const home = journalIn().j;
-  const e = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry;
+  const e = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" }).entry;
   let homeDown = true;
   const call = async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
     if (method === "POST" && path === "/api/tasks/PLEN-1/memory/keep") {
@@ -90,7 +90,7 @@ test("memory review T3: keeping on another machine survives the home failing, an
 
 test("memory review T4: a daemon from before memory still reads and writes the journal on the new database", () => {
   const { db, j } = journalIn();
-  j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" });
+  j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" });
   // What the previous daemon ran against its `journal` table.
   db.query("insert into journal (id, task_id, terminal_id, session, concern, kind, text, why, refs, at) values ('old', 'PLEN-1', 't1', 'Claude 1', 'limiter', 'done', 'From an older jin', null, '[]', '2026-01-01')").run();
   db.query("update journal set refs = ? where id = ?").run('[{"type":"test","text":"bun test"}]', "old");
@@ -114,7 +114,7 @@ test("memory review P2: Wrap up says it started, and where", async () => {
 
 test("memory review P3: keeping says what was kept, with the Memory page to see it", async () => {
   const { j } = journalIn();
-  const e = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry;
+  const e = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" }).entry;
   const notes: { title: string; body: string; path: string }[] = [];
   await keepMemory(
     { task: { promote: async (items, by) => j.promote("PLEN-1", items, by), drop: async (ids) => j.drop("PLEN-1", ids), summarize: async (s) => j.summarize("PLEN-1", s) }, home: j, machine: null, notify: (n) => void notes.push(n) },
@@ -127,7 +127,7 @@ test("memory review P3: keeping says what was kept, with the Memory page to see 
 test("memory review P4: memory reaches agents as notes to check, never instructions; jin keeps its own wording", async () => {
   expect(memoryText([])).not.toContain("verify");
   const { j } = journalIn();
-  const e = j.promote("PLEN-1", [{ id: j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry.id }], "jin")[0]!;
+  const e = j.promote("PLEN-1", [{ id: j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy", why: "the reason it was decided" }).entry.id }], "jin")[0]!;
   expect(memoryText([e])).toMatch(/notes .* verify/i);
   expect(KEEP_STEP).toMatch(/own words/i);
 });
@@ -150,8 +150,41 @@ test("memory review T5: a tab's memory_search asks the home for its task's works
   expect(await res.text()).toBe("Nothing in long-term memory matches.");
   expect(asked).toEqual([["composio", "retries"]]);
   // The home: a resend fills only what is missing.
-  const kept = j.promote("PLEN-1", [{ id: j.add("t1", { concern: "c", kind: "decision", text: "Kept here" }).entry.id }], "jin")[0]!;
+  const kept = j.promote("PLEN-1", [{ id: j.add("t1", { concern: "c", kind: "decision", text: "Kept here", why: "the reason it was decided" }).entry.id }], "jin")[0]!;
   j.editGlobal(kept.id, { text: "Reworded on the home" });
   await call("POST", "/api/memory/import", { rows: [{ ...kept, text: "Old wording" }], machine: "mac", missingOnly: true });
   expect(j.listGlobal().map((e) => e.text)).toEqual(["Reworded on the home"]);
+});
+
+// ---------------------------------------------------------------- no noise: only what no record holds
+
+test("memory signal: only decisions with their reason and findings go long-term; work done and changes stay in the task", () => {
+  const { j } = journalIn();
+  const done = j.add("t1", { concern: "tests", kind: "done", text: "Added limiter tests" }).entry;
+  const bare = j.add("t1", { concern: "limiter", kind: "decision", text: "Use a token bucket" }).entry;
+  const found = j.add("t1", { concern: "upstream", kind: "found", text: "Upstream drops Retry-After on 503s" }).entry;
+  expect(() => j.promote("PLEN-1", [{ id: done.id }], "jin")).toThrow("only decisions and findings");
+  expect(() => j.promote("PLEN-1", [{ id: bare.id }], "jin")).toThrow("needs its reason");
+  // Nothing is kept when any of them is refused.
+  expect(() => j.promote("PLEN-1", [{ id: found.id }, { id: done.id }], "jin")).toThrow();
+  expect(j.listGlobal()).toEqual([]);
+  // A reason given while keeping it is enough.
+  const [kept] = j.promote("PLEN-1", [{ id: bare.id, why: "bursts must pass, sustained load must not" }], "jin");
+  expect(kept).toMatchObject({ level: "global", why: "bursts must pass, sustained load must not" });
+  expect(j.promote("PLEN-1", [{ id: found.id }], "jin")).toHaveLength(1);
+});
+
+test("memory signal: what long-term memory already says is not kept twice", () => {
+  const { j } = journalIn();
+  const a = j.add("t1", { concern: "upstream", kind: "found", text: "Upstream drops Retry-After on 503s" }).entry;
+  j.promote("PLEN-1", [{ id: a.id }], "jin");
+  const again = j.add("t1", { concern: "upstream", kind: "found", text: "upstream drops  retry-after on 503s." }).entry;
+  expect(j.promote("PLEN-1", [{ id: again.id }], "jin")).toEqual([]);
+  expect(j.listGlobal().map((e) => e.id)).toEqual([a.id]);
+});
+
+test("memory signal: the keep step keeps only what no record holds, and points to the records instead", () => {
+  expect(KEEP_STEP).toMatch(/could someone learn it from the task's records/i);
+  expect(KEEP_STEP).toMatch(/never keep work done/i);
+  expect(KEEP_STEP).toMatch(/records/);
 });

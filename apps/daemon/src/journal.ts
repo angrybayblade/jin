@@ -241,17 +241,33 @@ export class Journal {
    * elsewhere when given new text (the task's wording is kept). Only jin's merge cleanup or Wrap
    * up does this; agents never do.
    */
-  promote(taskId: string, items: { id: string; text?: string }[], by: string): JournalEntry[] {
+  promote(taskId: string, items: { id: string; text?: string; why?: string }[], by: string): JournalEntry[] {
     const rows = this.own(taskId, items.map((i) => i.id));
+    // Long-term memory holds only what no record does: decisions with their reason, and findings.
+    // Work done and changes are in commits and PRs (the task's summary points to them).
+    const refused = items.flatMap((it, i) => {
+      const r = rows[i];
+      if (r.kind !== "decision" && r.kind !== "found") return [`${it.id}: only decisions and findings are kept long-term (this is ${r.kind}; its record is the commits and PRs)`];
+      if (r.kind === "decision" && !(it.why?.trim() || r.why)) return [`${it.id}: a decision kept long-term needs its reason (pass why)`];
+      return [];
+    });
+    if (refused.length) throw new HttpError(400, refused.join("; "));
+    const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     const at = now();
+    const kept: string[] = [];
     this.db.transaction(() => {
       items.forEach((it, i) => {
-        const text = it.text?.trim().replace(/\s+/g, " ").slice(0, 500);
-        if (text && text !== rows[i].text) this.db.query("update memory set task_text = coalesce(task_text, text), text = ? where id = ?").run(text, it.id);
+        const text = it.text?.trim().replace(/\s+/g, " ").slice(0, 500) || rows[i].text;
+        // What long-term memory already says (in this workspace) is not kept twice.
+        const same = (this.db.query("select text from memory where level = 'global' and status = 'active' and id != ? and workspace is ?").all(it.id, rows[i].workspace) as { text: string }[]).some((r) => norm(r.text) === norm(text));
+        if (same) return;
+        if (text !== rows[i].text) this.db.query("update memory set task_text = coalesce(task_text, text), text = ? where id = ?").run(text, it.id);
+        if (it.why?.trim()) this.db.query("update memory set why = ? where id = ?").run(it.why.trim().slice(0, 300), it.id);
         this.db.query("update memory set level = 'global', promoted_at = ?, promoted_by = ? where id = ?").run(at, by, it.id);
+        kept.push(it.id);
       });
     })();
-    return items.map((it) => toEntry(this.db.query("select * from memory where id = ?").get(it.id)));
+    return kept.map((id) => toEntry(this.db.query("select * from memory where id = ?").get(id)));
   }
 
   /** Dead ends and noise: out of the task's context and of every search; kept, marked. */
@@ -375,6 +391,8 @@ export function journalRoutes(
     taskOfTerminal?: (terminalId: string) => { taskId: string; workspace: string | null } | null;
     /** Wrap up a task (keep what it learned), through the home when there is one. */
     wrapUp?: (taskId: string) => Promise<{ chatId: string }>;
+    /** A task's records (its PRs, issue, threads and pages) as platform ids: what its summary points to. */
+    recordsOf?: (taskId: string) => string[];
     /** This machine's candidates for a task's pre-context (see precontext.ts). */
     candidates?: (workspace: string | null, text: string) => JournalEntry[];
   } = {},
@@ -405,9 +423,9 @@ export function journalRoutes(
       return new Response(memoryText(rows), { headers: { "content-type": "text/plain; charset=utf-8" } });
     })
     // jin's merge cleanup and Wrap up: the task's rows, and keeping what it learned.
-    .on("GET", "/api/tasks/:id/memory", (_req, p) => json(journal.view(p.id!)))
+    .on("GET", "/api/tasks/:id/memory", (_req, p) => json({ ...journal.view(p.id!), records: more.recordsOf?.(p.id!) ?? [] }))
     .on("POST", "/api/tasks/:id/memory/keep", async (req, p) => {
-      const b = await body<{ promote?: { id: string; text?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } }>(req);
+      const b = await body<{ promote?: { id: string; text?: string; why?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } }>(req);
       const kept = b.promote?.length ? journal.promote(p.id!, b.promote, "jin") : [];
       const dropped = b.drop?.length ? journal.drop(p.id!, b.drop) : 0;
       const summary = b.summary?.text ? journal.summarize(p.id!, { ...b.summary, by: "jin" }) : null;
@@ -432,13 +450,13 @@ export function journalRoutes(
  */
 export async function keepMemory(
   deps: {
-    task: { promote: (items: { id: string; text?: string }[], by: string) => Promise<JournalEntry[]>; drop: (ids: string[]) => Promise<number>; summarize: (s: { text: string; refs?: string[]; by: string }) => Promise<JournalEntry> };
+    task: { promote: (items: { id: string; text?: string; why?: string }[], by: string) => Promise<JournalEntry[]>; drop: (ids: string[]) => Promise<number>; summarize: (s: { text: string; refs?: string[]; by: string }) => Promise<JournalEntry> };
     home: Pick<Journal, "importGlobal">;
     machine: string | null;
     /** Tells you what was kept (with the Memory page to see it). */
     notify?: (n: Notice) => void;
   },
-  args: { promote?: { id: string; text?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } },
+  args: { promote?: { id: string; text?: string; why?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } },
 ): Promise<{ kept: number; dropped: number; summary: string | null }> {
   const kept = args.promote?.length ? await deps.task.promote(args.promote, "jin") : [];
   const dropped = args.drop?.length ? await deps.task.drop(args.drop) : 0;
@@ -468,7 +486,7 @@ function tellKept(notify: ((n: Notice) => void) | undefined, taskId: string, kep
 export async function keepOnMachine(
   deps: { call: <T>(method: string, path: string, body?: unknown) => Promise<T>; home: Pick<Journal, "importGlobal">; machine: string; notify?: (n: Notice) => void },
   taskId: string,
-  args: { promote?: { id: string; text?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } },
+  args: { promote?: { id: string; text?: string; why?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } },
 ): Promise<{ kept: number; dropped: number; summary: string | null; pending?: string }> {
   const r = await deps.call<{ kept: JournalEntry[]; dropped: number; summary: JournalEntry | null }>("POST", `/api/tasks/${encodeURIComponent(taskId)}/memory/keep`, args);
   const rows = [...r.kept, ...(r.summary ? [r.summary] : [])];
