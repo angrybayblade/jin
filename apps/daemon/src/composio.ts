@@ -300,12 +300,43 @@ export class Composio {
 
   // ---------------------------------------------------------------- status
 
+  /**
+   * What Composio's CLI says (who is signed in, the accounts, the trigger instances): three slow
+   * calls, so the last answer is kept and served at once, and fetched again in the background when
+   * it is a few seconds old. A change made through jin (a sign-in, a project, an event) drops it.
+   */
+  private remote: { at: number; who: { email?: string; current_org_name?: string } | null; accounts: { id: string; toolkit_slug: string; status: string }[]; triggers: TriggerInstance[] } | null = null;
+  private remoteLoading: Promise<NonNullable<typeof this.remote>> | null = null;
+
+  private refreshRemote() {
+    this.remoteLoading ??= (async () => {
+      const s = this.settings;
+      const who = this.installed ? await this.cli<{ email?: string; current_org_name?: string }>(["whoami"]).catch(() => null) : null;
+      const project = this.project();
+      const accounts = who && project ? await this.cli<{ id: string; toolkit_slug: string; status: string }[]>(["dev", "connected-accounts", "list", "--user-id", s.userId, "--limit", "100"]).catch(() => []) : [];
+      const triggers = who && project ? await this.triggers().catch(() => [] as TriggerInstance[]) : [];
+      return { at: Date.now(), who, accounts, triggers };
+    })()
+      .then((r) => (this.remote = r))
+      .finally(() => (this.remoteLoading = null));
+    return this.remoteLoading;
+  }
+
+  private async remoteState() {
+    if (!this.remote) return this.refreshRemote();
+    if (Date.now() - this.remote.at > 3000) void this.refreshRemote().catch(() => {});
+    return this.remote;
+  }
+
+  /** Something changed what the CLI would say: the next status asks it again. */
+  forgetRemote() {
+    this.remote = null;
+  }
+
   async status() {
     const s = this.settings;
-    const who = this.installed ? await this.cli<{ email?: string; current_org_name?: string }>(["whoami"]).catch(() => null) : null;
     const project = this.project();
-    const accounts = who && project ? await this.cli<{ id: string; toolkit_slug: string; status: string }[]>(["dev", "connected-accounts", "list", "--user-id", s.userId, "--limit", "100"]).catch(() => []) : [];
-    const triggers = who && project ? await this.triggers().catch(() => [] as TriggerInstance[]) : [];
+    const { who, accounts, triggers } = await this.remoteState();
     return {
       installed: this.installed,
       signedIn: Boolean(who?.email),
@@ -338,6 +369,7 @@ export class Composio {
   /** Start a sign-in: a link for your browser; jin waits for it to complete. */
   async startLogin(): Promise<string> {
     this.login.proc?.kill();
+    this.forgetRemote();
     const out = await this.cli<string>(["login", "--no-browser", "--no-wait", "--no-skill-install"], { raw: true });
     const url = out.match(/https:\/\/\S+/)?.[0] ?? null;
     if (!url) throw new HttpError(502, "composio did not give a sign-in link");
@@ -347,6 +379,7 @@ export class Composio {
     void proc.exited.then((code) => {
       if (this.login.proc !== proc) return;
       this.login = { url: null, state: code === 0 ? "done" : "failed", error: code === 0 ? null : "the sign-in did not complete (it expires after 10 minutes)", proc: null };
+      this.forgetRemote();
     });
     return url;
   }
@@ -365,6 +398,7 @@ export class Composio {
 
   /** Use a project: jin's folder is bound to it (what `composio dev init` writes) and the CLI to its org. */
   async useProject(orgId: string, projectId: string, name: string) {
+    this.forgetRemote();
     await this.cli(["orgs", "switch", "--org-id", orgId]);
     mkdirSync(join(this.dir, ".composio"), { recursive: true });
     const prev = this.project() as Record<string, unknown> | null;
@@ -374,6 +408,7 @@ export class Composio {
   setUserId(userId: string) {
     if (!/^[\w.@-]{1,64}$/.test(userId)) throw new HttpError(400, "a user id is letters, digits and . _ @ -");
     this.save({ userId });
+    this.forgetRemote();
   }
 
   /** A link to connect an account for a service (Composio's own page). */
@@ -822,7 +857,7 @@ export function composioRoutes(router: Router, c: Composio) {
     .on("POST", "/api/composio/connect/:toolkit", async (_req, p) => json({ url: await c.connect(tk(p.toolkit)) }))
     .on("POST", "/api/composio/events/:kind", async (req, p) => {
       const b = await body<{ on?: boolean; linearTeams?: string[] }>(req);
-      await c.setEvent(p.kind as EventKind, b.on !== false, { linearTeams: b.linearTeams });
+      await c.setEvent(p.kind as EventKind, b.on !== false, { linearTeams: b.linearTeams }).finally(() => c.forgetRemote());
       c.restartListener();
       return json(await c.status());
     })
