@@ -32,7 +32,8 @@
   padding: 0 var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
-  background: var(--surface);
+  /* The color only: a select keeps its arrow (a background image from .field select). */
+  background-color: var(--surface);
   color: var(--ink);
   font-size: var(--d-text);
 }
