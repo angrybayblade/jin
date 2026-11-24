@@ -198,6 +198,24 @@ export class Journal {
     return (this.db.query(`select m.* from memory_fts join memory m on m.rowid = memory_fts.rowid where ${where.join(" and ")} order by bm25(memory_fts) limit ?`).all(...args) as any[]).map(toEntry);
   }
 
+  /** Long-term memory for the Memory page: a workspace's (or every workspace's) kept rows, newest first. */
+  listGlobal(workspace?: string, limit = 200): JournalEntry[] {
+    const rows = workspace
+      ? this.db.query("select * from memory where level = 'global' and status = 'active' and workspace = ? order by at desc limit ?").all(workspace, limit)
+      : this.db.query("select * from memory where level = 'global' and status = 'active' order by at desc limit ?").all(limit);
+    return (rows as any[]).map(toEntry);
+  }
+
+  /** You, on the Memory page: reword a kept row (its first wording is kept), or forget it (out of every search; kept, marked). */
+  editGlobal(id: string, change: { text?: string; forget?: boolean }): JournalEntry {
+    const r = this.db.query("select * from memory where id = ? and level = 'global'").get(id) as any;
+    if (!r) throw new HttpError(404, `no long-term memory ${id}`);
+    const text = change.text?.trim().replace(/\s+/g, " ").slice(0, 500);
+    if (text && text !== r.text) this.db.query("update memory set task_text = coalesce(task_text, text), text = ? where id = ?").run(text, id);
+    if (change.forget) this.db.query("update memory set status = 'dropped' where id = ?").run(id);
+    return toEntry(this.db.query("select * from memory where id = ?").get(id));
+  }
+
   /** A workspace's latest long-term decisions (newest first). */
   recentGlobal(workspace: string, limit = 20): JournalEntry[] {
     return (this.db.query("select * from memory where level = 'global' and workspace = ? and status = 'active' and kind = 'decision' order by at desc limit ?").all(workspace, limit) as any[]).map(toEntry);
@@ -343,6 +361,13 @@ export function journalRoutes(
     // The home's long-term rows a task on another machine needs: candidates for its pre-context, and rows by id.
     .on("GET", "/api/memory/candidates", (_req, _p, url) => json(more.candidates?.(url.searchParams.get("workspace") || null, url.searchParams.get("text") ?? "") ?? []))
     .on("GET", "/api/memory/rows", (_req, _p, url) => json(journal.rows((url.searchParams.get("ids") ?? "").split(",").filter(Boolean).slice(0, 100))))
+    // The Memory page (on the home): kept rows, newest first or found by words; reword or forget one.
+    .on("GET", "/api/memory", (_req, _p, url) => {
+      const q = url.searchParams.get("q")?.trim();
+      const workspace = url.searchParams.get("workspace") || undefined;
+      return json(q ? journal.search(q, { workspace, level: "global", limit: 100 }) : journal.listGlobal(workspace));
+    })
+    .on("PATCH", "/api/memory/:id", async (req, p) => json(journal.editGlobal(p.id!, await body<{ text?: string; forget?: boolean }>(req))))
     .on("POST", "/api/memory/import", async (req) => {
       const b = await body<{ rows?: JournalEntry[]; machine?: string | null }>(req);
       journal.importGlobal(Array.isArray(b.rows) ? b.rows : [], b.machine ?? null);

@@ -162,3 +162,23 @@ test("memory p2: keeping a task's memory promotes, drops and summarizes on its m
   ]);
   expect(j.forTask("PLEN-1").map((e) => e.text)).toEqual(["Retries belong in the proxy layer"]);
 });
+
+// ---------------------------------------------------------------- phase 4: the Memory page
+
+test("memory p4: the Memory page lists kept rows newest first; you reword one (its first wording kept) or forget it", () => {
+  const { db, j } = setup();
+  const a = j.add("t1", { concern: "auth", kind: "found", text: "Tokens refresh every 15 minutes" }).entry;
+  const b = j.add("t1", { concern: "limiter", kind: "decision", text: "Retries in the proxy" }).entry;
+  j.add("t1", { concern: "tests", kind: "done", text: "Not kept" });
+  j.promote("PLEN-1", [{ id: a.id }], "jin");
+  j.promote("PLEN-1", [{ id: b.id }], "jin");
+  db.query("update memory set at = '2026-01-01' where id = ?").run(a.id);
+  expect(j.listGlobal("composio").map((e) => e.text)).toEqual(["Retries in the proxy", "Tokens refresh every 15 minutes"]);
+  expect(j.listGlobal("jin")).toEqual([]);
+  j.editGlobal(b.id, { text: "Retries belong in the proxy layer" });
+  expect(db.query("select text, task_text from memory where id = ?").get(b.id)).toEqual({ text: "Retries belong in the proxy layer", task_text: "Retries in the proxy" });
+  j.editGlobal(a.id, { forget: true });
+  expect(j.listGlobal().map((e) => e.id)).toEqual([b.id]);
+  expect(j.search("tokens", { level: "global" })).toEqual([]);
+  expect(() => j.editGlobal("nope", { forget: true })).toThrow("no long-term memory");
+});
