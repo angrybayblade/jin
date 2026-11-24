@@ -326,6 +326,12 @@ export const MIGRATIONS: string[] = [
     insert into memory_fts (rowid, text, why, concern) values (new.rowid, new.text, new.why, new.concern);
   end;
   `,
+  // 22: promotion: a row reworded for long-term use keeps the task's wording; on the home, a
+  // promoted row names the machine its task ran on.
+  `
+  alter table memory add column task_text text;
+  alter table memory add column machine text;
+  `,
 ];
 
 export function openDb(home: string): Database {

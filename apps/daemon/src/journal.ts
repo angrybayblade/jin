@@ -13,10 +13,13 @@ import { body, HttpError, json, type Router } from "./http";
  */
 
 export type JournalKind = "decision" | "done" | "found";
+/** What a row can be: an agent's journal entry, the evidence of a turn with none, or a finished task's summary (written by jin). */
+export type MemoryKind = JournalKind | "change" | "summary";
 export const JOURNAL_KINDS: JournalKind[] = ["decision", "done", "found"];
 
 export interface JournalRef {
-  type: "file" | "commit" | "test";
+  /** id: a platform id (github:org/repo#n, linear:PLEN-1, slack:…), resolved live when read. */
+  type: "file" | "commit" | "test" | "id";
   text: string;
 }
 
@@ -26,7 +29,7 @@ export interface JournalEntry {
   terminalId: string | null;
   session: string | null;
   concern: string | null;
-  kind: JournalKind | "change";
+  kind: MemoryKind;
   text: string;
   why: string | null;
   refs: JournalRef[];
@@ -37,6 +40,9 @@ export interface JournalEntry {
   /** A row a later one replaced is kept, "superseded". */
   status: "active" | "superseded" | "dropped";
   supersedes: string | null;
+  /** On the home: the machine a promoted row's task ran on (null: this one). */
+  machine?: string | null;
+  promotedAt?: string | null;
 }
 
 export interface JournalView {
@@ -63,6 +69,8 @@ const toEntry = (r: any): JournalEntry => ({
   workspace: r.workspace ?? null,
   status: r.status ?? "active",
   supersedes: r.supersedes ?? null,
+  machine: r.machine ?? null,
+  promotedAt: r.promoted_at ?? null,
 });
 
 const TEST_CMD = /\b(bun test|vitest|jest|pytest|go test|cargo test|(?:npm|pnpm|yarn)(?: run)? test|make test)\b/;
@@ -176,7 +184,7 @@ export class Journal {
    * workspace when given; superseded and dropped rows only when asked. What is typed is words to
    * find, never query syntax.
    */
-  search(query: string, opts: { workspace?: string; superseded?: boolean; limit?: number } = {}): JournalEntry[] {
+  search(query: string, opts: { workspace?: string; superseded?: boolean; level?: "task" | "global"; limit?: number } = {}): JournalEntry[] {
     const words = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
     if (!words.length) return [];
     const match = words.map((w) => `"${w}"`).join(" ");
@@ -184,8 +192,67 @@ export class Journal {
     const args: (string | number)[] = [match];
     if (opts.workspace) (where.push("m.workspace = ?"), args.push(opts.workspace));
     if (!opts.superseded) where.push("m.status = 'active'");
+    if (opts.level) (where.push("m.level = ?"), args.push(opts.level));
     args.push(Math.min(opts.limit ?? 20, 100));
     return (this.db.query(`select m.* from memory_fts join memory m on m.rowid = memory_fts.rowid where ${where.join(" and ")} order by bm25(memory_fts) limit ?`).all(...args) as any[]).map(toEntry);
+  }
+
+  /** A task's rows by id, refusing any that are not its own. */
+  private own(taskId: string, ids: string[]) {
+    const rows = ids.map((id) => this.db.query("select * from memory where id = ?").get(id) as any);
+    const bad = ids.filter((_, i) => !rows[i] || rows[i].task_id !== taskId);
+    if (bad.length) throw new HttpError(400, `${bad.join(", ")} not in this task's memory`);
+    return rows;
+  }
+
+  /**
+   * Keep rows beyond their task: each is raised to long-term (the same row), reworded for use
+   * elsewhere when given new text (the task's wording is kept). Only jin's merge cleanup or Wrap
+   * up does this; agents never do.
+   */
+  promote(taskId: string, items: { id: string; text?: string }[], by: string): JournalEntry[] {
+    const rows = this.own(taskId, items.map((i) => i.id));
+    const at = now();
+    this.db.transaction(() => {
+      items.forEach((it, i) => {
+        const text = it.text?.trim().replace(/\s+/g, " ").slice(0, 500);
+        if (text && text !== rows[i].text) this.db.query("update memory set task_text = coalesce(task_text, text), text = ? where id = ?").run(text, it.id);
+        this.db.query("update memory set level = 'global', promoted_at = ?, promoted_by = ? where id = ?").run(at, by, it.id);
+      });
+    })();
+    return items.map((it) => toEntry(this.db.query("select * from memory where id = ?").get(it.id)));
+  }
+
+  /** Dead ends and noise: out of the task's context and of every search; kept, marked. */
+  drop(taskId: string, ids: string[]): number {
+    this.own(taskId, ids);
+    for (const id of ids) this.db.query("update memory set status = 'dropped' where id = ?").run(id);
+    return ids.length;
+  }
+
+  /** The finished task in a few lines, long-term: what it did and why, with the ids of what it touched. */
+  summarize(taskId: string, s: { text: string; refs?: string[]; by: string }): JournalEntry {
+    const text = s.text.trim().slice(0, 2000);
+    if (!text) throw new HttpError(400, "a summary needs text");
+    const id = randomUUID();
+    const at = now();
+    const refs = (s.refs ?? []).filter((r) => typeof r === "string" && r.trim()).map((r): JournalRef => ({ type: "id", text: r.trim() }));
+    this.db
+      .query("insert into memory (id, task_id, session, concern, kind, text, why, refs, at, level, workspace, status, promoted_at, promoted_by) values (?, ?, ?, 'summary', 'summary', ?, null, ?, ?, 'global', ?, 'active', ?, ?)")
+      .run(id, taskId, s.by, text, JSON.stringify(refs), at, this.opts.workspaceOf?.(taskId) ?? null, at, s.by);
+    return toEntry(this.db.query("select * from memory where id = ?").get(id));
+  }
+
+  /** On the home: long-term rows from a task on `machine`, kept as the same artifacts (same id); again means an update. */
+  importGlobal(rows: JournalEntry[], machine: string | null) {
+    const q = this.db.query(
+      `insert into memory (id, task_id, terminal_id, session, concern, kind, text, why, refs, at, level, workspace, status, supersedes, promoted_at, promoted_by, machine)
+       values (?, ?, null, ?, ?, ?, ?, ?, ?, ?, 'global', ?, ?, ?, ?, ?, ?)
+       on conflict (id) do update set text = excluded.text, why = excluded.why, refs = excluded.refs, level = 'global', workspace = excluded.workspace, status = excluded.status, promoted_at = excluded.promoted_at, machine = coalesce(memory.machine, excluded.machine)`,
+    );
+    this.db.transaction(() => {
+      for (const e of rows) q.run(e.id, e.taskId, e.session, e.concern, e.kind, e.text, e.why, JSON.stringify(e.refs ?? []), e.at, e.workspace, e.status, e.supersedes, e.promotedAt ?? now(), "jin", machine);
+    })();
   }
 
   /** Rows whose workspace is not known yet (written before memory had one) get their task's, where jin knows it. Returns how many. */
@@ -200,7 +267,8 @@ export class Journal {
 
   /** The task's live rows (its journal entries, superseded and dropped ones left out), oldest first. */
   forTask(taskId: string): JournalEntry[] {
-    return (this.db.query("select * from memory where task_id = ? and concern is not null and status = 'active' order by at, rowid").all(taskId) as any[]).map(toEntry);
+    // Its summary (written once it is done) is for long-term search, not for the agents working in it.
+    return (this.db.query("select * from memory where task_id = ? and concern is not null and kind != 'summary' and status = 'active' order by at, rowid").all(taskId) as any[]).map(toEntry);
   }
 
   /** The task's live rows as text, for any agent in the task (tabs, room, subtasks): by concern, each with who wrote it. */
@@ -244,4 +312,24 @@ export function journalRoutes(router: Router, journal: Journal) {
     })
     .on("GET", "/api/tasks/:id/journal", (_req, p) => json(journal.view(p.id!)))
     .on("GET", "/api/journal/recent", (_req, _p, url) => json(journal.recent(url.searchParams.get("since") ?? new Date(Date.now() - 86_400_000).toISOString())));
+}
+
+/**
+ * jin's merge cleanup (or Wrap up) keeping what a task learned: on the task's machine, promote the
+ * chosen rows (reworded where given), drop the noise and write the summary; then the home, where
+ * long-term memory lives, takes the results as the same artifacts.
+ */
+export async function keepMemory(
+  deps: {
+    task: { promote: (items: { id: string; text?: string }[], by: string) => Promise<JournalEntry[]>; drop: (ids: string[]) => Promise<number>; summarize: (s: { text: string; refs?: string[]; by: string }) => Promise<JournalEntry> };
+    home: Pick<Journal, "importGlobal">;
+    machine: string | null;
+  },
+  args: { promote?: { id: string; text?: string }[]; drop?: string[]; summary?: { text: string; refs?: string[] } },
+): Promise<{ kept: number; dropped: number; summary: string | null }> {
+  const kept = args.promote?.length ? await deps.task.promote(args.promote, "jin") : [];
+  const dropped = args.drop?.length ? await deps.task.drop(args.drop) : 0;
+  const summary = args.summary?.text ? await deps.task.summarize({ ...args.summary, by: "jin" }) : null;
+  deps.home.importGlobal([...kept, ...(summary ? [summary] : [])], deps.machine);
+  return { kept: kept.length, dropped, summary: summary?.id ?? null };
 }
