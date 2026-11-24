@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Faster pages.** The desk shows at once (a cold desk took ~3.7 s waiting on the check of
+  Claude's connectors; that notice now streams in after), and Live no longer waits on three
+  Composio CLI calls per visit (576 ms → 41 ms: the last reading is served, refreshed behind).
 - **Room agents have animated globs as pictures**, each in its own colours and shape, moving
   faster while the agent works. All of a room's globs share one WebGL canvas.
 - **Rename a room** from its tab's menu (or double-click the tab); naming it "Room" again drops
