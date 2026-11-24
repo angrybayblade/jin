@@ -137,8 +137,8 @@ export class Agents {
     const hit = this.seen.get(id);
     if (!fresh && hit && Date.now() - hit.at < INSTALLED_FOR) return hit;
     const a = this.launches[id];
-    // Only an agent that lists the versions it supports is asked for one.
-    const found = await this.lookup(a.bin, Boolean(a.supports)).catch(() => ({ installed: false, version: null }));
+    // Every agent is asked its version (shown on its machine's page); the lookup gives up after a few seconds.
+    const found = await this.lookup(a.bin, true).catch(() => ({ installed: false, version: null }));
     this.seen.set(id, { ...found, at: Date.now() });
     return found;
   }

@@ -14,6 +14,7 @@ let codexHome: string;
 // The stand-in: `codex app-server` answers hooks/list from the -c hooks it was given (trusted
 // once config/batchWrite marks them, unless codex-refuse exists); `codex ...` records its argv.
 const FAKE_CODEX = (home: string) => `#!/usr/bin/env bun
+if (process.argv[2] === "--version") { console.log("codex-cli 0.169.0"); process.exit(0); }
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 const state = "${home}/codex-trust.json";
@@ -62,7 +63,7 @@ beforeAll(async () => {
   env = setupEnv();
   writeFileSync(join(env.bin, "codex"), FAKE_CODEX(env.home));
   chmodSync(join(env.bin, "codex"), 0o755);
-  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\n[ "$1" = auth ] && exit 1\nexec sleep 600\n`);
+  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\n[ "$1" = auth ] && exit 1\n[ "$1" = --version ] && echo "2.0.0 (Claude Code)" && exit 0\nexec sleep 600\n`);
   chmodSync(join(env.bin, "claude"), 0o755);
   codexHome = join(env.home, "..", "codex-home");
   mkdirSync(codexHome, { recursive: true });

@@ -34,7 +34,7 @@ beforeAll(async () => {
   ws = join(base, "code");
   mkdirSync(ws);
   git(ws, "clone", "-q", origin, "web");
-  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\n[ "$1" = auth ] && exit 1\nprintf '%s\\n' "$@" > "${env.home}/claude-args.txt"\nexec sleep 600\n`);
+  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\n[ "$1" = auth ] && exit 1\n[ "$1" = --version ] && echo "2.0.0 (Claude Code)" && exit 0\nprintf '%s\\n' "$@" > "${env.home}/claude-args.txt"\nexec sleep 600\n`);
   chmodSync(join(env.bin, "claude"), 0o755);
   d = await startDaemon(env);
 });

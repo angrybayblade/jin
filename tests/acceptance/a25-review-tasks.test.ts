@@ -49,7 +49,7 @@ beforeAll(async () => {
   env = setupEnv();
   writeFileSync(join(env.workspace, "bin", "cws"), CWS);
   chmodSync(join(env.workspace, "bin", "cws"), 0o755);
-  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${env.home}/claude-args.txt"\nexec sleep 600\n`);
+  writeFileSync(join(env.bin, "claude"), `#!/bin/sh\n[ "$1" = --version ] && echo "2.0.0 (Claude Code)" && exit 0\nprintf '%s\\n' "$@" > "${env.home}/claude-args.txt"\nexec sleep 600\n`);
   chmodSync(join(env.bin, "claude"), 0o755);
   d = await startDaemon(env);
 });
