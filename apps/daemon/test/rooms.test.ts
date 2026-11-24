@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db";
 import type { HarnessRun } from "../src/harness/types";
+import { Journal } from "../src/journal";
 import { mentionsIn, type RoomDeps, Rooms, tagsIn } from "../src/rooms";
 import { Sessions } from "../src/sessions";
 
 type Act = (r: HarnessRun, turn: number) => Promise<string[]>;
 
 /** A room over a stand-in for Claude: each agent's turn does what `act` says, and is recorded. */
-const setup = (extra: Partial<RoomDeps> = {}) => {
+const setup = (extra: Partial<RoomDeps> | ((db: ReturnType<typeof openDb>) => Partial<RoomDeps>) = {}) => {
   const home = mkdtempSync(join(tmpdir(), "jin-room-"));
   const db = openDb(home);
   const runs: { who: string; run: HarnessRun; turn: number }[] = [];
@@ -52,14 +53,14 @@ const setup = (extra: Partial<RoomDeps> = {}) => {
       { name: "jin_comment_doc", description: "", input: {}, run: async () => ({ threadId: "t1" }) },
     ],
     linkDoc: (taskId, docId) => void linked.push(`${taskId}:${docId}`),
-    ...extra,
+    ...(typeof extra === "function" ? extra(db) : extra),
   });
   const settle = async (n = 1) => {
     for (let i = 0; i < 200 && rooms!.state("T-1").messages.filter((m) => m.author !== "you").length < n; i++) await Bun.sleep(5);
     await Bun.sleep(10);
   };
   const said = () => rooms!.state("T-1").messages.map((m) => `${m.kind === "note" ? "note" : (m.authorHandle ?? "you")}: ${m.text}`);
-  return { rooms, sessions, runs, act, settle, said, made, linked, home, dirs };
+  return { rooms, sessions, runs, act, settle, said, made, linked, home, dirs, db };
 };
 
 /** A gate a test opens when it wants a turn to go on. */
@@ -336,4 +337,46 @@ test("tagged docs, files and PRs: chips on the message, and the docs' text and f
   expect(prompt).toContain('jin doc "Keyring plan" (id d0123456789)');
   expect(prompt).toContain("Rotate keys monthly.");
   expect(prompt).not.toContain("nope.md (in this");
+});
+
+/** A room whose agents share the task's memory with its terminal tabs (one Claude Code tab: t1). */
+const withMemory = () => {
+  let journal!: Journal;
+  const room = setup((db) => {
+    journal = new Journal(db, (id) => (id === "t1" ? { taskId: "T-1", title: "Claude 1" } : null), { workspaceOf: () => "w" });
+    return { journal };
+  });
+  return { ...room, journal: () => journal };
+};
+
+test("memory: a room agent writes the task's rows with its journal tool, named by its handle", async () => {
+  const { rooms, act, settle, journal } = withMemory();
+  act.set("designer", async (r) => {
+    const tool = r.tools!.find((t) => t.name === "journal")!;
+    expect(await tool.run({ concern: "onboarding", kind: "decision", text: "Two steps, not three", why: "drop-off at step 3" })).toBe("ok");
+    return ["Decided: two steps."];
+  });
+  rooms.post("T-1", "@designer how many onboarding steps?");
+  await settle(1);
+  const entry = journal().view("T-1").concerns[0]!.entries[0]!;
+  expect(entry).toMatchObject({ taskId: "T-1", session: "@designer", terminalId: null, concern: "onboarding", kind: "decision", text: "Two steps, not three", why: "drop-off at step 3", level: "task", workspace: "w" });
+});
+
+test("memory: every agent in the task reads all its rows: a tab's context has the room's, the room's agents read the tab's", async () => {
+  const { rooms, act, settle, journal } = withMemory();
+  journal().add("t1", { concern: "limiter", kind: "decision", text: "Retry in the proxy", why: "fewer 429s" });
+  let read = "";
+  act.set("reviewer", async (r) => {
+    read = String(await r.tools!.find((t) => t.name === "task_journal")!.run({}));
+    await r.tools!.find((t) => t.name === "journal")!.run({ concern: "limiter", kind: "found", text: "The proxy already backs off" });
+    return ["Read it."];
+  });
+  rooms.post("T-1", "@reviewer check the limiter work");
+  await settle(1);
+  expect(read).toContain("Retry in the proxy");
+  expect(read).toContain("Claude 1");
+  const tab = journal().contextText("T-1");
+  expect(tab).toContain("Retry in the proxy");
+  expect(tab).toContain("The proxy already backs off");
+  expect(tab).toContain("@reviewer");
 });
