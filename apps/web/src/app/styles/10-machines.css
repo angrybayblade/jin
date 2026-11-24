@@ -672,7 +672,9 @@ p.machine-auth-body {
   top: 0;
   max-height: calc(100vh - 96px);
   overflow-y: auto;
-  padding-right: 2px;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
 }
 .machines-main {
   container-type: inline-size;

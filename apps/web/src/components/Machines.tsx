@@ -1,7 +1,7 @@
 "use client";
 import { HarnessSettings } from "@/components/HarnessSettings";
 import { Empty } from "@/components/States";
-import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -586,6 +586,17 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
     {/* The machine's coding agents and their settings, beside it on a wide screen. */}
     {ready && (
       <aside className="machine-side" aria-label={`Coding agents on ${m.label}`}>
+        <header className="md-head">
+          <span className="md-icon">
+            <Bot size={16} />
+          </span>
+          <div className="md-title">
+            <div className="md-name">
+              <h2>Coding agents</h2>
+            </div>
+            <span className="meta">the harnesses on {m.label}, and their settings</span>
+          </div>
+        </header>
         <HarnessSettings machine={m.id} name={m.label} />
       </aside>
     )}
