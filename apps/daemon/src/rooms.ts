@@ -12,6 +12,7 @@ import { type Effort, readChoice } from "./models";
 import type { Approval, Session, SessionEvent, Sessions, SessionState } from "./sessions";
 import type { Tasks } from "./tasks";
 import { MENTION, type Mention } from "./mentions";
+import { JOURNAL_KINDS, type Journal } from "./journal";
 
 /**
  * A task's agent room: several agents, each with a role of its own (a profile: its brief, whether
@@ -253,6 +254,8 @@ export interface RoomDeps {
   docInfo?: (id: string) => Promise<{ title: string; body: string } | null>;
   /** PRs, issues and tasks the user tagged, resolved for the message's chips. */
   mentions?: (text: string) => Promise<Mention[]>;
+  /** The task's journal (its memory rows), shared with its terminal tabs: agents write and read it. */
+  journal?: Pick<Journal, "write" | "contextText">;
 }
 
 export class Rooms {
@@ -852,7 +855,25 @@ export class Rooms {
         return { messages: page.map((m) => ({ seq: m.seq, from: m.author === "you" ? "user" : `@${m.authorHandle}`, at: m.at, text: m.text })), earlier: all.length - page.length };
       },
     };
-    return [...docs, history];
+    const journal = this.deps.journal;
+    const memory: JinTool[] = journal
+      ? [
+          {
+            name: "journal",
+            description:
+              "Record one line in this task's work journal, which the user and every other agent in the task (its terminal tabs too) read: a decision (with why), work done, or a finding, under a short concern label (reuse existing labels). To replace an earlier entry (a decision changed, a finding corrected), pass its id as supersedes. Replies \"ok\".",
+            input: { concern: z.string(), kind: z.enum(JOURNAL_KINDS as [string, ...string[]]), text: z.string(), why: z.string().optional(), supersedes: z.string().optional() },
+            run: async (args) => journal.write(taskId, { terminalId: null, session: `@${a.handle}` }, args as { concern: string; kind: string; text: string; why?: string; supersedes?: string }).reply,
+          },
+          {
+            name: "task_journal",
+            description: "Read this task's work journal: the decisions, work done and findings of every agent in the task (its terminal tabs, this room, its subtasks), by concern, with who wrote each and its id.",
+            input: {},
+            run: async () => journal.contextText(taskId),
+          },
+        ]
+      : [];
+    return [...docs, history, ...memory];
   }
 
   /** A removed task's room goes with it. */

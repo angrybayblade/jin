@@ -193,6 +193,20 @@ export class Journal {
     return (this.db.query("select * from memory where task_id = ? and concern is not null and status = 'active' order by at, rowid").all(taskId) as any[]).map(toEntry);
   }
 
+  /** The task's live rows as text, for any agent in the task (tabs, room, subtasks): by concern, each with who wrote it. */
+  contextText(taskId: string): string {
+    const rows = this.forTask(taskId);
+    if (!rows.length) return "Nothing in this task's journal yet.";
+    const byConcern = new Map<string, JournalEntry[]>();
+    for (const e of rows) byConcern.set(e.concern!, [...(byConcern.get(e.concern!) ?? []), e]);
+    const lines = ["This task's journal so far, from every agent in it (decisions, work done, findings; replaced entries left out):"];
+    for (const [concern, list] of byConcern) {
+      lines.push(`\n${concern}`);
+      for (const e of list) lines.push(`- ${e.kind}: ${e.text}${e.why ? ` (why: ${e.why})` : ""} [${e.session ?? "?"}, id ${e.id}]`);
+    }
+    return lines.join("\n");
+  }
+
   /** The task's journal: concerns in the order they started, entries in order within each. */
   view(taskId: string): JournalView {
     const rows = (this.db.query("select * from memory where task_id = ? order by at, rowid").all(taskId) as any[]).map(toEntry);

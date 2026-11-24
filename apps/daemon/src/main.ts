@@ -179,6 +179,8 @@ rooms = new Rooms({
     }
   },
   mentions: (text) => mentions?.resolve(text) ?? Promise.resolve([]),
+  // The task's journal, shared with its terminal tabs (made further down; reached when a turn runs).
+  journal: { write: (taskId, by, e) => journal.write(taskId, by, e), contextText: (taskId) => journal.contextText(taskId) },
 });
 roomRoutes(app.router, rooms);
 tasks.onRemoved((taskId) => rooms?.removeTask(taskId));
@@ -548,6 +550,7 @@ linkRoutes(app.router, {
     taskOf: (terminalId) => terminals.get(terminalId).taskId ?? null,
     task: (id) => tasks.get(id),
     prs: (taskId) => prs.list(taskId),
+    journal: (taskId) => journal.contextText(taskId),
   },
   // Events are read on the home: a task's Activity comes from its feed.
   feedItems: async () => {

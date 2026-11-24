@@ -190,7 +190,7 @@ export function linkRoutes(
     /** How an agent reads an issue link (its tracker says). */
     trackers?: Trackers;
     /** For a terminal's Claude Code: its task, and the task's PRs with their state. */
-    context?: { taskOf: (terminalId: string) => string | null; task: (id: string) => { id: string; kind: string; title: string | null; slug: string }; prs: (taskId: string) => { url: string; title: string | null; state: string | null; draft: boolean; checks: string | null; review: string | null }[] };
+    context?: { taskOf: (terminalId: string) => string | null; task: (id: string) => { id: string; kind: string; title: string | null; slug: string }; prs: (taskId: string) => { url: string; title: string | null; state: string | null; draft: boolean; checks: string | null; review: string | null }[]; journal?: (taskId: string) => string };
   },
 ) {
   router
@@ -199,7 +199,8 @@ export function linkRoutes(
       const c = deps.context;
       const taskId = c?.taskOf(p.id!);
       if (!c || !taskId) throw new HttpError(404, "this terminal is not in a task");
-      const text = renderContext(c.task(taskId), deps.linksOf(taskId), c.prs(taskId), await deps.feedItems(), { trackers: deps.trackers });
+      // With the task's journal: what every agent in it (other tabs, the room) decided, did and found.
+      const text = [renderContext(c.task(taskId), deps.linksOf(taskId), c.prs(taskId), await deps.feedItems(), { trackers: deps.trackers }), c.journal?.(taskId)].filter(Boolean).join("\n\n");
       return new Response(text, { headers: { "content-type": "text/plain; charset=utf-8" } });
     })
     .on("GET", "/api/tasks/:id/links", (_req, p) => json(deps.linksOf(p.id!)))
