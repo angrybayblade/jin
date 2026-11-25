@@ -70,6 +70,8 @@ export function prEvents(data: WatchData): LiveEvent[] {
     seen.add(e.id);
     const thread = githubThread(pr.repository.nameWithOwner, pr.number, pr.title, pr.url);
     const tags = [...roleTags(pr, role), ...(e.body && mention.test(e.body) ? ["mentioned"] : [])];
+    // A PR only a team of yours was asked to review is not yours, unless this mentions you.
+    if (tags[0] === "team-review" && !tags.includes("mentioned")) return;
     out.push({ id: e.id, at: e.at, toolkit: "github", trigger: e.trigger, url: e.url, actor: e.actor, summary: e.summary, forYou: true, title: e.what, thread, tags });
   };
   const reviewing = [...data.reviewing.nodes, ...(data.reviewed?.nodes ?? [])];
@@ -147,7 +149,7 @@ export class GithubWatch {
   /** One look: new activity is delivered; the first look only remembers. */
   async check(): Promise<number> {
     const since = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
-    const raw = await this.gh(["api", "graphql", "-f", `query=${QUERY}`, "-f", "q1=is:pr is:open review-requested:@me", "-f", `q2=is:pr is:open author:@me updated:>=${since}`, "-f", `q3=is:pr is:open reviewed-by:@me -author:@me updated:>=${since}`]);
+    const raw = await this.gh(["api", "graphql", "-f", `query=${QUERY}`, "-f", "q1=is:pr is:open user-review-requested:@me", "-f", `q2=is:pr is:open author:@me updated:>=${since}`, "-f", `q3=is:pr is:open reviewed-by:@me -author:@me updated:>=${since}`]);
     const data = (JSON.parse(raw) as { data: WatchData }).data;
     const events = prEvents(data);
     this.settle?.(prSettlement(data));

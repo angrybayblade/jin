@@ -230,7 +230,7 @@ export class Feed {
 
 const PR_FIELDS = "__typename number title url updatedAt repository { nameWithOwner } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }";
 export const GITHUB_QUERY = `query {
-  reviewRequested: search(query: "is:pr is:open archived:false review-requested:@me", type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }
+  reviewRequested: search(query: "is:pr is:open archived:false user-review-requested:@me", type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }
   authored: search(query: "is:pr is:open archived:false author:@me", type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }
   mentions: search(query: "is:open archived:false mentions:@me", type: ISSUE, first: 50) { nodes {
     ... on Issue { __typename number title url updatedAt repository { nameWithOwner } }

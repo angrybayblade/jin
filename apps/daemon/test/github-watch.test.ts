@@ -20,7 +20,7 @@ const data = (reviewing: unknown[], mine: unknown[], reviewed: unknown[] = []) =
 test("comments, reviews, and others' commits on PRs you review; not your own activity", () => {
   const ev = prEvents(
     data(
-      [pr(1, { comments: [{ id: "c1", url: "u1", body: "please rebase", createdAt: "t", author: { login: "alex" } }, { id: "c2", url: "u2", body: "done", createdAt: "t", author: { login: "me" } }], commits: [{ commit: { oid: "abc", url: "uc", messageHeadline: "fix lint", committedDate: "t", author: { user: { login: "alex" } } } }] })],
+      [pr(1, { requested: [{ __typename: "User", login: "me" }], comments: [{ id: "c1", url: "u1", body: "please rebase", createdAt: "t", author: { login: "alex" } }, { id: "c2", url: "u2", body: "done", createdAt: "t", author: { login: "me" } }], commits: [{ commit: { oid: "abc", url: "uc", messageHeadline: "fix lint", committedDate: "t", author: { user: { login: "alex" } } } }] })],
       [pr(2, { reviews: [{ id: "r1", url: "ur", body: "", state: "CHANGES_REQUESTED", submittedAt: "t", author: { login: "bob" }, comments: { nodes: [{ id: "x", url: "ux", body: "rename this", author: { login: "bob" } }] } }], commits: [{ commit: { oid: "def", url: "ud", messageHeadline: "wip", committedDate: "t", author: { user: { login: "me" } } } }] })],
     ),
   );
@@ -34,11 +34,11 @@ test("comments, reviews, and others' commits on PRs you review; not your own act
 
 test("the first look only remembers; later looks deliver what is new, once", async () => {
   const home = mkdtempSync(join(tmpdir(), "jin-ghw-"));
-  let answer = data([pr(1, { comments: [{ id: "c1", url: "u", body: "old", createdAt: "t", author: { login: "alex" } }] })], []);
+  let answer = data([pr(1, { requested: [{ __typename: "User", login: "me" }], comments: [{ id: "c1", url: "u", body: "old", createdAt: "t", author: { login: "alex" } }] })], []);
   const got: LiveEvent[] = [];
   const w = new GithubWatch(home, (e) => got.push(e), async () => JSON.stringify({ data: answer }));
   expect(await w.check()).toBe(0);
-  answer = data([pr(1, { comments: [{ id: "c1", url: "u", body: "old", createdAt: "t", author: { login: "alex" } }, { id: "c2", url: "u", body: "new", createdAt: "t", author: { login: "alex" } }] })], []);
+  answer = data([pr(1, { requested: [{ __typename: "User", login: "me" }], comments: [{ id: "c1", url: "u", body: "old", createdAt: "t", author: { login: "alex" } }, { id: "c2", url: "u", body: "new", createdAt: "t", author: { login: "alex" } }] })], []);
   expect(await w.check()).toBe(1);
   expect(await w.check()).toBe(0);
   expect(got.map((e) => e.summary)).toEqual(["new"]);
@@ -47,7 +47,7 @@ test("the first look only remembers; later looks deliver what is new, once", asy
   expect(await again.check()).toBe(0);
 });
 
-test("each event says why it concerns you: your PR, asked of you, only of your team, a mention", () => {
+test("each event says why it concerns you: your PR, asked of you, a mention; a PR only your team was asked to review is left out unless it mentions you", () => {
   const comment = (id: string, body: string) => ({ id, url: id, body, createdAt: "t", author: { login: "alex" } });
   const ev = prEvents(
     data(
@@ -60,5 +60,5 @@ test("each event says why it concerns you: your PR, asked of you, only of your t
     ),
   );
   const tags = Object.fromEntries(ev.map((e) => [e.id, e.tags]));
-  expect(tags).toEqual({ "c:a": ["reviewer"], "c:b": ["team-review"], "c:c": ["team-review", "mentioned"], "c:d": ["team-review"], "c:f": ["reviewer"], "c:e": ["authored"] });
+  expect(tags).toEqual({ "c:a": ["reviewer"], "c:c": ["team-review", "mentioned"], "c:f": ["reviewer"], "c:e": ["authored"] });
 });
