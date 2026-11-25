@@ -92,7 +92,8 @@ export class Feed {
 
   list(): FeedItem[] {
     // A snooze that has run out: the item is back.
-    this.db.query("update feed_items set state = 'new' where state = 'snoozed' and snoozed_until <= ?").run(now());
+    // Back from snooze: not read at its source as far as jin knows (snoozing stamped seen_at).
+    this.db.query("update feed_items set state = 'new', seen_at = null where state = 'snoozed' and snoozed_until <= ?").run(now());
     return this.db.query("select * from feed_items order by received_at desc, id").all().map(toItem);
   }
 
@@ -147,7 +148,7 @@ export class Feed {
 
   /** Not handled after all: back to open (and not judged again for a while). */
   reopen(id: string): FeedItem {
-    this.db.query("update feed_items set state = 'new', stale_why = null, checked_at = ? where id = ? and state in ('stale', 'done', 'dismissed')").run(now(), id);
+    this.db.query("update feed_items set state = 'new', stale_why = null, seen_at = null, checked_at = ? where id = ? and state in ('stale', 'done', 'dismissed')").run(now(), id);
     return this.get(id);
   }
 

@@ -93,7 +93,10 @@ test("context check: what was handled since goes stale with why, the rest stays 
   feed.markSeen([byRef(feed, "fresh").id]);
   await checker.run();
   expect(judged).toHaveLength(3);
-  expect(feed.reopen(byRef(feed, "answered").id)).toMatchObject({ state: "new", staleWhy: null });
+  expect(feed.reopen(byRef(feed, "answered").id)).toMatchObject({ state: "new", staleWhy: null, seenAt: null });
+  // Done stamps seen_at; reopened, it is not read at its source as far as jin knows.
+  feed.setState(byRef(feed, "waiting").id, "done");
+  expect(feed.reopen(byRef(feed, "waiting").id)).toMatchObject({ state: "new", seenAt: null });
 });
 
 test("task group: the home knows which task follows each key (PRs, issues, threads, a Slack channel's messages)", () => {
