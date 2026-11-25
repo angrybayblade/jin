@@ -712,7 +712,7 @@ const deskModelEnv = (): Record<string, string> => {
   return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
 };
 const scripted = process.env.JIN_HARNESS === "scripted";
-const slackTool = <T,>(slug: string, args: Record<string, unknown>) => composio.cli<{ data?: T }>(["dev", "playground-execute", slug, "--user-id", composio.settings.userId, "-d", JSON.stringify(args)]).then((r) => r.data);
+const slackTool = <T,>(slug: string, args: Record<string, unknown>) => composio.tool(slug, args).then((d) => (d ?? undefined) as T | undefined);
 const triager = new Triager(feed, {
   classify: scripted ? scriptedClassify : haikuClassify(deskModelEnv),
   me: () => composio.settings.me,

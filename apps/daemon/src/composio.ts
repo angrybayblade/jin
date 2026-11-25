@@ -748,11 +748,23 @@ export class Composio {
     return v;
   }
   /** Run one Composio tool as the user (null when it reports no success). */
-  tool(slug: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
-    return this.cli<{ successful?: boolean; data?: Record<string, unknown> }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]).then((r) => (r.successful === false ? null : (r.data ?? null)));
+  async tool(slug: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    const r = await this.cli<{ successful?: boolean; data?: Record<string, unknown>; outputFilePath?: string }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]);
+    if (r.successful === false) return null;
+    if (r.data) return r.data;
+    // A large answer is stored in a file instead (a Slack search, a long list); read it from there.
+    if (r.outputFilePath && existsSync(r.outputFilePath)) {
+      try {
+        const stored = JSON.parse(readFileSync(r.outputFilePath, "utf8")) as { data?: Record<string, unknown> } & Record<string, unknown>;
+        return stored.data ?? stored;
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
   private notionTool(slug: string, input: Record<string, string>) {
-    return this.cli<{ successful?: boolean; data?: Record<string, unknown> }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]).then((r) => (r.successful === false ? null : (r.data ?? null)));
+    return this.tool(slug, input);
   }
 
   /** A Notion page's title and link, through your Notion connection (kept once found). */

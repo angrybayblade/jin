@@ -86,3 +86,17 @@ test("Notion: you are found by your email among the workspace's users; your own 
   await c.notionMe();
   expect(calls.filter((s) => s === "NOTION_LIST_USERS").length).toBe(before);
 });
+
+test("a large tool answer stored in a file is read from there", async () => {
+  const { Composio } = await import("../src/composio");
+  const { writeFileSync } = await import("node:fs");
+  const home = mkdtempSync(join(tmpdir(), "jin-inv-"));
+  const file = join(home, "out.json");
+  const ts = (Date.now() / 1000 - 3600).toFixed(6);
+  writeFileSync(file, JSON.stringify({ successful: true, data: { messages: { matches: [{ ts, permalink: "https://x/archives/C1/p90?thread_ts=5.1", channel: { id: "C1" } }], paging: { pages: 1 } } } }));
+  const threads = new SlackThreads(home);
+  const fields = { deps: { feed: null, slackThreads: threads }, settings: { userId: "u", me: { slack: "U_ME" } }, config: { home }, cli: async () => ({ successful: true, error: null, storedInFile: true, outputFilePath: file }) };
+  const c = Object.create(Composio.prototype, Object.fromEntries(Object.entries(fields).map(([k, value]) => [k, { value, writable: true }])));
+  expect(await c.seedSlackThreads()).toBe(1);
+  expect(threads.has("slack:C1:5.1")).toBe(true);
+});
