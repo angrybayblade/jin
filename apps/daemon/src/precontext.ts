@@ -151,7 +151,7 @@ export function haikuChooser(env: () => Record<string, string> = () => ({})): Pr
       let text = "";
       const q = query({
         prompt: `${CHOOSE}\n\n<task>\n${brief.slice(0, 3000)}\n</task>\n\n<candidates>\n${list.slice(0, 20000)}\n</candidates>`,
-        options: { model: TITLE_MODEL, maxTurns: 1, settingSources: [], allowedTools: [], canUseTool: async () => ({ behavior: "deny", message: "no tools" }), env: { ...process.env, ...env() } as Record<string, string>, abortController: controller },
+        options: { model: TITLE_MODEL, maxTurns: 1, settingSources: [], tools: [], allowedTools: [], canUseTool: async () => ({ behavior: "deny", message: "no tools" }), env: { ...process.env, ...env() } as Record<string, string>, abortController: controller },
       });
       for await (const m of q) if (m.type === "result" && m.subtype === "success") text = m.result;
       // No answer, or one that is not a list: it could not pick (the task is asked again later).
