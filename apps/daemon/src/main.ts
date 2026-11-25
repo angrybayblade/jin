@@ -49,6 +49,7 @@ import { codexLaunch } from "./codex-cli";
 import { agentHookRoutes } from "./agent-hooks";
 import { Agents, agentRoutes } from "./agents";
 import { Journal, type JournalEntry, journalRoutes, memoryText } from "./journal";
+import { haikuClassify, haikuJudge, scriptedClassify, scriptedJudge, SlackReads, StaleChecker, Triager } from "./triage";
 import { candidatesFor, haikuChooser, PreContext, preContextRoutes, scriptedChooser } from "./precontext";
 import { prRoutes, rollup, TaskPRs } from "./prs";
 import { liveNotifies, Notifier, notifyRoutes, watchForNotifications } from "./notify";
@@ -699,6 +700,55 @@ const composio = new Composio(config, {
 });
 liveDeliver = (e) => composio.deliver(e);
 composioRoutes(app.router, composio);
+
+// The desk's life cycle, where the feed is (the home, or this machine without one): triage of
+// new items, the Slack read check, and the context check that marks handled items stale.
+const deskModelEnv = (): Record<string, string> => {
+  const dir = chatClaudeDir();
+  return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
+};
+const scripted = process.env.JIN_HARNESS === "scripted";
+const slackTool = <T,>(slug: string, args: Record<string, unknown>) => composio.cli<{ data?: T }>(["dev", "playground-execute", slug, "--user-id", composio.settings.userId, "-d", JSON.stringify(args)]).then((r) => r.data);
+const triager = new Triager(feed, {
+  classify: scripted ? scriptedClassify : haikuClassify(deskModelEnv),
+  me: () => composio.settings.me,
+  tasks: () => watches.tasks().map((t) => ({ id: t.taskId, title: t.title })),
+  ownerOf: (i) => watches.ownerOf(i.thread?.key, i.meta?.channel),
+});
+const slackReads = new SlackReads(feed, {
+  lastRead: async (channel) => {
+    const d = await slackTool<{ channel?: { last_read?: string }; last_read?: string }>("SLACK_RETRIEVE_CONVERSATION_INFORMATION", { channel });
+    return d?.channel?.last_read ?? d?.last_read ?? null;
+  },
+});
+const staleChecker = new StaleChecker(feed, {
+  judge: scripted ? scriptedJudge : haikuJudge(deskModelEnv),
+  // Slack: the thread's replies (or the DM's later messages) since the item, yours marked as "you".
+  since: async (item) => {
+    const m = item.meta;
+    if (item.source !== "slack" || !m?.channel || !m.ts || !composio.installed) return "";
+    const dm = item.thread?.key.startsWith("slack:dm:");
+    const d = dm
+      ? await slackTool<{ messages?: { user?: string; text?: string; ts?: string }[] }>("SLACK_FETCH_CONVERSATION_HISTORY", { channel: m.channel, oldest: m.ts, limit: 20 })
+      : await slackTool<{ messages?: { user?: string; text?: string; ts?: string }[] }>("SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION", { channel: m.channel, ts: m.threadTs ?? m.ts, oldest: m.ts, limit: 20 });
+    const me = composio.settings.me.slack;
+    return (d?.messages ?? [])
+      .filter((x) => Number(x.ts) > Number(m.ts))
+      .slice(0, 15)
+      .map((x) => `${x.user && x.user === me ? "you" : (x.user ?? "someone")}: ${(x.text ?? "").replace(/\s+/g, " ").slice(0, 280)}`)
+      .join("\n");
+  },
+});
+const holdsFeed = () => !homeLink();
+setInterval(() => holdsFeed() && void triager.run().catch(problems.catch("triaging the desk")), 20_000);
+setInterval(() => {
+  if (!holdsFeed() || scripted || !composio.installed || !composio.settings.events.slack_dms && !composio.settings.events.slack_mentions) return;
+  void slackReads
+    .run()
+    .then(() => staleChecker.run())
+    .catch(problems.catch("checking what you read in Slack"));
+}, 2 * 60_000);
+setInterval(() => holdsFeed() && void staleChecker.run().catch(problems.catch("checking what was handled on the desk")), 30 * 60_000);
 
 // What @mentions resolve against: this machine's tasks and every connected machine's (each within a
 // moment, or left out), the feed, a PR's live state through gh, a Linear issue's through Composio.
