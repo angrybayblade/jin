@@ -28,7 +28,7 @@ export interface FeedItem {
   hint?: { taskId: string; machine: string; title: string } | null;
   thread?: { key: string; title: string; ref: string | null; url: string | null } | null;
   actor?: string | null;
-  /** Why it might concern you: authored, reviewer, team-review, requested, mentioned, dm, mention, person, assigned, comment… */
+  /** Why it concerns you: authored, reviewer, requested, mentioned, dm, mention, thread, linked, person, assigned, created, subscribed, mine, discussion… */
   tags?: string[];
 }
 

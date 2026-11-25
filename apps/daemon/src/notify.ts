@@ -28,7 +28,6 @@ export const LIVE_KINDS: Record<string, { label: string; kinds: { id: string; la
       { id: "authored", label: "Activity on PRs I authored", on: true },
       { id: "reviewer", label: "PRs I'm a reviewer on (asked directly, or reviewed)", on: true },
       { id: "mentioned", label: "Comments that mention me", on: true },
-      { id: "team-review", label: "PRs only my team was asked to review", on: false },
     ],
   },
   slack: {
@@ -36,17 +35,26 @@ export const LIVE_KINDS: Record<string, { label: string; kinds: { id: string; la
     kinds: [
       { id: "dm", label: "Direct messages", on: true },
       { id: "mention", label: "Mentions", on: true },
+      { id: "thread", label: "Replies in threads I'm in (wrote in, started or was mentioned in)", on: true },
     ],
   },
   linear: {
     label: "Linear",
     kinds: [
       { id: "assigned", label: "Issues assigned to me", on: true },
+      { id: "created", label: "Issues I opened", on: true },
       { id: "mentioned", label: "Mentions", on: true },
-      { id: "other", label: "Other activity in my teams", on: false },
+      { id: "subscribed", label: "Issues I follow (commented on or subscribed to)", on: true },
     ],
   },
-  notion: { label: "Notion", kinds: [{ id: "comment", label: "Comments", on: true }] },
+  notion: {
+    label: "Notion",
+    kinds: [
+      { id: "mine", label: "Comments on my pages", on: true },
+      { id: "discussion", label: "Replies in discussions I'm in", on: true },
+      { id: "mention", label: "Comments that tag me", on: true },
+    ],
+  },
   gmail: {
     label: "Gmail",
     kinds: [
@@ -58,7 +66,10 @@ export const LIVE_KINDS: Record<string, { label: string; kinds: { id: string; la
 
 /** The kinds chosen for an app: the saved choice, else the defaults. */
 export function chosenKinds(s: NotificationSettings, app: string): string[] {
-  return s.sources?.[app] ?? LIVE_KINDS[app]?.kinds.filter((k) => k.on).map((k) => k.id) ?? [];
+  const kinds = LIVE_KINDS[app]?.kinds ?? [];
+  // A choice saved before an app's kinds changed (none of its kinds exist now) falls back to the defaults.
+  const saved = s.sources?.[app]?.filter((id) => kinds.some((k) => k.id === id));
+  return saved?.length || (s.sources?.[app] && !s.sources[app]!.length) ? (saved ?? []) : kinds.filter((k) => k.on).map((k) => k.id);
 }
 
 /** Whether a live event notifies: one of its tags is chosen for its app (untagged events fall back to "for you"). */
