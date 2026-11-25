@@ -1,10 +1,10 @@
 import { problems } from "./problems";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { type Detected, detectionScript, installPlan, isWorkspaceAt, provider, PROVIDERS, type ProviderView, providerViews, readDetections, workspaceYaml } from "./adapters";
-import type { Config, WorkspaceConfig } from "./config";
+import { type Config, type WorkspaceConfig, workspaceFile } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 import { AUTH_STATUS_SCRIPT, type AuthState, type AuthTool, authTools, defaultSpawn, describeTool, driveSignIn, lines, PATH_LINE, readAuthStatus, signInCommand, type SignIn, type Spawn, type Step } from "./machines";
 
@@ -52,7 +52,21 @@ export class LocalSetup {
     private addWorkspace: (w: WorkspaceConfig) => void,
     private spawn: Spawn = defaultSpawn,
     private home = homedir(),
+    /** Stop using a workspace (it is gone from jin at once), and how many live tasks it has. */
+    private dropWorkspace: (id: string) => void = () => {},
+    private liveTasks: (id: string) => number = () => 0,
   ) {}
+
+  /** Stop using a workspace: jin forgets it; its files stay where they are. Not while it has live tasks. */
+  forget(id: string) {
+    const w = this.workspaces.find((x) => x.id === id);
+    if (!w) throw new HttpError(404, `jin uses no workspace ${id}`);
+    const live = this.liveTasks(id);
+    if (live) throw new HttpError(409, `${id} has ${live} task${live === 1 ? "" : "s"} still open; finish or remove ${live === 1 ? "it" : "them"} first`);
+    const file = workspaceFile(this.config.home, id);
+    if (file) rmSync(file);
+    this.dropWorkspace(id);
+  }
 
   /** Workspaces of every kind jin knows, found on this machine, that jin does not use yet. */
   candidates(): Detected[] {
@@ -221,6 +235,10 @@ export function setupRoutes(router: Router, setup: LocalSetup) {
       if (!path) throw new HttpError(400, "path is required");
       setup.useWorkspace(path, kind);
       return json(await setup.view(), 201);
+    })
+    .on("DELETE", "/api/setup/workspace/:id", async (_req, p) => {
+      setup.forget(p.id!);
+      return json(await setup.view());
     })
     .on("POST", "/api/setup/install", async (req) => {
       const b = await body<{ provider?: string; source?: string }>(req).catch(() => ({}) as { provider?: string; source?: string });

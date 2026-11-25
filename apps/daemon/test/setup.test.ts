@@ -57,3 +57,36 @@ test("refuses a folder that is no kind of workspace jin knows", () => {
   const { setup } = fixture();
   expect(() => setup.useWorkspace("/nonexistent/place")).toThrow("is not a workspace jin can use");
 });
+
+test("stopping using a workspace forgets it (its files stay), not while it has open tasks", async () => {
+  const { existsSync } = await import("node:fs");
+  const base = mkdtempSync(join(tmpdir(), "jin-setup-"));
+  const home = join(base, "user");
+  const jinHome = join(base, "jin");
+  const ws = join(home, "Workspace", "composio-workspace");
+  mkdirSync(join(ws, "bin"), { recursive: true });
+  writeFileSync(join(ws, "workspace.yaml"), "repos: {}\n");
+  writeFileSync(join(ws, "bin", "cws"), "#!/bin/sh\n");
+  const workspaces: WorkspaceConfig[] = [];
+  let open = 1;
+  const setup = new LocalSetup(
+    { home: jinHome } as Config,
+    workspaces,
+    (w) => workspaces.push(w),
+    undefined,
+    home,
+    (id) => workspaces.splice(workspaces.findIndex((w) => w.id === id), 1),
+    () => open,
+  );
+  setup.useWorkspace(ws);
+  expect(() => setup.forget("composio")).toThrow("1 task still open");
+  open = 0;
+  setup.forget("composio");
+  expect(workspaces).toHaveLength(0);
+  expect(existsSync(join(jinHome, "workspaces", "composio.yaml"))).toBe(false);
+  expect(existsSync(join(ws, "workspace.yaml"))).toBe(true);
+  expect(() => setup.forget("composio")).toThrow("jin uses no workspace composio");
+  // Added again, it is the same as before.
+  setup.useWorkspace(ws);
+  expect(workspaces.map((w) => w.id)).toEqual(["composio"]);
+});

@@ -92,6 +92,23 @@ export function machineSetup(raw: unknown): MachineSetup {
   return { home, port, service, source };
 }
 
+/** The file a workspace is configured in (its name, or the one whose id it is), if any. */
+export function workspaceFile(home: string, id: string): string | null {
+  const dir = join(home, "workspaces");
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+  const named = files.find((f) => f.replace(/\.ya?ml$/, "") === id);
+  if (named) return join(dir, named);
+  const other = files.find((f) => {
+    try {
+      return String(parse(join(dir, f)).id ?? "") === id;
+    } catch {
+      return false;
+    }
+  });
+  return other ? join(dir, other) : null;
+}
+
 export function loadWorkspaces(home = jinHome()): WorkspaceConfig[] {
   const dir = join(home, "workspaces");
   if (!existsSync(dir)) return [];

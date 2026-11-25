@@ -493,11 +493,23 @@ machines.relayNotices((m, n) => {
   });
 });
 // First-run setup for this machine; a workspace added there is live at once.
-const setup = new LocalSetup(config, app.workspaces, (w) => {
-  app.workspaces.push(w);
-  adapters.set(w.id, createAdapter(w));
-  upsertWorkspace.run(w.id, w.adapter, w.root, now());
-});
+const setup = new LocalSetup(
+  config,
+  app.workspaces,
+  (w) => {
+    app.workspaces.push(w);
+    adapters.set(w.id, createAdapter(w));
+    upsertWorkspace.run(w.id, w.adapter, w.root, now());
+  },
+  undefined,
+  undefined,
+  (id) => {
+    const i = app.workspaces.findIndex((w) => w.id === id);
+    if (i >= 0) app.workspaces.splice(i, 1);
+    adapters.delete(id);
+  },
+  (id) => tasks.list().filter((t) => t.workspace === id && t.state !== "removed").length,
+);
 setupRoutes(app.router, setup);
 // Whether each desk's connection (gh, Claude's connectors) is there.
 const desks = new Desks(config, app.workspaces);
