@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Workspaces on a machine's page.** The main column lists the machine's workspaces and git
+  repos (name, kind, path); picking one manages it in the side panel: where it is, its repos with
+  their branches, and **Stop using it** (two clicks; its files stay, and jin refuses while it has
+  open tasks). **Add** opens adding one in the side panel: what jin found on the machine,
+  installing or cloning one (an install already in use is not offered), or a path. Same on this
+  machine and remote ones.
 - **Only what involves you.** The desk and notifications now keep, per app: GitHub, your PRs,
   PRs you were asked to review yourself (not only your team) or have reviewed, and comments that
   mention you; Slack, DMs, mentions, and replies in threads you started, wrote in or were

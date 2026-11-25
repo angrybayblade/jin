@@ -212,6 +212,10 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   More than one jin can use a machine (`webOrigins`). jin finds a workspace already on a
   machine with every provider's detection script (cws: its `cws` link or the usual folders),
   and offers it before installing one.
+- **Workspaces on a machine's page**: the main column lists them; the side panel manages the
+  picked one (path, kind, repos, stop using it: `DELETE /api/setup/workspace/:id` removes its
+  yaml, keeps its files, and refuses while tasks are open) or adds one (found, install or clone,
+  a path).
 - **Home (hub)**: any machine can be jin's always-on home. Your Mac's line to it also carries a
   reverse port (`-R`), over which the Mac attaches itself (`POST /api/machines/attach`), so the
   hub reaches the Mac without dialling into it. With a home, chats, desks, the feed and approvals
