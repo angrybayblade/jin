@@ -630,6 +630,39 @@ export async function adoptSetupWorkspace(path: string, provider?: string): Prom
   }
 }
 
+/** A machine's daemon: this one ("local"), or a remote machine's through its tunnel. */
+const onMachine = (machine: string) => (machine === "local" ? { local: true } : { machine });
+
+/** The workspaces and git repos jin uses on a machine. */
+export async function listWorkspaces(machine: string): Promise<{ id: string; root: string; adapter: string }[] | { error: string }> {
+  try {
+    return await daemon<{ id: string; root: string; adapter: string }[]>("/api/workspaces", onMachine(machine));
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** A workspace's repos (a git repo is its own one). */
+export async function workspaceRepos(machine: string, id: string): Promise<Repo[] | { error: string }> {
+  try {
+    return await daemon<Repo[]>(`/api/workspaces/${encodeURIComponent(id)}/repos`, onMachine(machine));
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Stop using a workspace on a machine: jin forgets it, its files stay. */
+export async function forgetWorkspace(machine: string, id: string): Promise<{ error: string } | null> {
+  try {
+    await daemon(`/api/setup/workspace/${encodeURIComponent(id)}`, { method: "DELETE", ...onMachine(machine) });
+    if (machine !== "local") await daemon(machinePath(machine, "/workspaces/detect"), { method: "POST", local: true }).catch(() => {});
+    revalidatePath("/", "layout");
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function installSetupWorkspace(provider: string, source?: string): Promise<{ error: string } | null> {
   try {
     await daemon("/api/setup/install", { method: "POST", json: { provider, source: source || undefined }, local: true });

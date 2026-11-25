@@ -849,3 +849,149 @@ p.machine-auth-body {
 .machine-side .cs-forms > .md-card:first-child {
   margin-top: var(--space-2);
 }
+
+/* A machine's workspaces and git repos: rows in the main column; the picked one opens in the side
+   panel (a tint marks it, never an outline). Adding one opens there too. */
+.ws-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ws-row {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 7px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-row:hover {
+  background: var(--hover);
+}
+.ws-row.is-picked {
+  background: var(--accent-tint);
+}
+.ws-row:focus-visible {
+  outline: none;
+  background: var(--accent-tint);
+}
+.ws-icon {
+  color: var(--secondary);
+}
+.ws-name {
+  font-weight: 500;
+}
+.ws-kind {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--secondary);
+  font-size: var(--type-meta);
+}
+.ws-root {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: var(--type-meta);
+}
+.ws-chevron {
+  color: var(--muted);
+  opacity: 0;
+}
+.ws-row:hover .ws-chevron,
+.ws-row.is-picked .ws-chevron {
+  opacity: 1;
+}
+.ws-empty {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-panel);
+  background: none;
+  color: var(--secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-empty:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.ws-installing {
+  margin-top: var(--space-2);
+}
+.md-card-action.is-picked {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+.ws-facts {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.ws-facts > div {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.ws-facts dt {
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.ws-facts dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-repos {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ws-repos li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ws-repo-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-repo-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: var(--type-meta);
+}
+.ws-kind-select {
+  flex: 0 0 auto;
+  width: auto;
+}
+@media (max-width: 640px) {
+  .ws-row {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+  }
+  .ws-kind {
+    display: none;
+  }
+}

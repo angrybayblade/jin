@@ -1,7 +1,7 @@
 "use client";
 import { AgentPanel, AgentSelector, SidePanel, useMachineAgents } from "@/components/MachineAgents";
 import { Empty } from "@/components/States";
-import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, FolderGit2, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -25,7 +25,10 @@ import {
   getSetup,
   startSetupSignIn,
   submitSetupSignInCode,
+  adoptSetupWorkspace,
+  installSetupWorkspace,
 } from "@/lib/actions";
+import { AddWorkspacePanel, useWorkspaceList, WorkspaceList, WorkspacePanel, type WorkspaceCtl, type WorkspaceRow } from "@/components/MachineWorkspaces";
 import type { Machine, MachineAuth, MachineStep, SetupState, WorkspaceProviderView } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 
@@ -231,98 +234,33 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
   );
 }
 
-function Workspace({ machine, refresh }: { machine: Machine; refresh: () => void }) {
-  const [path, setPath] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [other, setOther] = useState(false);
-  // With a workspace there already: adding another one.
-  const [adding, setAdding] = useState(false);
-  const step = machine.workspaceStep;
-  const found = machine.workspaceCandidates ?? [];
-  const looking = machine.workspaceCandidates === null;
-  const label = (id: string) => machine.providers.find((p) => p.id === id)?.label ?? id;
-  const [kind, setKind] = useState(machine.providers[0]?.id ?? "");
-  const go = (provider: string, p?: string, source?: string) =>
-    void setupMachineWorkspace(machine.id, { provider, path: p, source }).then((r) => {
-      setError(r?.error ?? null);
-      if (!r?.error) setAdding(false);
-      refresh();
-    });
-  const pathForm = (
-    <form
-      className="machine-inline-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        go(kind, path);
-      }}
-    >
-      {machine.providers.length > 1 && (
-        <select className="machine-input" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind of workspace">
-          {machine.providers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      )}
-      <input className="machine-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/path/to/a/workspace or repo" spellCheck={false} />
-      <button type="submit" className="button small" disabled={!path.trim() || machine.busy}>
-        Use
-      </button>
-    </form>
-  );
-  return (
-    <section className="md-card">
-      <div className="md-card-head is-static">
-        <h3>Workspace</h3>
-        {!machine.workspace && <span className="meta">jin's tasks there run in it</span>}
-        {!machine.workspace && step?.state !== "running" && (
-          <button type="button" className="button small quiet md-card-action" onClick={() => void detectMachineWorkspaces(machine.id).then(refresh)} title="Look again">
-            <RefreshCw size={12} />
-          </button>
-        )}
-      </div>
-      <div className="md-card-body">
-      {machine.workspace && step?.state !== "running" && (
-        <p className="setup-done">
-          <Check size={14} className="step-done" /> workspace at {machine.workspace}
-        </p>
-      )}
-      {step && <Steps steps={[step]} />}
-      {machine.workspace && !adding && step?.state !== "running" && (
-        <button type="button" className="button small quiet setup-other" onClick={() => setAdding(true)}>
-          Add another…
-        </button>
-      )}
-      {(!machine.workspace || adding) && step?.state !== "running" && (
-        <div className="setup-options">
-          {looking && (
-            <p className="meta setup-done">
-              <LoaderCircle size={12} className="spin" /> Looking for a workspace on {machine.label}…
-            </p>
-          )}
-          {found.map((c) => (
-            <div key={c.root} className="setup-option">
-              <FolderGit2 size={14} />
-              <span className="setup-option-path">{c.root}</span>
-              <span className="meta setup-option-hint">{label(c.provider)}{c.preferred ? " · its tooling uses this one" : ""}</span>
-              <button type="button" className="button small primary" disabled={machine.busy} onClick={() => go(c.provider, c.root)}>
-                Use this one
-              </button>
-            </div>
-          ))}
-          {!looking && <InstallOptions providers={machine.providers.filter((p) => p.source || found.length === 0)} disabled={machine.busy} onInstall={(id, source) => go(id, undefined, source)} />}
-          {!looking && (other || found.length === 0 ? pathForm : (
-            <button type="button" className="button small quiet setup-other" onClick={() => setOther(true)}>
-              Somewhere else…
-            </button>
-          ))}
-        </div>
-      )}
-      {error && <p className="machine-error">{error}</p>}
-      </div>
-    </section>
-  );
+/** What the side panel shows: the picked coding agent, a workspace to manage, or adding one. */
+type Side = { kind: "agent" } | { kind: "workspace"; id: string } | { kind: "add" };
+
+/** The side panel's choice, and after adding, the new workspace picked once it shows in the list. */
+function useSide(list: WorkspaceRow[] | null) {
+  const [side, setSide] = useState<Side>({ kind: "agent" });
+  const [before, setBefore] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!before || !list) return;
+    const fresh = list.find((w) => !before.includes(w.id));
+    if (fresh) {
+      setBefore(null);
+      setSide({ kind: "workspace", id: fresh.id });
+    }
+  }, [list, before]);
+  // A workspace that is gone (forgotten elsewhere) gives the panel back to the agent.
+  useEffect(() => {
+    if (side.kind === "workspace" && list && !list.some((w) => w.id === side.id)) setSide({ kind: "agent" });
+  }, [list, side]);
+  return { side, setSide, added: () => setBefore((list ?? []).map((w) => w.id)) };
+}
+
+function SideFor({ side, ctl, onSide, added, agent }: { side: Side; ctl: WorkspaceCtl; onSide: (s: Side) => void; added: () => void; agent: React.ReactNode }) {
+  if (side.kind === "add") return <AddWorkspacePanel ctl={ctl} onAdded={added} />;
+  const row = side.kind === "workspace" ? ctl.list?.find((w) => w.id === side.id) : undefined;
+  if (row) return <WorkspacePanel key={row.id} ctl={ctl} row={row} onGone={() => (onSide({ kind: "agent" }), ctl.refresh())} />;
+  return <>{agent}</>;
 }
 
 /**
@@ -502,6 +440,21 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
   useEffect(() => setShowSteps(!ready), [ready]);
   const doneSteps = m.steps.filter((x) => x.state === "done").length;
   const tunnelPort = m.localPort ? `127.0.0.1:${m.localPort}` : null;
+  const ws = useWorkspaceList(m.id, ready && m.connected, `${m.workspace}:${m.workspaceStep?.state}`);
+  const ctl: WorkspaceCtl = {
+    machine: m.id,
+    where: m.label,
+    list: ws.list,
+    candidates: m.workspaceCandidates,
+    providers: m.providers,
+    step: m.workspaceStep,
+    busy: m.busy,
+    use: (provider, path) => setupMachineWorkspace(m.id, { provider, path }),
+    install: (provider, source) => setupMachineWorkspace(m.id, { provider, source }),
+    detect: () => void detectMachineWorkspaces(m.id).then(refresh),
+    refresh: () => (refresh(), ws.reload()),
+  };
+  const { side, setSide, added } = useSide(ws.list);
   return (
     <div className="machine-page">
     <article className="machine-detail">
@@ -587,14 +540,14 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
               ))}
             </ul>
           </section>
-          <Workspace machine={m} refresh={refresh} />
-          <AgentSelector agents={ag.agents} error={ag.error} pick={ag.pick} onPick={ag.setPick} name={m.label} />
+          <WorkspaceList ctl={ctl} picked={side.kind === "workspace" ? side.id : null} adding={side.kind === "add"} onPick={(id) => setSide({ kind: "workspace", id })} onAdd={() => (setSide({ kind: "add" }), ctl.detect?.())} />
+          <AgentSelector agents={ag.agents} error={ag.error} pick={side.kind === "agent" ? ag.pick : null} onPick={(id) => (ag.setPick(id), setSide({ kind: "agent" }))} name={m.label} />
           <Home machine={m} refresh={refresh} />
         </>
       )}
     </article>
-    {/* The machine's coding agents and their settings, beside it on a wide screen. */}
-    {ready && <AgentSide ag={ag} machine={m.id} name={m.label} />}
+    {/* Beside it on a wide screen: the picked coding agent's settings, a workspace to manage, or adding one. */}
+    {ready && <SideFor side={side} ctl={ctl} onSide={setSide} added={added} agent={<AgentSide ag={ag} machine={m.id} name={m.label} />} />}
     </div>
   );
 }
@@ -623,8 +576,8 @@ function LocalMachine() {
     void getLocalStatus().then((s) => ("error" in s ? null : setStatus(s)));
   }, []);
   useEffect(() => refresh(), [refresh]);
-  // A sign-in in progress reports its link and code as it goes.
-  const waiting = setup?.auth.some((a) => a.state === "waiting") ?? false;
+  // A sign-in in progress reports its link and code as it goes; so does a workspace being installed.
+  const waiting = (setup?.auth.some((a) => a.state === "waiting") ?? false) || setup?.install?.state === "running";
   useEffect(() => {
     if (!waiting) return;
     const t = setInterval(refresh, 2000);
@@ -632,6 +585,19 @@ function LocalMachine() {
   }, [waiting, refresh]);
   const workspace = setup?.workspaces[0]?.root ?? null;
   const ag = useMachineAgents("local");
+  const ctl: WorkspaceCtl = {
+    machine: "local",
+    where: "this machine",
+    list: setup ? setup.workspaces : null,
+    candidates: setup ? setup.candidates : null,
+    providers: setup?.providers ?? [],
+    step: setup?.install ?? null,
+    busy: false,
+    use: (provider, path) => adoptSetupWorkspace(path, provider),
+    install: (provider, source) => installSetupWorkspace(provider, source),
+    refresh,
+  };
+  const { side, setSide, added } = useSide(ctl.list);
   return (
     <div className="machine-page">
       <article className="machine-detail">
@@ -687,25 +653,10 @@ function LocalMachine() {
             ))}
           </ul>
         </section>
-        <section className="md-card">
-          <div className="md-card-head is-static">
-            <h3>Workspace</h3>
-            {!setup?.workspaces.length && <span className="meta">jin&apos;s tasks here run in it</span>}
-          </div>
-          <div className="md-card-body">
-            {setup?.workspaces.map((w) => (
-              <p key={w.id} className="setup-done">
-                <Check size={14} className="step-done" /> {w.id} at {w.root}
-              </p>
-            ))}
-            <button type="button" className="button small quiet setup-other" onClick={() => router.push("/setup")}>
-              {setup?.workspaces.length ? "Add another…" : "Set one up…"}
-            </button>
-          </div>
-        </section>
-        <AgentSelector agents={ag.agents} error={ag.error} pick={ag.pick} onPick={ag.setPick} name="this machine" />
+        <WorkspaceList ctl={ctl} picked={side.kind === "workspace" ? side.id : null} adding={side.kind === "add"} onPick={(id) => setSide({ kind: "workspace", id })} onAdd={() => setSide({ kind: "add" })} />
+        <AgentSelector agents={ag.agents} error={ag.error} pick={side.kind === "agent" ? ag.pick : null} onPick={(id) => (ag.setPick(id), setSide({ kind: "agent" }))} name="this machine" />
       </article>
-      <AgentSide ag={ag} machine="local" name="this machine" />
+      <SideFor side={side} ctl={ctl} onSide={setSide} added={added} agent={<AgentSide ag={ag} machine="local" name="this machine" />} />
     </div>
   );
 }
