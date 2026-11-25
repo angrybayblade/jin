@@ -117,7 +117,11 @@ const tasks = new Tasks(db, adapters, (workspace, t) => {
 });
 const feed = new Feed(db);
 taskRoutes(app.router, tasks, adapters, (w) => trackerOf(w));
-feedRoutes(app.router, feed, tasks, app.workspaces);
+feedRoutes(app.router, feed, tasks, app.workspaces, (i) => {
+  const owner = watches.ownerOf(i.thread?.key, i.meta?.channel);
+  const hint = !owner && i.triage?.taskHint ? (watches.tasks().find((t) => t.taskId === i.triage!.taskHint) ?? null) : null;
+  return { owner, hint };
+});
 fileRoutes(app.router, tasks);
 finderRoutes(app.router, new Finder(tasks));
 bobbyRoutes(app.router);
@@ -600,11 +604,20 @@ const linksOf = (taskId: string) => {
 };
 // This machine's tasks' Slack links go to the home, where events are read (or stay here).
 const pushWatches = () => {
-  const live = new Set(tasks.list().filter((t) => t.state === "ready" && !t.archived).map((t) => t.id));
-  const keys = taskLinks.list().filter((l) => live.has(l.taskId)).map((l) => l.key);
+  const live = tasks.list().filter((t) => t.state === "ready" && !t.archived);
+  const liveIds = new Set(live.map((t) => t.id));
+  const keys = taskLinks.list().filter((l) => liveIds.has(l.taskId)).map((l) => l.key);
+  // Every key each task follows (its PRs and issue too), so the home's desk groups their events under the task.
+  const owned = live.flatMap((t) => {
+    try {
+      return linksOf(t.id).map((l) => ({ key: l.key, taskId: t.id, title: t.title ?? t.slug }));
+    } catch {
+      return [];
+    }
+  });
   const home = homeLink();
-  if (!home) return watches.set("local", keys);
-  void machines.call(home.id, "PUT", "/api/feed/watches", { machine: machines.identity?.id ?? "local", keys }).catch(problems.catch("telling the home what tasks follow"));
+  if (!home) return watches.set("local", keys, owned);
+  void machines.call(home.id, "PUT", "/api/feed/watches", { machine: machines.identity?.id ?? "local", keys, tasks: owned }).catch(problems.catch("telling the home what tasks follow"));
 };
 // A Notion link's address may not carry its title (app.notion.com/p/<id>): ask Notion, through
 // the connection on the home (or here).

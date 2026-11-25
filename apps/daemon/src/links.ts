@@ -139,18 +139,46 @@ export function ownLinks(task: { id: string; createdAt: string; issue?: { tracke
  */
 export class Watches {
   private file: string;
+  private ownersFile: string;
   private byMachine: Record<string, string[]>;
+  /** Per machine: which of its tasks follows each key (every kind: PRs, issues, threads, pages), for the desk's Task group. */
+  private owners: Record<string, { key: string; taskId: string; title: string }[]>;
   constructor(home: string) {
     this.file = join(home, "watched-threads.json");
-    try {
-      this.byMachine = existsSync(this.file) ? JSON.parse(readFileSync(this.file, "utf8")) : {};
-    } catch {
-      this.byMachine = {};
-    }
+    this.ownersFile = join(home, "watched-owners.json");
+    const read = <T>(f: string, empty: T): T => {
+      try {
+        return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as T) : empty;
+      } catch {
+        return empty;
+      }
+    };
+    this.byMachine = read(this.file, {});
+    this.owners = read(this.ownersFile, {});
   }
-  set(machine: string, keys: string[]) {
+  set(machine: string, keys: string[], tasks?: { key: string; taskId: string; title: string }[]) {
     this.byMachine[machine] = [...new Set(keys)].filter((k) => k.startsWith("slack:") || k.startsWith("slack-channel:"));
     writeFileSync(this.file, JSON.stringify(this.byMachine, null, 1));
+    if (tasks) {
+      this.owners[machine] = tasks.filter((t) => t.key && t.taskId).map((t) => ({ key: t.key.toLowerCase(), taskId: t.taskId, title: t.title }));
+      writeFileSync(this.ownersFile, JSON.stringify(this.owners, null, 1));
+    }
+  }
+  /** The task a thread (its key; a Slack channel's messages too) belongs to, and the machine it is on. */
+  ownerOf(threadKey: string | null | undefined, channel?: string | null): { taskId: string; machine: string; title: string } | null {
+    if (!threadKey) return null;
+    const k = threadKey.toLowerCase();
+    for (const [machine, list] of Object.entries(this.owners)) {
+      const hit = list.find((o) => o.key === k || (channel && o.key === `slack-channel:${channel.toLowerCase()}`));
+      if (hit) return { taskId: hit.taskId, machine, title: hit.title };
+    }
+    return null;
+  }
+  /** The tasks the home knows of (id and title), for triage's task hints. */
+  tasks(): { taskId: string; machine: string; title: string }[] {
+    const seen = new Map<string, { taskId: string; machine: string; title: string }>();
+    for (const [machine, list] of Object.entries(this.owners)) for (const o of list) seen.set(`${machine}:${o.taskId}`, { taskId: o.taskId, machine, title: o.title });
+    return [...seen.values()];
   }
   all(): string[] {
     return [...new Set(Object.values(this.byMachine).flat())];
@@ -166,9 +194,9 @@ export function watchRoutes(router: Router, watches: Watches) {
   router
     .on("GET", "/api/feed/watches", () => json({ keys: watches.all() }))
     .on("PUT", "/api/feed/watches", async (req) => {
-      const b = await body<{ machine?: string; keys: string[] }>(req);
+      const b = await body<{ machine?: string; keys: string[]; tasks?: { key: string; taskId: string; title: string }[] }>(req);
       if (!Array.isArray(b.keys)) throw new HttpError(400, "keys: thread keys");
-      watches.set(b.machine || "local", b.keys.map(String));
+      watches.set(b.machine || "local", b.keys.map(String), Array.isArray(b.tasks) ? b.tasks : undefined);
       return json({ keys: watches.all() });
     });
 }
