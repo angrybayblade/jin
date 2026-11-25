@@ -133,6 +133,21 @@ export class Feed {
       .run(t.bucket, t.severity, t.action, t.group, t.taskHint, SCORE[t.bucket] + SEVERITY[t.severity], t.why.slice(0, 200), now(), id);
   }
 
+  /**
+   * Open items from before only what involves you was kept: activity on PRs you neither wrote, review
+   * nor were mentioned on, and Slack channel messages that were not for you. Dismissed; returns how many.
+   */
+  dismissUninvolved(): number {
+    const has = (t: string) => `tags like '%"${t}"%'`;
+    return this.db
+      .query(
+        `update feed_items set state = 'dismissed' where state in ('new', 'snoozed') and (
+          (source = 'github' and (tags is null or not (${has("authored")} or ${has("reviewer")} or ${has("mentioned")})))
+          or (source = 'slack' and tags is null))`,
+      )
+      .run().changes;
+  }
+
   /** Read at the source (Slack's read marker passed it). Returns how many were newly seen. */
   markSeen(ids: string[]): number {
     const q = this.db.query("update feed_items set seen_at = ? where id = ? and seen_at is null");

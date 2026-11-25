@@ -7,6 +7,7 @@ import { githubThread, type Feed, type FeedThread, type NewItem } from "./feed";
 import { body, HttpError, json, type Router } from "./http";
 import { defaultSpawn, lines, type Proc, type Spawn } from "./machines";
 import type { Notice } from "./notify";
+import { notionInvolvement, slackThreadOfMatch, type SlackThreads } from "./involvement";
 import { oneLine } from "./text";
 
 /**
@@ -38,7 +39,7 @@ interface Settings {
   events: Partial<Record<EventKind, boolean>>;
   linearTeams: string[];
   /** Who you are on each service, to tell what is for you. */
-  me: { slack?: string; linear?: string; github?: string; email?: string };
+  me: { slack?: string; linear?: string; github?: string; email?: string; notion?: string };
 }
 
 export interface LiveEvent {
@@ -128,7 +129,14 @@ export const whereOf = (e: Pick<LiveEvent, "thread" | "toolkit">) =>
  * One event from `composio dev listen --json`, as jin shows it. Payloads differ per trigger,
  * so fields are looked up where each service puts them; anything unknown still shows.
  */
-export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {}, watched?: (threadKey: string, channel: string) => boolean, onOwn?: (threadKey: string, at: string) => void): LiveEvent | null {
+export function readEvent(
+  raw: Record<string, unknown>,
+  me: Settings["me"] = {},
+  watched?: (threadKey: string, channel: string) => boolean,
+  onOwn?: (threadKey: string, at: string) => void,
+  /** A Slack thread you are in (you wrote in it, started it, or were mentioned in it). */
+  involved?: (threadKey: string) => boolean,
+): LiveEvent | null {
   const trigger = String(pick(raw, "triggerSlug", "trigger_slug", "type", "metadata.trigger_slug", "metadata.triggerSlug") ?? "").toUpperCase();
   if (!trigger) return null;
   const data = (pick(raw, "data", "payload", "originalPayload") ?? {}) as Record<string, unknown>;
@@ -161,15 +169,19 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     const channel = str(pick(data, "channel", "channel_id", "event.channel")) ?? "";
     const root = str(pick(data, "thread_ts", "event.thread_ts")) ?? str(pick(data, "ts", "event.ts"));
     const channelName = str(pick(data, "channel_name", "event.channel_name"));
-    // Channel chatter that is not for you is dropped, unless a task follows its thread or channel.
-    const linked = !dm && !mentionsMe && Boolean(watched?.(`slack:${channel}:${root ?? id}`, channel));
-    if (!dm && !mentionsMe && !linked) return null;
+    // Channel chatter that is not for you is dropped: kept are replies in a thread you are in (you
+    // started it, wrote in it or were mentioned in it), and what a task follows (its thread or channel).
+    const key = `slack:${channel}:${root ?? id}`;
+    const parentUser = str(pick(data, "parent_user_id", "event.parent_user_id"));
+    const inThread = !dm && !mentionsMe && Boolean((me.slack && parentUser === me.slack) || involved?.(key));
+    const linked = !dm && !mentionsMe && !inThread && Boolean(watched?.(key, channel));
+    if (!dm && !mentionsMe && !inThread && !linked) return null;
     thread = dm
       ? { key: `slack:dm:${channel || actor}`, title: `DM with ${actor ?? "someone"}`, ref: null, url: null }
-      : { key: `slack:${channel}:${root ?? id}`, title: `Thread in ${channelName ? `#${channelName}` : channel || "Slack"}`, ref: null, url };
-    title = dm ? "" : linked ? "wrote" : "mentioned you";
+      : { key, title: `Thread in ${channelName ? `#${channelName}` : channel || "Slack"}`, ref: null, url };
+    title = dm ? "" : mentionsMe ? "mentioned you" : inThread ? "replied" : "wrote";
     forYou = !linked;
-    tags = [dm ? "dm" : linked ? "linked" : "mention"];
+    tags = [dm ? "dm" : mentionsMe ? "mention" : inThread ? "thread" : "linked"];
     // For the read check (a message is read once Slack's read marker passes it) and the context check.
     const ts = str(pick(data, "ts", "event.ts"));
     if (channel && ts) meta = { channel, ts, threadTs: root ?? ts };
@@ -203,13 +215,24 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     const issueUrl = str(pick(issue, "url"));
     thread = { key: `linear:${ident ?? str(pick(issue, "id")) ?? id}`, title: ititle, ref: ident, url: issueUrl ?? url };
     const assignee = str(pick(issue, "assignee.id", "assigneeId")) ?? str(pick(data, "assigneeId"));
-    const mentions = Boolean(me.linear && JSON.stringify(data).includes(me.linear));
-    forYou = Boolean(me.linear && (assignee === me.linear || mentions));
-    tags = [...(me.linear && assignee === me.linear ? ["assigned"] : []), ...(mentions && assignee !== me.linear ? ["mentioned"] : []), ...(forYou ? [] : ["other"])];
+    const creator = str(pick(issue, "creator.id", "creatorId")) ?? str(pick(data, "creatorId"));
+    const subscribers = pick(issue, "subscriberIds") ?? pick(data, "subscriberIds");
+    // Linear subscribes whoever opens, is assigned, comments on or is mentioned in an issue.
+    const follows = Boolean(me.linear && Array.isArray(subscribers) && subscribers.includes(me.linear));
+    const body = text;
+    const mentions = Boolean(me.linear && (body.includes(me.linear) || JSON.stringify(pick(data, "mentionedUserIds", "data.mentionedUserIds") ?? "").includes(me.linear)));
     if (actor && me.linear && JSON.stringify(pick(data, "actor", "user") ?? "").includes(me.linear)) {
       onOwn?.(thread.key, at); // your own change: the issue is handled for now
       return null;
     }
+    tags = me.linear
+      ? [...(assignee === me.linear ? ["assigned"] : []), ...(creator === me.linear ? ["created"] : []), ...(mentions ? ["mentioned"] : []), ...(follows ? ["subscribed"] : [])]
+      : ["other"]; // who you are is not known yet: kept, without a notification
+    // Only issues you are involved in (yours, assigned to you, mentioning you, or followed), and
+    // those a task of yours follows: kept for the task, without a notification.
+    if (!tags.length && watched?.(thread.key, "")) tags = ["linked"];
+    if (!tags.length) return null;
+    forYou = tags[0] !== "other" && tags[0] !== "linked";
   } else if (toolkit === "notion") {
     title = "commented";
     // The event names only ids (comment, page, author); Composio.withNotionDetails fills in the rest.
@@ -256,7 +279,7 @@ export class Composio {
 
   constructor(
     private config: Config,
-    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; watched?: (threadKey: string, channel: string) => boolean; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
+    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; watched?: (threadKey: string, channel: string) => boolean; slackThreads?: SlackThreads; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
     private spawn: Spawn = defaultSpawn,
     private bin = process.env.JIN_COMPOSIO_BIN ?? (Bun.which("composio") || join(homedir(), ".local", "bin", "composio")),
   ) {
@@ -743,6 +766,121 @@ export class Composio {
     return v ? (JSON.parse(v) as { title: string; url: string | null }) : null;
   }
 
+  // ---------------------------------------------------------------- involvement
+
+  /** Your Notion user id: Notion names its bot and your email, so you are found among the workspace's users by it. */
+  private notionMeTried = 0;
+  async notionMe(): Promise<string | null> {
+    if (this.settings.me.notion) return this.settings.me.notion;
+    if (Date.now() - this.notionMeTried < 3_600_000) return null;
+    this.notionMeTried = Date.now();
+    const who = await this.tool("NOTION_WHO_AM_I", {});
+    const email = (pstr(who, "data.owner_email", "owner_email", "bot.owner.user.person.email") ?? this.settings.me.email)?.toLowerCase();
+    const direct = pstr(who, "bot.owner.user.id", "data.bot.owner.user.id");
+    let id = direct;
+    let cursor: string | undefined;
+    for (let page = 0; !id && email && page < 20; page++) {
+      const r = await this.tool("NOTION_LIST_USERS", { page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) });
+      const d = (pick(r, "response_data") ?? r ?? {}) as { results?: { id?: string; person?: { email?: string } }[]; has_more?: boolean; next_cursor?: string };
+      id = d.results?.find((u) => u.person?.email?.toLowerCase() === email)?.id ?? null;
+      if (!d.has_more || !d.next_cursor) break;
+      cursor = d.next_cursor;
+    }
+    if (id) this.save({ me: { ...this.settings.me, notion: id } });
+    return id ?? null;
+  }
+
+  /** A page's creator (kept once found). */
+  private notionCreator(pageId: string) {
+    return this.notionCached(`creator:${pageId}`, async () => pstr(await this.notionTool("NOTION_RETRIEVE_PAGE", { page_id: pageId }), "created_by.id"));
+  }
+
+  /** Comments looked up for an event, kept a moment so its details and involvement read them once. */
+  private notionComments?: Map<string, Promise<Record<string, unknown> | null>>;
+  private notionComment(id: string) {
+    const kept = (this.notionComments ??= new Map());
+    if (!kept.has(id)) {
+      kept.set(id, this.notionTool("NOTION_RETRIEVE_COMMENT", { comment_id: id }).catch(() => null));
+      if (kept.size > 50) kept.delete(kept.keys().next().value!);
+    }
+    return kept.get(id)!;
+  }
+
+  /**
+   * Why a Notion comment concerns you ("mine", "mention", "discussion"), "own" for your own, or
+   * null when it does not; "comment" when who you are is not known (kept, as before).
+   */
+  async notionWhy(raw: Record<string, unknown>): Promise<"mine" | "mention" | "discussion" | "own" | "comment" | null> {
+    const me = await this.notionMe().catch(() => null);
+    if (!me) return "comment";
+    const data = (pick(raw, "data", "payload") ?? {}) as Record<string, unknown>;
+    if (pstr(data, "authors.0.id") === me) return "own";
+    const commentId = pstr(data, "comment_id", "comment.id");
+    const pageId = pstr(data, "data.page_id", "page_id");
+    const comment = commentId ? ((await this.notionComment(commentId)) as Parameters<typeof notionInvolvement>[0]["comment"]) : null;
+    const pageCreator = pageId ? await this.notionCreator(pageId) : null;
+    const first = notionInvolvement({ me, pageCreator, comment, discussion: [] });
+    if (first) return first;
+    // The discussion's other comments: did you write in it, or were you tagged in it before?
+    const parent = pstr(comment, "parent.block_id", "parent.page_id") ?? pageId;
+    if (!parent || !comment?.discussion_id) return null;
+    const list = await this.notionTool("NOTION_FETCH_COMMENTS", { block_id: parent });
+    const discussion = ((list?.results ?? pick(list, "response_data.results") ?? []) as Parameters<typeof notionInvolvement>[0]["discussion"]);
+    return notionInvolvement({ me, pageCreator, comment, discussion });
+  }
+
+  /** Threads you wrote in lately, from Slack search, so replies in them concern you from the start. */
+  async seedSlackThreads(days = 14): Promise<number> {
+    const threads = this.deps.slackThreads;
+    const me = this.settings.me.slack;
+    if (!threads || !me) return 0;
+    const after = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    let added = 0;
+    for (let page = 1; page <= 3; page++) {
+      const r = await this.tool("SLACK_SEARCH_MESSAGES", { query: `from:<@${me}> after:${after}`, count: 100, sort: "timestamp", page });
+      const matches = (pick(r, "messages.matches") ?? []) as Parameters<typeof slackThreadOfMatch>[0][];
+      for (const m of matches) {
+        const key = slackThreadOfMatch(m);
+        if (!key || threads.has(key)) continue;
+        threads.add(key, new Date(Number(m.ts) * 1000).toISOString());
+        added++;
+      }
+      const pages = Number(pick(r, "messages.paging.pages") ?? pick(r, "messages.pagination.page_count") ?? 1);
+      if (page >= pages || matches.length < 100) break;
+    }
+    return added;
+  }
+
+  /**
+   * Notion comments on the desk from before jin knew what concerns you: those not on your page,
+   * nor in a discussion you are in, go to Probably done (one click brings one back).
+   */
+  async rescopeNotion(): Promise<number> {
+    const me = await this.notionMe();
+    if (!me) return 0;
+    const open = this.deps.feed.list().filter((i) => i.source === "notion" && i.state === "new");
+    const byPage = new Map<string, typeof open>();
+    for (const i of open) {
+      const page = i.thread?.key.replace(/^notion:/, "");
+      if (page) byPage.set(page, [...(byPage.get(page) ?? []), i]);
+    }
+    let moved = 0;
+    const norm = (d: string | undefined) => (d ?? "").replace(/^discussion:\/\//, "").replace(/-/g, "");
+    for (const [page, items] of byPage) {
+      if ((await this.notionCreator(page).catch(() => null)) === me) continue;
+      const list = await this.notionTool("NOTION_FETCH_COMMENTS", { block_id: page }).catch(() => null);
+      const comments = (list?.results ?? []) as { discussion_id?: string; created_by?: { id?: string }; rich_text?: { mention?: { user?: { id?: string } } }[] }[];
+      const yours = new Set(comments.filter((c) => c.created_by?.id === me || (c.rich_text ?? []).some((r) => r.mention?.user?.id === me)).map((c) => norm(c.discussion_id)));
+      for (const i of items) {
+        const d = (i.externalRef.match(/[?&]d=([0-9a-f-]+)/i)?.[1] ?? "").replace(/-/g, "");
+        if (d && yours.has(d)) continue;
+        this.deps.feed.markStale(i.id, "Not your page, and not a discussion you are in or were tagged in");
+        moved++;
+      }
+    }
+    return moved;
+  }
+
   /** A Notion comment event names only ids: read the comment, who wrote it and the page's title. */
   async withNotionDetails(e: LiveEvent, raw: Record<string, unknown>): Promise<LiveEvent> {
     const data = (pick(raw, "data", "payload") ?? {}) as Record<string, unknown>;
@@ -750,7 +888,7 @@ export class Composio {
     const pageId = pstr(data, "data.page_id", "page_id");
     const authorId = pstr(data, "authors.0.id");
     const [comment, page] = await Promise.all([
-      commentId ? this.notionTool("NOTION_RETRIEVE_COMMENT", { comment_id: commentId }).catch(() => null) : null,
+      commentId ? this.notionComment(commentId) : null,
       pageId ? this.notionPage(pageId) : null,
     ]);
     const who = authorId
@@ -792,9 +930,29 @@ export class Composio {
       this.seen.add(slug);
       console.log(`live event shape ${slug}: ${JSON.stringify(shape(raw))}`);
     }
-    const e = readEvent(raw, this.settings.me, this.deps.watched, (key, at) => this.deps.feed.clearThread(key, at));
+    const threads = this.deps.slackThreads;
+    const e = readEvent(
+      raw,
+      this.settings.me,
+      this.deps.watched,
+      (key, at) => {
+        this.deps.feed.clearThread(key, at);
+        threads?.add(key, at); // you wrote in it: its replies concern you now
+      },
+      (key) => threads?.has(key) ?? false,
+    );
     if (!e) return;
-    const named = e.toolkit === "slack" ? await this.withSlackNames(e) : e.toolkit === "notion" ? await this.withNotionDetails(e, raw) : e;
+    if (e.tags?.includes("mention") && e.thread) threads?.add(e.thread.key, e.at);
+    let named = e.toolkit === "slack" ? await this.withSlackNames(e) : e.toolkit === "notion" ? await this.withNotionDetails(e, raw) : e;
+    if (named.toolkit === "notion") {
+      const why = await this.notionWhy(raw).catch(() => "comment" as const);
+      if (why === "own") {
+        if (named.thread) this.deps.feed.clearThread(named.thread.key, named.at);
+        return;
+      }
+      if (!why) return; // not your page, nor a discussion you are in, nor tagging you
+      named = { ...named, tags: [why] };
+    }
     this.deliver(named, opts);
   }
 

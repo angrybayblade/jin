@@ -50,7 +50,9 @@ else if (c1 === "dev" && c2 === "triggers" && c3 === "create") {
   if (c3 === "SLACK_TEST_AUTH") out({ successful: true, data: { user_id: "U_ME" } });
   else if (c3 === "SLACK_RETRIEVE_DETAILED_USER_INFORMATION" && JSON.parse(flag("-d")).user === "U0CAT00001") out({ successful: true, data: { ok: true, user: { name: "cat", real_name: "Cat Lee", profile: { real_name: "Cat Lee", display_name: "cat" } } } });
   else if (c3 === "NOTION_RETRIEVE_COMMENT") out({ successful: true, data: { discussion_id: "discussion://d-1", display_name: { type: "user", resolved_name: "Dee Park" }, rich_text: [{ plain_text: "Can we " }, { plain_text: "ship Friday?" }] } });
-  else if (c3 === "NOTION_RETRIEVE_PAGE") out({ successful: true, data: { url: "https://www.notion.so/Launch-plan-p1", properties: { Name: { type: "title", title: [{ plain_text: "Launch plan" }] } } } });
+  else if (c3 === "NOTION_RETRIEVE_PAGE") out({ successful: true, data: { url: "https://www.notion.so/Launch-plan-p1", created_by: { id: "nu-me" }, properties: { Name: { type: "title", title: [{ plain_text: "Launch plan" }] } } } });
+  else if (c3 === "NOTION_WHO_AM_I") out({ successful: true, data: { data: { type: "bot", owner_email: "me@example.com" } } });
+  else if (c3 === "NOTION_LIST_USERS") out({ successful: true, data: { response_data: { results: [{ id: "nu-me", person: { email: "me@example.com" } }], has_more: false } } });
   else if (c3 === "LINEAR_GET_CURRENT_USER") out({ successful: true, data: { user: { id: "lin-me", email: "me@example.com" } } });
   else if (c3 === "LINEAR_LIST_LINEAR_TEAMS") out({ successful: true, data: { teams: [{ id: "team-1", name: "Platform" }] } });
   else process.exit(1);

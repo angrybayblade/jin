@@ -49,6 +49,7 @@ import { codexLaunch } from "./codex-cli";
 import { agentHookRoutes } from "./agent-hooks";
 import { Agents, agentRoutes } from "./agents";
 import { Journal, type JournalEntry, journalRoutes, memoryText } from "./journal";
+import { SlackThreads } from "./involvement";
 import { haikuClassify, haikuJudge, scriptedClassify, scriptedJudge, SlackReads, StaleChecker, Triager } from "./triage";
 import { candidatesFor, haikuChooser, PreContext, preContextRoutes, scriptedChooser } from "./precontext";
 import { prRoutes, rollup, TaskPRs } from "./prs";
@@ -689,10 +690,13 @@ app.router.on("GET", "/api/task-docs/:id", async (_req, p) => {
   return new Response(`# ${d.title}\n\n(jin doc ${id}, version ${d.version})\n\n${d.body}`, { headers: { "content-type": "text/markdown; charset=utf-8" } });
 });
 const watchTimer = setInterval(pushWatches, 5 * 60_000);
+const slackThreads = new SlackThreads(config.home);
 const composio = new Composio(config, {
   feed,
   workspaces: app.workspaces,
-  watched: (key, channel) => watches.watched(key, channel),
+  // Followed by a task: a Slack thread or channel it links, or any key a task follows (its Linear issue).
+  watched: (key, channel) => watches.watched(key, channel) || Boolean(watches.ownerOf(key, channel || undefined)),
+  slackThreads,
   notify: (n) => void notifier.notify(n),
   onEvent: (e) => fireEvent({ event: "live.event", key: e.id, payload: { ...e } }),
   shouldNotify: (e) => liveNotifies(notifier.settings, e),
@@ -749,6 +753,25 @@ setInterval(() => {
     .catch(problems.catch("checking what you read in Slack"));
 }, 2 * 60_000);
 setInterval(() => holdsFeed() && void staleChecker.run().catch(problems.catch("checking what was handled on the desk")), 30 * 60_000);
+
+// Only what involves you reaches the desk: the Slack threads you wrote in lately (so their replies
+// count from the start), refreshed daily; and, once, what came in before that rule is cleared.
+const slackOn = () => !scripted && composio.installed && Boolean(composio.settings.events.slack_dms || composio.settings.events.slack_mentions);
+const seedThreads = () => holdsFeed() && slackOn() && void composio.seedSlackThreads().then((n) => n && console.log(`slack: ${n} thread${n === 1 ? "" : "s"} you wrote in`)).catch(problems.catch("finding the Slack threads you are in"));
+setTimeout(seedThreads, 30_000);
+setInterval(seedThreads, 24 * 3_600_000);
+const RESCOPED = join(config.home, "involvement-v1");
+setTimeout(() => {
+  if (!holdsFeed() || existsSync(RESCOPED)) return;
+  const dismissed = feed.dismissUninvolved();
+  const notion = scripted || !composio.installed || !composio.settings.events.notion_comments ? Promise.resolve(0) : composio.rescopeNotion();
+  void notion
+    .then((moved) => {
+      writeFileSync(RESCOPED, new Date().toISOString());
+      console.log(`desk: ${dismissed} item${dismissed === 1 ? "" : "s"} not involving you dismissed, ${moved} Notion comment${moved === 1 ? "" : "s"} to probably done`);
+    })
+    .catch(problems.catch("clearing what does not involve you from the desk"));
+}, 45_000);
 
 // What @mentions resolve against: this machine's tasks and every connected machine's (each within a
 // moment, or left out), the feed, a PR's live state through gh, a Linear issue's through Composio.

@@ -22,11 +22,29 @@ test("mail from a person is for you; automated mail is kept but quiet", () => {
   expect(robot).toMatchObject({ forYou: false });
 });
 
-test("Linear: for you when assigned to you or you are mentioned", () => {
+test("Linear: only issues you are involved in: assigned to you, opened by you, mentioning you, or followed", () => {
   const assigned = readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { issue: { identifier: "PLEN-1", title: "Fix limiter", assignee: { id: "lin-me" }, url: "https://linear.app/x/PLEN-1" } } }, me);
-  expect(assigned).toMatchObject({ title: "updated", forYou: true, url: "https://linear.app/x/PLEN-1", thread: { key: "linear:PLEN-1", title: "Fix limiter", ref: "PLEN-1" } });
-  const other = readEvent({ triggerSlug: "LINEAR_ISSUE_CREATED_TRIGGER", data: { issue: { identifier: "PLEN-2", title: "Other", assignee: { id: "lin-bob" } } } }, me);
-  expect(other).toMatchObject({ forYou: false });
+  expect(assigned).toMatchObject({ title: "updated", forYou: true, tags: ["assigned"], url: "https://linear.app/x/PLEN-1", thread: { key: "linear:PLEN-1", title: "Fix limiter", ref: "PLEN-1" } });
+  const opened = readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { issue: { identifier: "PLEN-5", title: "Mine", creatorId: "lin-me", assignee: { id: "lin-bob" } } } }, me);
+  expect(opened?.tags).toEqual(["created"]);
+  const followed = readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { issue: { identifier: "PLEN-6", title: "Followed", subscriberIds: ["lin-bob", "lin-me"] } } }, me);
+  expect(followed?.tags).toEqual(["subscribed"]);
+  // Someone else's issue in your team: not on the desk at all.
+  expect(readEvent({ triggerSlug: "LINEAR_ISSUE_CREATED_TRIGGER", data: { issue: { identifier: "PLEN-2", title: "Other", assignee: { id: "lin-bob" } } } }, me)).toBeNull();
+  // An issue a task of yours follows: kept for the task, quietly.
+  expect(readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { issue: { identifier: "PLEN-7", title: "Followed by a task" } } }, me, (k) => k === "linear:PLEN-7")).toMatchObject({ forYou: false, tags: ["linked"] });
+  // Who you are not known yet: kept, quietly.
+  expect(readEvent({ triggerSlug: "LINEAR_ISSUE_CREATED_TRIGGER", data: { issue: { identifier: "PLEN-2", title: "Other" } } }, {})).toMatchObject({ forYou: false, tags: ["other"] });
+});
+
+test("Slack: replies in a thread you are in (wrote in, started, or were mentioned in) are kept; other channel chatter is not", () => {
+  const reply = (o: Record<string, unknown>) => readEvent({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", data: { text: "sounds good", user: "U_BOB", channel: "C1", ts: "9.0", thread_ts: "5.1", ...o } }, me, undefined, undefined, (k) => k === "slack:C1:5.1");
+  expect(reply({})).toMatchObject({ title: "replied", forYou: true, tags: ["thread"], thread: { key: "slack:C1:5.1" } });
+  // A thread you started says so itself.
+  expect(readEvent({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", data: { text: "+1", user: "U_BOB", channel: "C2", ts: "9.0", thread_ts: "7.0", parent_user_id: "U_ME" } }, me)?.tags).toEqual(["thread"]);
+  expect(readEvent({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", data: { text: "+1", user: "U_BOB", channel: "C2", ts: "9.0", thread_ts: "8.0" } }, me, undefined, undefined, (k) => k === "slack:C1:5.1")).toBeNull();
+  // A thread a task follows is kept for the task, without a notification.
+  expect(readEvent({ triggerSlug: "SLACK_CHANNEL_MESSAGE_RECEIVED", data: { text: "x", user: "U_BOB", channel: "C3", ts: "9.0", thread_ts: "8.0" } }, me, () => true)).toMatchObject({ forYou: false, tags: ["linked"] });
 });
 
 test("GitHub activity on watched PRs is for you, except your own", () => {
@@ -58,9 +76,9 @@ test("each app's event reads with who, where and what, from the fields that app 
   const mail = readEvent({ triggerSlug: "GMAIL_NEW_GMAIL_MESSAGE", data: { sender: "Alex <alex@acme.com>", subject: "Contract", message_text: "see attached", message_id: "m1", thread_id: "t1" } }, me);
   expect(mail).toMatchObject({ actor: "Alex", summary: "see attached", thread: { key: "gmail:t1" } });
   // Linear's user is an object: its name is the actor; an issue change says where it stands.
-  const comment = readEvent({ triggerSlug: "LINEAR_COMMENT_EVENT_TRIGGER", data: { action: "create", data: { body: "on it", user: { id: "u2", name: "Bea" }, issue: { identifier: "PLEN-3", title: "Limiter" } }, url: "https://linear.app/x/PLEN-3#c" } }, me);
+  const comment = readEvent({ triggerSlug: "LINEAR_COMMENT_EVENT_TRIGGER", data: { action: "create", data: { body: "on it", user: { id: "u2", name: "Bea" }, issue: { identifier: "PLEN-3", title: "Limiter", subscriberIds: ["lin-me"] } }, url: "https://linear.app/x/PLEN-3#c" } }, me);
   expect(comment).toMatchObject({ actor: "Bea", title: "commented", summary: "on it", thread: { key: "linear:PLEN-3", title: "Limiter" } });
-  const moved = readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { data: { identifier: "PLEN-4", title: "Docs", state: { name: "In Review" }, assignee: { id: "u3", name: "Cat" } } } }, me);
+  const moved = readEvent({ triggerSlug: "LINEAR_ISSUE_UPDATED_TRIGGER", data: { data: { identifier: "PLEN-4", title: "Docs", state: { name: "In Review" }, assignee: { id: "u3", name: "Cat" }, subscriberIds: ["lin-me"] } } }, me);
   expect(moved?.summary).toBe("Status: In Review · Assignee: Cat");
   // A Slack message that only shares another one, or a file, still says something.
   const shared = readEvent({ triggerSlug: "SLACK_DIRECT_MESSAGE_RECEIVED", data: { text: "", user: "U_ALEX", channel: "D1", attachments: [{ text: "the original message" }] } }, me);
