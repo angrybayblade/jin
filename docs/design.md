@@ -151,6 +151,13 @@ Jin's rules apply to every agent it runs, whatever the workspace:
 
 - **Feed**: the GitHub collector (one `gh api graphql` query: review requests, failing
   checks on the user's PRs, mentions), split by each workspace's GitHub owners, de-duplicated.
+- **Involvement**: live events are kept only when they involve you, and the same rule decides
+  notifications. GitHub: authored, asked of you directly (`user-review-requested:@me`) or reviewed,
+  mentioned. Slack: DMs, mentions, and threads you are in (`slack-threads.json`: threads you wrote
+  in or were mentioned in, seeded from Slack search, kept a month; a reply's `parent_user_id`).
+  Notion: your page (its creator), a discussion you wrote or were tagged in, a comment tagging you;
+  your Notion user id is found by the bot owner's email among the workspace's users. Linear:
+  assignee, creator, mention, subscriber. A key a task follows is kept as `linked`, quietly.
 - **Desk triage and life cycle** (on the machine holding the feed): every 20 s a small model
   triages new items in batches (bucket, severity, action, work or personal, why, a task hint);
   until then the rule lanes stand in. A thread belongs to a task by the task's links (machines

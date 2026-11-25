@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Only what involves you.** The desk and notifications now keep, per app: GitHub, your PRs,
+  PRs you were asked to review yourself (not only your team) or have reviewed, and comments that
+  mention you; Slack, DMs, mentions, and replies in threads you started, wrote in or were
+  mentioned in (jin finds your threads of the last two weeks through Slack search, then follows
+  along); Notion, comments on your pages, in discussions you wrote in or were tagged in, or
+  tagging you; Linear, issues assigned to you, opened by you, mentioning you or that you follow.
+  What a task follows still lands under the task, without a notification. Once, what came in
+  before goes: chatter is dismissed, and Notion comments that do not involve you move to
+  **Probably done**. The notification settings list the new kinds.
 - **The desk triages.** A small model reads each new item and says how soon it needs you (now,
   today, later, or ignore), how bad it is to miss, what it asks of you, and whether it is work or
   personal, with a reason. The desk shows **Needs you now** first, then a group per task (any
