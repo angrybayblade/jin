@@ -56,6 +56,8 @@ export interface LiveEvent {
   forYou: boolean;
   /** Why it might concern you (dm, mention, person, assigned, authored, reviewer, …): notification settings choose by these. */
   tags?: string[];
+  /** Source details the desk's checks need (Slack: channel, ts, threadTs). */
+  meta?: Record<string, string>;
 }
 
 export interface TriggerInstance {
@@ -141,6 +143,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
   let thread: FeedThread | undefined;
   let forYou = false;
   let tags: string[] = [];
+  let meta: Record<string, string> | undefined;
 
   if (toolkit === "slack") {
     const channelType = str(pick(data, "channel_type", "event.channel_type"));
@@ -167,6 +170,9 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     title = dm ? "" : linked ? "wrote" : "mentioned you";
     forYou = !linked;
     tags = [dm ? "dm" : linked ? "linked" : "mention"];
+    // For the read check (a message is read once Slack's read marker passes it) and the context check.
+    const ts = str(pick(data, "ts", "event.ts"));
+    if (channel && ts) meta = { channel, ts, threadTs: root ?? ts };
   } else if (toolkit === "gmail") {
     const from = str(pick(data, "sender", "from", "payload.from")) ?? "";
     const subject = str(pick(data, "subject", "payload.subject")) ?? "(no subject)";
@@ -228,7 +234,7 @@ export function readEvent(raw: Record<string, unknown>, me: Settings["me"] = {},
     tags = ["reviewer"];
   }
 
-  return { id, at, toolkit, trigger, title: oneLine(title, 80), summary: oneLine(text), url, actor, thread, forYou, tags };
+  return { id, at, toolkit, trigger, title: oneLine(title, 80), summary: oneLine(text), url, actor, thread, forYou, tags, ...(meta ? { meta } : {}) };
 }
 
 // ---------------------------------------------------------------- the module
@@ -800,7 +806,7 @@ export class Composio {
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     const workspace = this.deps.workspaces[0]?.id ?? "live";
     // Distinct per event (two comments link to the same issue), grouped by thread.
-    const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor, tags: e.tags };
+    const item: NewItem = { workspace, source: e.toolkit as NewItem["source"], kind: e.trigger.toLowerCase(), externalRef: e.url && e.url !== e.thread?.url ? e.url : `${e.url ?? e.toolkit}#${e.id}`, title: e.title, summary: e.summary, receivedAt: e.at, thread: e.thread ?? null, actor: e.actor, tags: e.tags, ...(e.meta ? { meta: e.meta } : {}) };
     this.deps.feed.add([item]);
     if (opts.quiet) return; // caught up from earlier: no hooks, no notification
     this.deps.onEvent?.(e);

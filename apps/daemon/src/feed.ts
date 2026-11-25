@@ -14,7 +14,19 @@ export interface FeedThread {
   url: string | null;
 }
 
-export type FeedState = "new" | "snoozed" | "done" | "dismissed" | "promoted";
+/** stale: jin judged its ask handled since (answered, resolved by someone else, overtaken); one click reopens it. */
+export type FeedState = "new" | "snoozed" | "done" | "dismissed" | "promoted" | "stale";
+
+/** jin's read of an item: how soon (now, today, later, ignore), how bad to miss, what it asks, whose it is. */
+export interface ItemTriage {
+  bucket: "now" | "today" | "later" | "ignore";
+  severity: "high" | "medium" | "low";
+  action: "reply" | "review" | "read" | "none";
+  group: "work" | "personal";
+  why: string;
+  /** A jin task it seems to belong to, when no link says so (a suggestion for you to confirm). */
+  taskHint: string | null;
+}
 
 export interface FeedItem {
   id: string;
@@ -34,9 +46,18 @@ export interface FeedItem {
   actor: string | null;
   /** Why it might concern you: authored, reviewer, team-review, requested, mentioned, dm, mention, person, assigned, comment… */
   tags: string[];
+  triage: ItemTriage | null;
+  /** Why jin marked it stale. */
+  staleWhy: string | null;
+  /** Source details for checks (Slack: channel, ts, threadTs). */
+  meta: Record<string, string> | null;
+  /** The jin task it belongs to (a task follows its thread, PR, issue or page), added when listed. */
+  owner?: { taskId: string; machine: string; title: string } | null;
+  /** The task jin's triage suggests it belongs to (no link says so yet), with its machine, added when listed. */
+  hint?: { taskId: string; machine: string; title: string } | null;
 }
 
-export type NewItem = Pick<FeedItem, "workspace" | "source" | "kind" | "externalRef" | "title" | "summary" | "receivedAt"> & { thread?: FeedThread | null; actor?: string | null; tags?: string[] };
+export type NewItem = Pick<FeedItem, "workspace" | "source" | "kind" | "externalRef" | "title" | "summary" | "receivedAt"> & { thread?: FeedThread | null; actor?: string | null; tags?: string[]; meta?: Record<string, string> };
 
 /** What a PR's thread holds that is over once the PR is (merged, closed, or no longer watched). */
 const PR_KINDS = new Set(["github_pr_comment", "github_pr_review", "github_pr_commit", "review_requested", "ci_failed"]);
@@ -58,7 +79,13 @@ const toItem = (r: any): FeedItem => ({
   thread: r.thread_key ? { key: r.thread_key, title: r.thread_title ?? "", ref: r.thread_ref ?? null, url: r.thread_url ?? null } : null,
   actor: r.actor ?? null,
   tags: r.tags ? (JSON.parse(r.tags) as string[]) : [],
+  triage: r.bucket ? { bucket: r.bucket, severity: r.severity ?? "low", action: r.action ?? "none", group: r.grp === "personal" ? "personal" : "work", why: r.priority_why ?? "", taskHint: r.task_hint ?? null } : null,
+  staleWhy: r.stale_why ?? null,
+  meta: r.meta ? (JSON.parse(r.meta) as Record<string, string>) : null,
 });
+
+const SCORE = { now: 3, today: 2, later: 1, ignore: 0 } as const;
+const SEVERITY = { high: 0.3, medium: 0.2, low: 0.1 } as const;
 
 export class Feed {
   constructor(private db: Database) {}
@@ -78,17 +105,69 @@ export class Feed {
   /** Adds items not seen before (same workspace, source, kind and external ref); returns how many were new. */
   add(items: NewItem[]): number {
     const insert = this.db.query(
-      `insert into feed_items (id, workspace, source, kind, external_ref, title, summary, received_at, thread_key, thread_title, thread_ref, thread_url, actor, tags)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (workspace, source, kind, external_ref) do nothing`,
+      `insert into feed_items (id, workspace, source, kind, external_ref, title, summary, received_at, thread_key, thread_title, thread_ref, thread_url, actor, tags, meta)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (workspace, source, kind, external_ref) do nothing`,
     );
     let added = 0;
     this.db.transaction(() => {
       for (const i of items) {
         const t = i.thread ?? null;
-        added += insert.run(randomUUID(), i.workspace, i.source, i.kind, i.externalRef, i.title, i.summary, i.receivedAt, t?.key ?? null, t?.title ?? null, t?.ref ?? null, t?.url ?? null, i.actor ?? null, i.tags?.length ? JSON.stringify(i.tags) : null).changes;
+        added += insert.run(randomUUID(), i.workspace, i.source, i.kind, i.externalRef, i.title, i.summary, i.receivedAt, t?.key ?? null, t?.title ?? null, t?.ref ?? null, t?.url ?? null, i.actor ?? null, i.tags?.length ? JSON.stringify(i.tags) : null, i.meta ? JSON.stringify(i.meta) : null).changes;
       }
     })();
     return added;
+  }
+
+  // ---------------------------------------------------------------- triage and life cycle
+
+  /** Open items jin has not read yet, oldest first. */
+  untriaged(limit = 10): FeedItem[] {
+    return (this.db.query("select * from feed_items where state = 'new' and triaged_at is null order by received_at limit ?").all(limit) as any[]).map(toItem);
+  }
+
+  /** jin's read of an item: its priority (now 3 … ignore 0, severity breaking ties) and why. */
+  setTriage(id: string, t: ItemTriage) {
+    this.db
+      .query("update feed_items set bucket = ?, severity = ?, action = ?, grp = ?, task_hint = ?, priority_score = ?, priority_why = ?, triaged_at = ? where id = ?")
+      .run(t.bucket, t.severity, t.action, t.group, t.taskHint, SCORE[t.bucket] + SEVERITY[t.severity], t.why.slice(0, 200), now(), id);
+  }
+
+  /** Read at the source (Slack's read marker passed it). Returns how many were newly seen. */
+  markSeen(ids: string[]): number {
+    const q = this.db.query("update feed_items set seen_at = ? where id = ? and seen_at is null");
+    let n = 0;
+    this.db.transaction(() => ids.forEach((id) => (n += q.run(now(), id).changes)))();
+    return n;
+  }
+
+  /** Its ask was handled since (jin's judgment, with why): out of the way, one click to reopen. */
+  markStale(id: string, why: string) {
+    this.db.query("update feed_items set state = 'stale', stale_why = ?, checked_at = ? where id = ? and state = 'new'").run(why.slice(0, 200), now(), id);
+  }
+
+  /** Not handled after all: back to open (and not judged again for a while). */
+  reopen(id: string): FeedItem {
+    this.db.query("update feed_items set state = 'new', stale_why = null, checked_at = ? where id = ? and state in ('stale', 'done', 'dismissed')").run(now(), id);
+    return this.get(id);
+  }
+
+  /** Open items whose ask may have been handled: seen at the source and not checked since, or older than `olderThan` and not checked in that long. */
+  toCheck(olderThan: string, limit = 8): FeedItem[] {
+    return (
+      this.db
+        .query("select * from feed_items where state = 'new' and ((seen_at is not null and (checked_at is null or checked_at < seen_at)) or (received_at < ? and (checked_at is null or checked_at < ?))) order by received_at limit ?")
+        .all(olderThan, olderThan, limit) as any[]
+    ).map(toItem);
+  }
+
+  checked(id: string) {
+    this.db.query("update feed_items set checked_at = ? where id = ?").run(now(), id);
+  }
+
+  /** What came later in an item's thread (other items), oldest first. */
+  laterInThread(item: FeedItem): FeedItem[] {
+    if (!item.thread) return [];
+    return (this.db.query("select * from feed_items where thread_key = ? and received_at > ? and id != ? order by received_at limit 20").all(item.thread.key, item.receivedAt, item.id) as any[]).map(toItem);
   }
 
   /** A name learned for an id (a Slack user or channel): past items of that source show it too. */
@@ -210,9 +289,11 @@ export async function collectGithub(workspaces: WorkspaceConfig[]): Promise<NewI
 
 // ---------------------------------------------------------------- routes
 
-export function feedRoutes(router: Router, feed: Feed, tasks: Tasks, workspaces: WorkspaceConfig[]) {
+export function feedRoutes(router: Router, feed: Feed, tasks: Tasks, workspaces: WorkspaceConfig[], annotate?: (item: FeedItem) => Pick<FeedItem, "owner" | "hint">) {
   router
-    .on("GET", "/api/feed", () => json(feed.list()))
+    // Each item with the task it belongs to (as tasks follow things now), and the one triage suggests.
+    .on("GET", "/api/feed", () => json(annotate ? feed.list().map((i) => ({ ...i, ...annotate(i) })) : feed.list()))
+    .on("POST", "/api/feed/:id/reopen", (_req, p) => json(feed.reopen(p.id!)))
     .on("POST", "/api/collect/github", async () => {
       const items = await collectGithub(workspaces);
       const added = feed.add(items);

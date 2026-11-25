@@ -345,6 +345,19 @@ export const MIGRATIONS: string[] = [
     update memory set refs = new.refs, text = new.text, why = new.why, concern = new.concern where id = old.id;
   end;
   `,
+  // 25: the desk's triage: jin's read of each item (priority, severity, what it asks, whose it is),
+  // when you have read it at its source, and whether its ask was handled since (stale, and why).
+  `
+  alter table feed_items add column bucket text;
+  alter table feed_items add column severity text;
+  alter table feed_items add column action text;
+  alter table feed_items add column grp text;
+  alter table feed_items add column task_hint text;
+  alter table feed_items add column triaged_at text;
+  alter table feed_items add column stale_why text;
+  alter table feed_items add column checked_at text;
+  alter table feed_items add column meta text;
+  `,
 ];
 
 export function openDb(home: string): Database {
