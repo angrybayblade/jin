@@ -1,13 +1,14 @@
 "use client";
 import { Empty } from "@/components/States";
 import { ArrowRight, Check, ChevronRight, Clock, Crosshair, ExternalLink, MessageSquareText, RefreshCw, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { collectGithub, feedSet, sweepFeed } from "@/lib/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { COMPOSE_EVENT } from "@/lib/desk-events";
 import { rowWhat } from "@/lib/feed-groups";
-import { triage, waited, type Triaged } from "@/lib/triage";
+import { desk, waited, type DeskSection, type Triaged } from "@/lib/triage";
 import { Group, SOURCE } from "./TodayPanel";
 
 /**
@@ -42,11 +43,64 @@ function ask(t: Triaged) {
 function Why({ t }: { t: Triaged }) {
   return (
     <>
+      {t.severity === "high" && <span className="fg-sev" title="Missing it costs a lot">high · </span>}
       {t.why}
-      {t.lane === "needs" && <span className="fg-wait"> · waiting {waited(t.since)}</span>}
+      {t.seen && <span className="fg-seen" title="Read in Slack; not handled yet"> · read</span>}
+      {(t.bucket === "now" || t.bucket === "today") && <span className="fg-wait"> · waiting {waited(t.since)}</span>}
     </>
   );
 }
+
+/** A group's threads: what is open, then low priority and probably done, folded. */
+function Section({ s, isNew, more, onMore }: { s: DeskSection; isNew: (t: Triaged) => boolean; more: boolean; onMore: () => void }) {
+  const shown = more ? s.open : s.open.slice(0, SHOWN);
+  return (
+    <>
+      {s.open.length > 0 && (
+        <ul className="feed-groups">
+          {shown.map((t) => (
+            <Group key={t.key} g={t} why={<Why t={t} />} isNew={isNew(t)} hint={t.hint} />
+          ))}
+        </ul>
+      )}
+      {s.open.length > SHOWN && (
+        <button type="button" className="lane-more" onClick={onMore}>
+          {more ? "Show fewer" : `${s.open.length - SHOWN} more`}
+        </button>
+      )}
+      {s.low.length > 0 && (
+        <details className="lane is-fyi desk-fold">
+          <summary className="lane-heading">
+            <ChevronRight size={13} className="fg-chevron" aria-hidden />
+            Low priority <span className="lane-n">{s.low.length}</span>
+            <span className="lane-hint">can wait, or needs nothing from you</span>
+          </summary>
+          <ul className="feed-groups">
+            {s.low.map((t) => (
+              <Group key={t.key} g={t} why={t.why} isNew={isNew(t)} hint={t.hint} />
+            ))}
+          </ul>
+        </details>
+      )}
+      {s.done.length > 0 && (
+        <details className="lane is-background desk-fold">
+          <summary className="lane-heading">
+            <ChevronRight size={13} className="fg-chevron" aria-hidden />
+            Probably done <span className="lane-n">{s.done.length}</span>
+            <span className="lane-hint">jin thinks these were handled since</span>
+          </summary>
+          <ul className="feed-groups">
+            {s.done.map((t) => (
+              <Group key={t.key} g={t} why={t.staleWhy ?? "handled since"} stale />
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
+  );
+}
+
+const count = (s: DeskSection) => s.open.length + s.low.length + s.done.length;
 
 /** One thread at a time: what it is, why, the latest, and four ways out. */
 function Focus({ queue, onExit }: { queue: Triaged[]; onExit: () => void }) {
@@ -156,9 +210,12 @@ function Focus({ queue, onExit }: { queue: Triaged[]; onExit: () => void }) {
 
 export function ActivityDesk({ items }: { items: FeedItem[] }) {
   const router = useRouter();
-  const lanes = useMemo(() => triage(items), [items]);
+  const view = useMemo(() => desk(items), [items]);
+  // Focus goes through everything open, most pressing first.
+  const queue = useMemo(() => [...view.now, ...view.tasks.flatMap((t) => t.open), ...view.work.open, ...view.personal.open], [view]);
+  const [moreOf, setMoreOf] = useState<string[]>([]);
+  const toggleMore = (k: string) => setMoreOf((m) => (m.includes(k) ? m.filter((x) => x !== k) : [...m, k]));
   const [focus, setFocus] = useState(false);
-  const [more, setMore] = useState(false);
   const [lastLook, setLastLook] = useState<string | null>(null);
   const [sweeping, startSweep] = useTransition();
   const [refreshing, startRefresh] = useTransition();
@@ -171,10 +228,9 @@ export function ActivityDesk({ items }: { items: FeedItem[] }) {
   }, []);
   const isNew = (t: Triaged) => Boolean(lastLook && t.latest > lastLook);
 
-  const n = lanes.needs.length;
+  const n = queue.length;
   const before = new Date(Date.now() - OLD_DAYS * 86_400_000).toISOString();
   const old = items.filter((i) => i.state === "new" && i.receivedAt < before).length;
-  const shown = more ? lanes.needs : lanes.needs.slice(0, SHOWN);
 
   return (
     <section className="side-panel is-main activity-desk" aria-labelledby="activity-heading">
@@ -198,7 +254,7 @@ export function ActivityDesk({ items }: { items: FeedItem[] }) {
       </header>
       <div className="side-scroll" data-scroll="y">
         {focus ? (
-          <Focus queue={lanes.needs} onExit={() => setFocus(false)} />
+          <Focus queue={queue} onExit={() => setFocus(false)} />
         ) : (
           <>
             {old > 0 && (
@@ -212,40 +268,45 @@ export function ActivityDesk({ items }: { items: FeedItem[] }) {
               </div>
             )}
 
-            <div className="lane is-needs">
-              <h3 className="lane-heading">
-                Needs you <span className="lane-n">{n}</span>
-              </h3>
-              {n === 0 ? (
-                <Empty>You&apos;re clear. New things that need you land here first.</Empty>
-              ) : (
+            {view.now.length > 0 && (
+              <div className="lane is-needs desk-now">
+                <h3 className="lane-heading">
+                  Needs you now <span className="lane-n">{view.now.length}</span>
+                </h3>
                 <ul className="feed-groups">
-                  {shown.map((t) => (
-                    <Group key={t.key} g={t} why={<Why t={t} />} isNew={isNew(t)} />
+                  {view.now.map((t) => (
+                    <Group key={t.key} g={t} why={<Why t={t} />} isNew={isNew(t)} hint={t.hint} />
                   ))}
                 </ul>
-              )}
-              {n > SHOWN && (
-                <button type="button" className="lane-more" onClick={() => setMore((m) => !m)}>
-                  {more ? "Show fewer" : `${n - SHOWN} more waiting`}
-                </button>
-              )}
-            </div>
+              </div>
+            )}
 
-            {(["fyi", "background"] as const).map((lane) =>
-              lanes[lane].length ? (
-                <details key={lane} className={`lane is-${lane}`}>
-                  <summary className="lane-heading">
-                    <ChevronRight size={13} className="fg-chevron" aria-hidden />
-                    {lane === "fyi" ? "Worth knowing" : "Background"} <span className="lane-n">{lanes[lane].length}</span>
-                    <span className="lane-hint">{lane === "fyi" ? "reviews, comments and updates on things you're part of" : "commits, bots and automated mail"}</span>
-                  </summary>
-                  <ul className="feed-groups">
-                    {lanes[lane].map((t) => (
-                      <Group key={t.key} g={t} why={lane === "fyi" ? <Why t={t} /> : undefined} isNew={isNew(t)} />
-                    ))}
-                  </ul>
-                </details>
+            {view.tasks
+              .filter((t) => count(t) > 0)
+              .map((t) => (
+                <div key={`${t.machine}:${t.taskId}`} className="lane desk-group is-task">
+                  <h3 className="lane-heading">
+                    <Link href={t.machine === "local" ? `/t/${t.taskId}` : `/m/${t.machine}/t/${t.taskId}`} className="desk-task-link">
+                      {t.taskId}
+                    </Link>
+                    <span className="desk-task-title">{t.title}</span> <span className="lane-n">{t.open.length}</span>
+                  </h3>
+                  <Section s={t} isNew={isNew} more={moreOf.includes(t.taskId)} onMore={() => toggleMore(t.taskId)} />
+                </div>
+              ))}
+
+            {(["work", "personal"] as const).map((g) =>
+              count(view[g]) > 0 || g === "work" ? (
+                <div key={g} className={`lane desk-group is-${g}`}>
+                  <h3 className="lane-heading">
+                    {g === "work" ? "Work" : "Personal"} <span className="lane-n">{view[g].open.length}</span>
+                  </h3>
+                  {g === "work" && count(view.work) === 0 && n === 0 ? (
+                    <Empty>You&apos;re clear. New things that need you land here first.</Empty>
+                  ) : (
+                    <Section s={view[g]} isNew={isNew} more={moreOf.includes(g)} onMore={() => toggleMore(g)} />
+                  )}
+                </div>
               ) : null,
             )}
           </>

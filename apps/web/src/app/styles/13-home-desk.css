@@ -323,3 +323,47 @@ details.lane[open] > .lane-heading .fg-chevron {
   border-color: currentColor;
   opacity: 0.55;
 }
+
+/* The desk's groups: needs you now, each task, work, personal; low priority and probably done folded in each. */
+.desk-group + .desk-group,
+.desk-now + .desk-group {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-1);
+}
+.desk-task-link {
+  font-family: var(--font-code);
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.desk-task-link:hover {
+  text-decoration: underline;
+}
+.desk-task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--secondary);
+}
+.desk-fold {
+  margin-left: var(--space-2);
+}
+.desk-fold > .lane-heading {
+  font-weight: 500;
+}
+.fg-sev {
+  color: var(--state-failed, var(--ink));
+  font-weight: 600;
+}
+.fg-seen {
+  color: var(--muted);
+}
+.fg-hint {
+  margin-right: 2px;
+}
