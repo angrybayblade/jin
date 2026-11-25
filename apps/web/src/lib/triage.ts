@@ -26,7 +26,20 @@ export interface Triaged extends FeedGroup {
   since: string;
   /** A source to show (GitHub, Slack…). */
   source: string;
+  /** jin's read of the thread (its most pressing item): how soon, and how bad to miss; null until triaged (the rule lane stands in). */
+  bucket: Bucket;
+  severity: "high" | "medium" | "low" | null;
+  /** Whose it is: a task's (it follows the thread), or work or personal (jin's read). */
+  group: "task" | "work" | "personal";
+  owner: { taskId: string; machine: string; title: string } | null;
+  hint: { taskId: string; machine: string; title: string } | null;
+  /** Read at the source (Slack), not yet handled. */
+  seen: boolean;
+  /** Why jin judged it handled since (Probably done). */
+  staleWhy: string | null;
 }
+
+export type Bucket = "now" | "today" | "later" | "ignore";
 
 const BOT = /(\[bot\]|-bot|bot)$|^(coderabbit|github-actions|vercel|linear|devin|copilot|dependabot|renovate|codecov|sonarcloud|cursor|graphite|netlify|changeset)/i;
 
@@ -58,20 +71,83 @@ function signal(i: FeedItem, yours: Set<string>): Signal {
 }
 
 const RANK: Record<Lane, number> = { needs: 0, fyi: 1, background: 2 };
+const BUCKET_RANK: Record<Bucket, number> = { now: 0, today: 1, later: 2, ignore: 3 };
+/** Before jin has read a thread, its rule lane says how soon. */
+const LANE_BUCKET: Record<Lane, Bucket> = { needs: "today", fyi: "later", background: "ignore" };
+const SEV_RANK = { high: 0, medium: 1, low: 2 } as const;
 
-/** Open items as threads, each in its lane with why; lanes in their order. */
-export function triage(items: FeedItem[]): Record<Lane, Triaged[]> {
-  const open = items.filter((i) => i.state === "new");
+/** Items as threads, each with its lane (by rule) and jin's read where it has one. */
+function threads(items: FeedItem[], state: FeedItem["state"]): Triaged[] {
+  const open = items.filter((i) => i.state === state);
   const yours = new Set(open.filter((i) => i.kind === "ci_failed" && i.thread).map((i) => i.thread!.key.toLowerCase()));
   const byId = new Map(open.map((i) => [i.id, i]));
-  const out: Record<Lane, Triaged[]> = { needs: [], fyi: [], background: [] };
-  for (const g of groupFeed(open)) {
+  return groupFeed(open).map((g) => {
     const its = g.ids.map((id) => byId.get(id)!).filter(Boolean);
     const sigs = its.map((i) => ({ i, s: signal(i, yours) }));
     const best = sigs.reduce((a, b) => (RANK[b.s.lane] < RANK[a.s.lane] || (b.s.lane === a.s.lane && b.s.tier < a.s.tier) ? b : a));
     const waiting = sigs.filter((x) => x.s.lane === best.s.lane).map((x) => x.i.receivedAt).sort();
-    out[best.s.lane].push({ ...g, lane: best.s.lane, why: best.s.why, tier: best.s.tier, since: best.s.lane === "needs" ? waiting[0]! : g.latest, source: its[0]?.source ?? g.source });
-  }
+    // jin's read: the thread's most pressing item.
+    const read = its.filter((i) => i.triage).sort((a, b) => BUCKET_RANK[a.triage!.bucket] - BUCKET_RANK[b.triage!.bucket] || SEV_RANK[a.triage!.severity] - SEV_RANK[b.triage!.severity])[0];
+    const owner = its.find((i) => i.owner)?.owner ?? null;
+    return {
+      ...g,
+      lane: best.s.lane,
+      why: read?.triage?.why || best.s.why,
+      tier: best.s.tier,
+      since: best.s.lane === "needs" ? waiting[0]! : g.latest,
+      source: its[0]?.source ?? g.source,
+      bucket: read?.triage?.bucket ?? LANE_BUCKET[best.s.lane],
+      severity: read?.triage?.severity ?? null,
+      group: owner ? "task" : (read?.triage?.group ?? "work"),
+      owner,
+      hint: owner ? null : (its.find((i) => i.hint)?.hint ?? null),
+      seen: its.every((i) => i.seenAt),
+      staleWhy: its.find((i) => i.staleWhy)?.staleWhy ?? null,
+    };
+  });
+}
+
+/** Most pressing first: how soon, then how bad, then the longest wait. */
+const byPriority = (a: Triaged, b: Triaged) => BUCKET_RANK[a.bucket] - BUCKET_RANK[b.bucket] || (SEV_RANK[a.severity ?? "medium"] - SEV_RANK[b.severity ?? "medium"]) || Number(a.seen) - Number(b.seen) || a.since.localeCompare(b.since);
+
+export interface DeskSection {
+  /** today's (and now's, in their own group) threads, most pressing first. */
+  open: Triaged[];
+  /** later and ignore: folded. */
+  low: Triaged[];
+  /** jin judged these handled since: folded, each with why. */
+  done: Triaged[];
+}
+export interface Desk {
+  /** Needs you now, from every group. */
+  now: Triaged[];
+  tasks: (DeskSection & { taskId: string; machine: string; title: string })[];
+  work: DeskSection;
+  personal: DeskSection;
+}
+
+/** The desk: what needs you now, then each task's threads, then work and personal; low priority and probably-done folded in each. */
+export function desk(items: FeedItem[]): Desk {
+  const open = threads(items, "new").sort(byPriority);
+  const stale = threads(items, "stale");
+  const section = (pick: (t: Triaged) => boolean): DeskSection => ({
+    open: open.filter((t) => pick(t) && (t.bucket === "today" || t.bucket === "now")),
+    low: open.filter((t) => pick(t) && (t.bucket === "later" || t.bucket === "ignore")),
+    done: stale.filter(pick),
+  });
+  const taskIds = [...new Map([...open, ...stale].filter((t) => t.owner).map((t) => [`${t.owner!.machine}:${t.owner!.taskId}`, t.owner!])).values()];
+  return {
+    now: open.filter((t) => t.bucket === "now"),
+    tasks: taskIds.map((o) => ({ ...o, ...section((t) => t.owner?.taskId === o.taskId && t.owner.machine === o.machine && t.bucket !== "now") })),
+    work: section((t) => t.group === "work" && t.bucket !== "now"),
+    personal: section((t) => t.group === "personal" && t.bucket !== "now"),
+  };
+}
+
+/** Open items as threads, each in its lane with why; lanes in their order. */
+export function triage(items: FeedItem[]): Record<Lane, Triaged[]> {
+  const out: Record<Lane, Triaged[]> = { needs: [], fyi: [], background: [] };
+  for (const t of threads(items, "new")) out[t.lane].push(t);
   out.needs.sort((a, b) => a.tier - b.tier || a.since.localeCompare(b.since));
   return out;
 }

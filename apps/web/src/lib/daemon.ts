@@ -14,9 +14,18 @@ export interface FeedItem {
   title: string;
   summary: string;
   receivedAt: string;
-  state: "new" | "snoozed" | "done" | "dismissed" | "promoted";
+  /** When you read it at its source (Slack's read marker passed it), else null. */
+  seenAt?: string | null;
+  state: "new" | "snoozed" | "done" | "dismissed" | "promoted" | "stale";
   taskId: string | null;
   priority: { score: number; why: string } | null;
+  /** jin's read: how soon, how bad to miss, what it asks, whose it is (null until triaged). */
+  triage?: { bucket: "now" | "today" | "later" | "ignore"; severity: "high" | "medium" | "low"; action: "reply" | "review" | "read" | "none"; group: "work" | "personal"; why: string; taskHint: string | null } | null;
+  /** Why jin judged it handled since (state stale). */
+  staleWhy?: string | null;
+  /** The jin task it belongs to, and the one triage suggests. */
+  owner?: { taskId: string; machine: string; title: string } | null;
+  hint?: { taskId: string; machine: string; title: string } | null;
   thread?: { key: string; title: string; ref: string | null; url: string | null } | null;
   actor?: string | null;
   /** Why it might concern you: authored, reviewer, team-review, requested, mentioned, dm, mention, person, assigned, comment… */
