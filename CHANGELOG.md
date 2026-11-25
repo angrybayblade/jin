@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The desk triages.** A small model reads each new item and says how soon it needs you (now,
+  today, later, or ignore), how bad it is to miss, what it asks of you, and whether it is work or
+  personal, with a reason. The desk shows **Needs you now** first, then a group per task (any
+  thread, PR or issue a task follows lands in it), then **Work** and **Personal**, most pressing
+  first. Each group folds **Low priority** away. A row jin thinks belongs to a task offers to link
+  it.
+- **Read is not done.** jin checks your Slack read marker: a message you read that was only for
+  your information is cleared; a DM or mention you read is marked read and stays. Items waiting
+  a while (or read) are checked against what happened since (replies, yours included, and later
+  events); if the ask was handled, the item moves to **Probably done** with why, one click from
+  reopening.
 - **Memory.** The journal becomes jin's memory: one table, where a task's journal and its
   long-term memory are the same rows. Room agents now keep the task's journal with its tabs, and
   every agent in a task reads all of it. When a task is merged, or you **Wrap up** any task from

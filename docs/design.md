@@ -151,6 +151,13 @@ Jin's rules apply to every agent it runs, whatever the workspace:
 
 - **Feed**: the GitHub collector (one `gh api graphql` query: review requests, failing
   checks on the user's PRs, mentions), split by each workspace's GitHub owners, de-duplicated.
+- **Desk triage and life cycle** (on the machine holding the feed): every 20 s a small model
+  triages new items in batches (bucket, severity, action, work or personal, why, a task hint);
+  until then the rule lanes stand in. A thread belongs to a task by the task's links (machines
+  push their tasks' keys to the home), not by the model. Every 2 minutes the Slack read marker of
+  each conversation (`last_read`) marks items seen, and clears read FYI ones; thread replies are
+  left, as Slack keeps no read marker per thread. Read items, and items waiting over 2 hours, are
+  judged against what happened since; handled ones go `stale` with why, and can be reopened.
 - **Bobby badges** on every pull request (feed, desks, chat links, a task's PR badges) open
   the PR's review in Bobby (`~/bobby`) in your browser, starting Bobby if it is not running.
   The daemon opens the browser, since the desktop window cannot.
