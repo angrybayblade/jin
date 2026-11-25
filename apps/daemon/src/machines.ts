@@ -1053,7 +1053,7 @@ pkill -f "$HOME/${this.config.machines.home}/app/apps/daemon/src/main.ts" 2>/dev
     const { out } = await this.ssh(m.host, `${PATH_LINE}\n${detectionScript()}`, () => {});
     const { found, using } = readDetections(out);
     const current = using[0] ?? null;
-    if (current && current !== m.workspace) this.update(id, { workspace: current });
+    if (current !== m.workspace) this.update(id, { workspace: current });
     this.candidates.set(id, found.filter((d) => !using.includes(d.root)));
     return found;
   }
