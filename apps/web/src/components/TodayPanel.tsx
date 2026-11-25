@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Empty } from "@/components/States";
-import { Check, ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Mail, MessageSquare, RefreshCw, Sparkles } from "lucide-react";
-import { collectGithub, feedAction } from "@/lib/actions";
+import { Check, ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Link2, Mail, MessageSquare, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { collectGithub, feedAction, linkFeedThread } from "@/lib/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { groupFeed, rowWhat, type FeedGroup, type FeedRow } from "@/lib/feed-groups";
 import { isPullRequest } from "@/lib/pr";
@@ -26,9 +26,33 @@ const ago = (iso: string) => {
   return `${Math.round(s / 86400)}d`;
 };
 
-function Actions({ g }: { g: FeedGroup }) {
+type TaskRef = { taskId: string; machine: string; title: string };
+
+function Actions({ g, stale, hint }: { g: FeedGroup; stale?: boolean; hint?: TaskRef | null }) {
   const label = g.ids.length > 1 ? "this thread" : "this";
+  if (stale)
+    return (
+      <form action={feedAction} className="fg-actions">
+        {g.ids.map((id) => (
+          <input key={id} type="hidden" name="itemId" value={id} />
+        ))}
+        <button type="submit" name="action" value="reopen" className="button quiet small" title="Not handled: back to open" aria-label={`Reopen ${label}`}>
+          <RotateCcw size={12} /> Reopen
+        </button>
+      </form>
+    );
   return (
+    <>
+    {hint && g.url && (
+      <form action={linkFeedThread} className="fg-actions fg-hint">
+        <input type="hidden" name="taskId" value={hint.taskId} />
+        <input type="hidden" name="machine" value={hint.machine} />
+        <input type="hidden" name="url" value={g.url} />
+        <button type="submit" className="button quiet small" title={`jin thinks this belongs to ${hint.taskId} (${hint.title}): link it to the task`}>
+          <Link2 size={12} /> {hint.taskId}
+        </button>
+      </form>
+    )}
     <form action={feedAction} className="fg-actions">
       {g.ids.map((id) => (
         <input key={id} type="hidden" name="itemId" value={id} />
@@ -46,6 +70,7 @@ function Actions({ g }: { g: FeedGroup }) {
         <Check size={13} />
       </button>
     </form>
+    </>
   );
 }
 
@@ -75,7 +100,7 @@ function Row({ r }: { r: FeedRow }) {
  * A thread, collapsed to one line: source, title, count, age; with `why` (the desk's triage),
  * a second line says why it is here. Open it for who did what.
  */
-export function Group({ g, why, isNew }: { g: FeedGroup; why?: ReactNode; isNew?: boolean }) {
+export function Group({ g, why, isNew, stale, hint }: { g: FeedGroup; why?: ReactNode; isNew?: boolean; stale?: boolean; hint?: TaskRef | null }) {
   const pr = g.url && isPullRequest(g.url) ? g.url : null;
   const src = SOURCE[g.source] ?? { label: g.source, Icon: Sparkles };
   const urgent = g.rows.find((r) => r.kind && URGENT[r.kind]);
@@ -105,7 +130,7 @@ export function Group({ g, why, isNew }: { g: FeedGroup; why?: ReactNode; isNew?
           ))}
         </ul>
       </details>
-      <Actions g={g} />
+      <Actions g={g} stale={stale} hint={hint} />
     </li>
   );
 }

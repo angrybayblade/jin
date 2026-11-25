@@ -31,11 +31,23 @@ export async function feedAction(form: FormData) {
     await Promise.all(
       ids.map((raw) => {
         const id = encodeURIComponent(raw);
-        if (action === "dismiss" || action === "done") return daemon(`/api/feed/${id}/${action}`, { method: "POST" });
+        if (action === "dismiss" || action === "done" || action === "reopen") return daemon(`/api/feed/${id}/${action}`, { method: "POST" });
         if (action === "snooze") return daemon(`/api/feed/${id}/snooze`, { method: "POST", json: { until } });
         throw new Error(`unknown feed action ${action}`);
       }),
     );
+    revalidatePath("/", "layout");
+  });
+}
+
+/** Link a desk thread to the task jin's triage suggested (the thread's link joins the task's). */
+export async function linkFeedThread(form: FormData) {
+  return failSafe(async () => {
+    const taskId = text(form, "taskId");
+    const url = text(form, "url");
+    const machine = text(form, "machine");
+    if (!taskId || !url) throw new Error("a task and a link are required");
+    await daemon(`/api/tasks/${encodeURIComponent(taskId)}/links`, { method: "POST", json: { url }, machine: machine && machine !== "local" ? machine : undefined });
     revalidatePath("/", "layout");
   });
 }
