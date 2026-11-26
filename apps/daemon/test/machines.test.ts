@@ -136,3 +136,10 @@ test("a development copy sets itself up on a machine beside the real jin: its ow
   expect(() => machineSetup({ service: "x; rm -rf /" })).toThrow("machines.service");
   expect(machineSetup(undefined)).toEqual({ home: ".jin", port: 7317, service: "jin-daemon", source: "committed" });
 });
+
+test("a machine jin sets up runs no desk of its own, unless it is the home", () => {
+  expect(daemonScript(7317, "http://127.0.0.1:3917")).toContain('[ -f "$H/not-home" ] || date -u +%FT%TZ > "$H/not-home"');
+  const home = daemonScript(7317, "http://127.0.0.1:3917", undefined, true);
+  expect(home).toContain('rm -f "$H/not-home"');
+  expect(home).not.toContain('> "$H/not-home"');
+});

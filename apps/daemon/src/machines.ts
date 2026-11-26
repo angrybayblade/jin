@@ -270,8 +270,12 @@ ${providerTools()
 true
 `;
 
-/** The machine's daemon: jin's config pointed at this web app, a user service (systemd when there is one), and its token. */
-export const daemonScript = (port: number, origin: string, setup: MachineSetup = DEFAULT_SETUP) => `
+/**
+ * The machine's daemon: jin's config pointed at this web app, a user service (systemd when there
+ * is one), and its token. A machine jin sets up is not its home (the desk runs on the home, or
+ * here) unless it is the home: it is marked so, and runs no desk of its own.
+ */
+export const daemonScript = (port: number, origin: string, setup: MachineSetup = DEFAULT_SETUP, isHome = false) => `
 set -e
 ${PATH_LINE}
 H="$HOME/${setup.home}"; export JIN_HOME="$H"
@@ -282,6 +286,7 @@ CFG="$H/config.yaml"
 ORIGINS=$( { grep -E '^webOrigins?:' $CFG | grep -oE 'https?://[^] ,"]+' ; echo '${origin}'; } | awk '!seen[$0]++' | paste -sd, - | sed 's/,/, /g')
 grep -v -E '^(webOrigins?|port):' $CFG > $CFG.tmp || true
 printf 'webOrigins: [%s]\\nport: %s\\n' "$ORIGINS" '${port}' >> $CFG.tmp && mv $CFG.tmp $CFG
+${isHome ? 'rm -f "$H/not-home"' : '[ -f "$H/not-home" ] || date -u +%FT%TZ > "$H/not-home"'}
 BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"; MAIN="$H/app/apps/daemon/src/main.ts"
 detach() { if command -v setsid >/dev/null; then nohup setsid "$@"; else nohup "$@"; fi; }
 if systemctl --user show-environment >/dev/null 2>&1; then
@@ -627,7 +632,7 @@ export class Machines {
       return;
     }
     if (step === "daemon") {
-      const { code, out } = await this.ssh(m.host, daemonScript(m.remotePort, this.config.webOrigin, this.config.machines), say, { quiet: /^JIN-TOKEN / });
+      const { code, out } = await this.ssh(m.host, daemonScript(m.remotePort, this.config.webOrigin, this.config.machines, Boolean(m.home)), say, { quiet: /^JIN-TOKEN / });
       const token = out.match(/^JIN-TOKEN (\S+)$/m)?.[1];
       if (code !== 0 || !token) throw new Error("jin's daemon did not start there; see the log");
       this.update(id, { token });
