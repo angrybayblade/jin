@@ -216,6 +216,11 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   picked one (path, kind, repos, stop using it: `DELETE /api/setup/workspace/:id` removes its
   yaml, keeps its files, and refuses while tasks are open) or adds one (found, install or clone,
   a path).
+- **Port forwards** (`apps/daemon/src/forwards.ts`, `$JIN_HOME/forwards.json`): a remote
+  machine's port on this machine's loopback, `ssh -N -L localhost:<here>:localhost:<there>`, one
+  connection per forward so one failing never takes the others; reopened with backoff, and at
+  start. Suggestions come from `ss -ltnp` (or `lsof`) on the machine, above 1024, minus jin's
+  own ports. Not for attached machines (no ssh from here).
 - **Home (hub)**: any machine can be jin's always-on home. Your Mac's line to it also carries a
   reverse port (`-R`), over which the Mac attaches itself (`POST /api/machines/attach`), so the
   hub reaches the Mac without dialling into it. With a home, chats, desks, the feed and approvals

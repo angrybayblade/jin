@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Port forwarding.** A remote machine's page lists its forwarded ports (`localhost:3000 →
+  d-jin:3000`), each with Open. **Forward** offers what listens on the machine (with its process
+  and folder, e.g. `next-server · apollo`) in one click, or any port by number, optionally to
+  another port here and with a name. The same port here when free, else the next free one; only
+  this machine can reach it (loopback). Each forward is its own ssh connection, reopened when it
+  drops and whenever jin starts; one that is down says why.
 - **Workspaces on a machine's page.** The main column lists the machine's workspaces and git
   repos (name, kind, path); picking one manages it in the side panel: where it is, its repos with
   their branches, and **Stop using it** (two clicks; its files stay, and jin refuses while it has
