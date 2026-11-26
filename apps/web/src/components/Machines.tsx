@@ -28,6 +28,7 @@ import {
   adoptSetupWorkspace,
   installSetupWorkspace,
 } from "@/lib/actions";
+import { AddPortPanel, PortList, PortPanel } from "@/components/MachinePorts";
 import { AddWorkspacePanel, useWorkspaceList, WorkspaceList, WorkspacePanel, type WorkspaceCtl, type WorkspaceRow } from "@/components/MachineWorkspaces";
 import type { Machine, MachineAuth, MachineStep, SetupState, WorkspaceProviderView } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
@@ -234,8 +235,8 @@ export function SignIn({ actions, auth, refresh }: { actions: SignInActions; aut
   );
 }
 
-/** What the side panel shows: the picked coding agent, a workspace to manage, or adding one. */
-type Side = { kind: "agent" } | { kind: "workspace"; id: string } | { kind: "add" };
+/** What the side panel shows: the picked coding agent, a workspace to manage or adding one, a forwarded port or forwarding one. */
+type Side = { kind: "agent" } | { kind: "workspace"; id: string } | { kind: "add" } | { kind: "port"; id: string } | { kind: "add-port" };
 
 /** The side panel's choice, and after adding, the new workspace picked once it shows in the list. */
 function useSide(list: WorkspaceRow[] | null) {
@@ -455,6 +456,14 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
     refresh: () => (refresh(), ws.reload()),
   };
   const { side, setSide, added } = useSide(ws.list);
+  const forwards = m.forwards ?? [];
+  const picked = side.kind === "port" ? forwards.find((f) => f.id === side.id) : undefined;
+  const portSide =
+    side.kind === "add-port" ? (
+      <AddPortPanel machine={m.id} where={m.label} forwards={forwards} onAdded={(f) => (setM((x) => ({ ...x, forwards: [...(x.forwards ?? []).filter((y) => y.id !== f.id), f].sort((p, q) => p.remotePort - q.remotePort) })), setSide({ kind: "port", id: f.id }))} />
+    ) : picked ? (
+      <PortPanel key={picked.id} machine={m.id} where={m.label} forward={picked} onGone={() => (setSide({ kind: "agent" }), refresh())} />
+    ) : null;
   return (
     <div className="machine-page">
     <article className="machine-detail">
@@ -541,13 +550,14 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
             </ul>
           </section>
           <WorkspaceList ctl={ctl} picked={side.kind === "workspace" ? side.id : null} adding={side.kind === "add"} onPick={(id) => setSide({ kind: "workspace", id })} onAdd={() => (setSide({ kind: "add" }), ctl.detect?.())} />
+          {!m.attached && <PortList where={m.label} forwards={forwards} picked={side.kind === "port" ? side.id : null} adding={side.kind === "add-port"} onPick={(id) => setSide({ kind: "port", id })} onAdd={() => setSide({ kind: "add-port" })} />}
           <AgentSelector agents={ag.agents} error={ag.error} pick={side.kind === "agent" ? ag.pick : null} onPick={(id) => (ag.setPick(id), setSide({ kind: "agent" }))} name={m.label} />
           <Home machine={m} refresh={refresh} />
         </>
       )}
     </article>
-    {/* Beside it on a wide screen: the picked coding agent's settings, a workspace to manage, or adding one. */}
-    {ready && <SideFor side={side} ctl={ctl} onSide={setSide} added={added} agent={<AgentSide ag={ag} machine={m.id} name={m.label} />} />}
+    {/* Beside it on a wide screen: the picked coding agent's settings, a workspace or a port to manage, or adding one. */}
+    {ready && (portSide ?? <SideFor side={side} ctl={ctl} onSide={setSide} added={added} agent={<AgentSide ag={ag} machine={m.id} name={m.label} />} />)}
     </div>
   );
 }

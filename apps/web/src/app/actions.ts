@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type ListeningPort, type PortForward, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -561,6 +561,33 @@ export async function detectMachineWorkspaces(id: string): Promise<void> {
 export async function setupMachineWorkspace(id: string, opts: { provider: string; path?: string; source?: string }): Promise<{ error: string } | null> {
   try {
     await daemon(machinePath(id, "/workspace"), { method: "POST", json: { provider: opts.provider, path: opts.path || undefined, source: opts.source || undefined }, local: true });
+    return null;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** What listens on a remote machine (to offer forwarding it). */
+export async function listListening(id: string): Promise<ListeningPort[] | { error: string }> {
+  try {
+    return await daemon<ListeningPort[]>(machinePath(id, "/listening"), { local: true });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Reach a port of a remote machine on this one: the same port here when free, else `localPort` or the next free one. */
+export async function addPortForward(id: string, o: { remotePort: number; localPort?: number | null; label?: string | null }): Promise<PortForward | { error: string }> {
+  try {
+    return await daemon<PortForward>(machinePath(id, "/forwards"), { method: "POST", json: o, local: true });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function removePortForward(id: string, remotePort: number): Promise<{ error: string } | null> {
+  try {
+    await daemon(machinePath(id, `/forwards/${remotePort}`), { method: "DELETE", local: true });
     return null;
   } catch (err) {
     return fail(err);

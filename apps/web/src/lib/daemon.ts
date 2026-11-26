@@ -488,6 +488,28 @@ export interface Machine {
   workspaceCandidates: DetectedWorkspace[] | null;
   providers: WorkspaceProviderView[];
   auth: MachineAuth[];
+  /** Its ports reached on this machine (`localhost:<localPort>` → its `localhost:<remotePort>`). */
+  forwards?: PortForward[];
+}
+
+/** A port of a remote machine, reached on this machine's loopback over ssh. */
+export interface PortForward {
+  id: string;
+  machine: string;
+  remotePort: number;
+  localPort: number;
+  label: string | null;
+  createdAt: string;
+  state: "up" | "connecting" | "down";
+  error: string | null;
+}
+
+/** A port something listens on, on a machine. */
+export interface ListeningPort {
+  port: number;
+  loopback: boolean;
+  process: string | null;
+  folder: string | null;
 }
 
 /** Something mentioned in a chat (@platform#133, @PLEN-1334), as jin resolved it. */
