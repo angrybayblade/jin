@@ -490,6 +490,20 @@ export interface Machine {
   auth: MachineAuth[];
   /** Its ports reached on this machine (`localhost:<localPort>` → its `localhost:<remotePort>`). */
   forwards?: PortForward[];
+  /** What moved over when it last became the home. */
+  lastMove?: { at: string; from: string; moved: HomeMoved } | null;
+}
+
+/** What moving jin's home brought over. */
+export interface HomeMoved {
+  sessions: number;
+  transcripts: number;
+  feed: number;
+  docs: number;
+  memory: number;
+  files: number;
+  /** What the new home still needs for its desk ("composio": signing in to the composio CLI there). */
+  needs?: string[];
 }
 
 /** A port of a remote machine, reached on this machine's loopback over ssh. */

@@ -273,11 +273,12 @@ export function Sidebar({
           const archived = ready.filter((t) => t.archived);
           const pending = g.jobs.filter((j) => j.state !== "done" && !live.some((t) => t.id === j.taskId && j.state === "failed"));
           const empty = live.length === 0 && pending.length === 0;
-          // A machine without a workspace or tasks needs no row, unless it is the only one.
-          if (several && empty && !g.down && g.id !== "local" && !g.hasWorkspace) return null;
+          // A machine without a workspace or tasks needs no row, unless it is the only one, or jin's home.
+          const isHome = machines.some((m) => m.id === g.id && m.home);
+          if (several && empty && !g.down && g.id !== "local" && !g.hasWorkspace && !isHome) return null;
           return (
             <Fragment key={g.id}>
-              {several && <MachineLabel label={g.label} local={g.id === "local"} note={g.down ? "not answering" : empty ? "no tasks" : undefined} />}
+              {several && <MachineLabel label={g.label} local={g.id === "local"} note={g.down ? "not answering" : isHome && !g.hasWorkspace ? "home · no workspace" : empty ? (isHome ? "home · no tasks" : "no tasks") : isHome ? "home" : undefined} />}
               {pending.map((j) => (
                 <Link key={`${g.id}:job:${j.id}`} href={taskHref(g.id, j.taskId)} className={`nav-item task ${isOpen(g.id, j.taskId) ? "active" : ""}`} title={j.slug}>
                   <StatusMark state={j.state === "running" ? "working" : "failed"} />

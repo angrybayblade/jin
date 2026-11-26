@@ -2,6 +2,7 @@
 import { AgentPanel, AgentSelector, SidePanel, useMachineAgents } from "@/components/MachineAgents";
 import { Empty } from "@/components/States";
 import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, LoaderCircle, Monitor, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -9,7 +10,7 @@ import {
   cancelMachineSignIn,
   checkMachineAuth,
   hubKey,
-  moveToHome,
+  connectHomeToMachines,
   setMachineHome,
   detectMachineWorkspaces,
   getMachine,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/actions";
 import { AddPortPanel, PortList, PortPanel } from "@/components/MachinePorts";
 import { AddWorkspacePanel, useWorkspaceList, WorkspaceList, WorkspacePanel, type WorkspaceCtl, type WorkspaceRow } from "@/components/MachineWorkspaces";
-import type { Machine, MachineAuth, MachineStep, SetupState, WorkspaceProviderView } from "@/lib/daemon";
+import type { HomeMoved, Machine, MachineAuth, MachineStep, SetupState, WorkspaceProviderView } from "@/lib/daemon";
 import { useArmedConfirm } from "@/lib/confirm";
 
 
@@ -302,24 +303,33 @@ export function InstallOptions({ providers, disabled, onInstall }: { providers: 
   );
 }
 
-/** Using a machine as jin's always-on home (the hub), and moving to it. */
-function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
+/** What moved with the home, in a line. */
+const movedLine = (m: HomeMoved) =>
+  [`${m.sessions} chat${m.sessions === 1 ? "" : "s"}${m.transcripts ? ` (${m.transcripts} keep Claude's memory)` : ""}`, `${m.feed} desk item${m.feed === 1 ? "" : "s"}`, `${m.docs} doc${m.docs === 1 ? "" : "s"}`, `${m.memory} memor${m.memory === 1 ? "y" : "ies"}`, `${m.files} settings file${m.files === 1 ? "" : "s"}`].join(", ");
+
+/**
+ * Using a machine as jin's always-on home (the hub). Switching moves everything the home holds
+ * from where it is now (the old home, or this machine); stopping brings it back here.
+ */
+function Home({ machine, current, refresh }: { machine: Machine; current: string; refresh: () => void }) {
   const router = useRouter();
   const [key, setKey] = useState<string | null>(null);
-  const [moved, setMoved] = useState<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [armed, setArmed] = useState(false);
+  const [connected, setConnected] = useState<{ id: string; ok: boolean; error?: string }[] | null>(null);
+  const [moved, setMoved] = useState<HomeMoved | null>(null);
+  const [busy, setBusy] = useState<"switch" | "stop" | "key" | "connect" | null>(null);
+  const [armed, setArmed] = useState<"switch" | "stop" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const run = async <T,>(p: Promise<T | { error: string }>, done: (v: T) => void) => {
-    setBusy(true);
+  const run = async <T,>(what: NonNullable<typeof busy>, p: Promise<T | { error: string }>, done: (v: T) => void) => {
+    setBusy(what);
     setError(null);
     const r = await p;
-    setBusy(false);
+    setBusy(null);
     if (r && typeof r === "object" && "error" in r) setError((r as { error: string }).error);
     else done(r as T);
     refresh();
     router.refresh();
   };
+  const last = moved ?? machine.lastMove?.moved ?? null;
   if (!machine.home) {
     return (
       <section className="md-card">
@@ -328,15 +338,15 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
           <span className="meta">run jin's main daemon here, always on</span>
           <button
             type="button"
-            className={`button small md-card-action ${armed ? "primary" : ""}`}
-            disabled={busy || !machine.connected}
-            onClick={() => (armed ? (setArmed(false), void run(setMachineHome(machine.id, true).then((r) => r ?? {}), () => {})) : setArmed(true))}
+            className={`button small md-card-action ${armed === "switch" ? "primary" : ""}`}
+            disabled={busy !== null || !machine.connected}
+            onClick={() => (armed === "switch" ? (setArmed(null), void run("switch", setMachineHome(machine.id, true), (r) => setMoved(r.moved))) : setArmed("switch"))}
           >
-            {busy ? (
+            {busy === "switch" ? (
               <>
-                <LoaderCircle size={12} className="spin" /> Switching…
+                <LoaderCircle size={12} className="spin" /> Moving the home…
               </>
-            ) : armed ? (
+            ) : armed === "switch" ? (
               `Make ${machine.label} the home`
             ) : (
               "Use as home"
@@ -344,9 +354,14 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
           </button>
         </div>
         <div className="md-card-body">
-          {armed && <p className="machine-notice">The app switches to {machine.label} for chats, desks, the feed and approvals. Click again to confirm.</p>}
+          {armed === "switch" && (
+            <p className="machine-notice">
+              Your chats, the desk, docs, memory and their settings move from {current} to {machine.label}, and the app switches to it. {current === "this machine" ? "This machine" : current} stops running the desk. Click again to confirm.
+            </p>
+          )}
+          {busy === "switch" && <p className="meta">Moving everything from {current}; this can take a minute with long chats.</p>}
           <p className="meta">
-            jin's chat, the desks, the GitHub feed and approvals move to {machine.label} and keep going while this machine sleeps. This machine stays one of its machines: its tasks and Claude
+            jin&apos;s chat, the desks, the feed, docs and approvals move to {machine.label} and keep going while this machine sleeps. This machine stays one of its machines: its tasks and Claude
             Code sessions run here, and the app keeps working from here.
           </p>
           {error && <p className="machine-error">{error}</p>}
@@ -358,12 +373,33 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
     <section className="md-card">
       <div className="md-card-head is-static">
         <h3>Home</h3>
-        <span className="meta">jin's always-on home; this machine is attached to it</span>
-        <button type="button" className="button small quiet md-card-action" disabled={busy} onClick={() => void run(setMachineHome(machine.id, false).then((r) => r ?? {}), () => {})}>
-          Stop
+        <span className="meta">jin&apos;s always-on home; this machine is attached to it</span>
+        <button
+          type="button"
+          className={`button small quiet md-card-action ${armed === "stop" ? "is-armed" : ""}`}
+          disabled={busy !== null}
+          onClick={() => (armed === "stop" ? (setArmed(null), void run("stop", setMachineHome(machine.id, false), () => {})) : setArmed("stop"))}
+          title="Bring the home back to this machine"
+        >
+          {busy === "stop" ? <LoaderCircle size={12} className="spin" /> : null} {armed === "stop" ? "Click again to bring it here" : "Stop"}
         </button>
       </div>
+      {armed === "stop" && <p className="machine-notice home-error">Your chats, the desk, docs and memory move back to this machine, and {machine.label} stops running the desk.</p>}
       <ul className="home-steps">
+        <li className="home-step">
+          <span className="home-step-icon">{last ? <Check size={14} className="step-done" /> : <Circle size={14} className="step-pending" />}</span>
+          <div className="home-step-text">
+            <span>{last ? `Moved here${machine.lastMove ? ` from ${machine.lastMove.from}` : ""}` : "Chats and the desk live here"}</span>
+            <span className="meta">{last ? movedLine(last) : "moved over when it became the home"}</span>
+          </div>
+          {last?.needs?.includes("composio") && (
+            <div className="home-step-detail">
+              <p className="machine-notice">
+                Sign in to Composio on the <Link href="/live">Live</Link> page: the desk&apos;s Slack, Linear, Notion and Gmail events wait until then, and pick up where the old home left off.
+              </p>
+            </div>
+          )}
+        </li>
         <li className="home-step">
           <span className="home-step-icon">{key ? <Check size={14} className="step-done" /> : <Circle size={14} className="step-pending" />}</span>
           <div className="home-step-text">
@@ -371,7 +407,7 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
             <span className="meta">so it can reach your other machines while this one sleeps</span>
           </div>
           {!key && (
-            <button type="button" className="button small" disabled={busy} onClick={() => void run(hubKey(machine.id), (r) => setKey(r.publicKey))}>
+            <button type="button" className="button small" disabled={busy !== null} onClick={() => void run("key", hubKey(machine.id), (r) => setKey(r.publicKey))}>
               Show key
             </button>
           )}
@@ -386,20 +422,17 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
           )}
         </li>
         <li className="home-step">
-          <span className="home-step-icon">{moved ? <Check size={14} className="step-done" /> : <Circle size={14} className="step-pending" />}</span>
+          <span className="home-step-icon">{connected ? <Check size={14} className="step-done" /> : <Circle size={14} className="step-pending" />}</span>
           <div className="home-step-text">
-            <span>Move chats and feed to {machine.label}</span>
-            <span className="meta">and have it connect to your other machines</span>
+            <span>Connect {machine.label} to your other machines</span>
+            <span className="meta">with its own key, once that is on them</span>
           </div>
-          <button type="button" className={`button small ${moved ? "" : "primary"}`} disabled={busy} onClick={() => void run(moveToHome(machine.id), setMoved)}>
-            {busy ? <LoaderCircle size={12} className="spin" /> : null} {moved ? "Move again" : "Move"}
+          <button type="button" className="button small" disabled={busy !== null} onClick={() => void run("connect", connectHomeToMachines(machine.id), (r) => setConnected(r.machines))}>
+            {busy === "connect" ? <LoaderCircle size={12} className="spin" /> : null} {connected ? "Again" : "Connect"}
           </button>
-          {moved && (
+          {connected && (
             <div className="home-step-detail">
-              <p className="meta">
-                {moved.history.sessions} chats ({moved.history.transcripts ?? 0} keep Claude's memory) and {moved.history.feed} feed items moved.
-              </p>
-              {moved.machines.map((r) => (
+              {connected.map((r) => (
                 <p key={r.id} className={r.ok ? "meta" : "machine-error"}>
                   {r.id}: {r.ok ? `${machine.label} is connecting to it` : r.error}
                 </p>
@@ -413,7 +446,7 @@ function Home({ machine, refresh }: { machine: Machine; refresh: () => void }) {
   );
 }
 
-function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: () => void }) {
+function MachineDetail({ initial, onRemoved, homeLabel }: { initial: Machine; onRemoved: () => void; homeLabel: string }) {
   const [m, setM] = useState(initial);
   const refresh = () => void getMachine(m.id).then(setM, () => {});
   useEffect(() => setM(initial), [initial]);
@@ -552,7 +585,7 @@ function MachineDetail({ initial, onRemoved }: { initial: Machine; onRemoved: ()
           <WorkspaceList ctl={ctl} picked={side.kind === "workspace" ? side.id : null} adding={side.kind === "add"} onPick={(id) => setSide({ kind: "workspace", id })} onAdd={() => (setSide({ kind: "add" }), ctl.detect?.())} />
           {!m.attached && <PortList where={m.label} forwards={forwards} picked={side.kind === "port" ? side.id : null} adding={side.kind === "add-port"} onPick={(id) => setSide({ kind: "port", id })} onAdd={() => setSide({ kind: "add-port" })} />}
           <AgentSelector agents={ag.agents} error={ag.error} pick={side.kind === "agent" ? ag.pick : null} onPick={(id) => (ag.setPick(id), setSide({ kind: "agent" }))} name={m.label} />
-          <Home machine={m} refresh={refresh} />
+          <Home machine={m} current={homeLabel} refresh={refresh} />
         </>
       )}
     </article>
@@ -738,7 +771,7 @@ export function Machines({ machines, selected }: { machines: Machine[]; selected
           {pick === "local" ? (
             <LocalMachine />
           ) : chosen ? (
-            <MachineDetail key={chosen.id} initial={chosen} onRemoved={() => (setPick(null), router.refresh())} />
+            <MachineDetail key={chosen.id} initial={chosen} homeLabel={machines.find((x) => x.home)?.label ?? "this machine"} onRemoved={() => (setPick(null), router.refresh())} />
           ) : (
             <Empty place="pane" icon={Server} title="Add a machine you reach with ssh">
               <p>A dev VM, a box under your desk: its tasks, Claude Code sessions and terminals run there, and keep running when this machine sleeps.</p>

@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type ListeningPort, type PortForward, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type HomeMoved, type ListeningPort, type PortForward, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -725,11 +725,12 @@ export async function changeStamp(): Promise<string> {
 // ---------------------------------------------------------------- home (the always-on hub)
 
 /** Use a machine as this jin's home: chats, desks, feed and approvals live there; this machine attaches to it. */
-export async function setMachineHome(id: string, home: boolean): Promise<{ error: string } | null> {
+/** Make a machine jin's home, or stop (the home comes back here): what the home holds moves first. */
+export async function setMachineHome(id: string, home: boolean): Promise<{ moved: HomeMoved | null } | { error: string }> {
   try {
-    await daemon(machinePath(id, "/home"), { method: "POST", json: { home }, local: true });
+    const r = await daemon<{ moved: HomeMoved | null }>(machinePath(id, "/home"), { method: "POST", json: { home }, local: true, timeoutMs: 600_000 });
     revalidatePath("/", "layout");
-    return null;
+    return { moved: r.moved };
   } catch (err) {
     return fail(err);
   }
@@ -745,11 +746,10 @@ export async function hubKey(id: string): Promise<{ publicKey: string } | { erro
 }
 
 /** Copy this machine's chats and feed to the home, and ask the home to reach the other machines itself. */
-export async function moveToHome(id: string): Promise<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] } | { error: string }> {
+/** Ask the home to reach this jin's other machines itself (its own key must be on them first). */
+export async function connectHomeToMachines(id: string): Promise<{ machines: { id: string; ok: boolean; error?: string }[] } | { error: string }> {
   try {
-    const r = await daemon<{ history: { sessions: number; events: number; feed: number; transcripts?: number }; machines: { id: string; ok: boolean; error?: string }[] }>(machinePath(id, "/move"), { method: "POST", local: true });
-    revalidatePath("/", "layout");
-    return r;
+    return await daemon<{ machines: { id: string; ok: boolean; error?: string }[] }>(machinePath(id, "/move"), { method: "POST", local: true, timeoutMs: 120_000 });
   } catch (err) {
     return fail(err);
   }
