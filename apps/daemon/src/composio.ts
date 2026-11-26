@@ -395,6 +395,27 @@ export class Composio {
 
   // ---------------------------------------------------------------- sign-in and project
 
+  /**
+   * Install the composio CLI here with Composio's own installer (into ~/.composio, linked from
+   * ~/.local/bin, where jin looks). It needs no terminal; signing in is a step of its own.
+   */
+  async install(): Promise<{ installed: boolean }> {
+    if (this.installed) return { installed: true };
+    this.installing ??= (async () => {
+      const proc = Bun.spawn(["bash", "-c", "set -o pipefail; curl -fsSL https://composio.dev/install | bash"], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, NO_COLOR: "1" } });
+      const timer = setTimeout(() => proc.kill(9), 300_000);
+      const [, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+      clearTimeout(timer);
+      const found = Bun.which("composio") || join(homedir(), ".local", "bin", "composio");
+      if (existsSync(found)) this.bin = found;
+      if (!this.installed) throw new HttpError(502, `installing the composio CLI failed (${code}): ${err.replace(/\x1b\[[0-9;]*m/g, "").trim().split("\n").slice(-2).join(" ") || "no output"}`);
+    })().finally(() => (this.installing = null));
+    await this.installing;
+    this.remote = null;
+    return { installed: true };
+  }
+  private installing: Promise<void> | null = null;
+
   /** Start a sign-in: a link for your browser; jin waits for it to complete. */
   async startLogin(): Promise<string> {
     this.login.proc?.kill();
@@ -1033,6 +1054,7 @@ export function composioRoutes(router: Router, c: Composio) {
   };
   router
     .on("GET", "/api/composio", async () => json(await c.status()))
+    .on("POST", "/api/composio/install", async () => json(await c.install()))
     .on("POST", "/api/composio/login", async () => json({ url: await c.startLogin() }))
     .on("GET", "/api/composio/projects", async () => json(await c.projects()))
     .on("POST", "/api/composio/project", async (req) => {

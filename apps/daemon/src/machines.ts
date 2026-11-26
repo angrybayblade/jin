@@ -826,7 +826,12 @@ export class Machines {
     // The desk's Composio events need the composio CLI signed in there; until then they wait
     // (Composio keeps them, and the moved log cursor picks up where the old home left off).
     if (to && moved.composio) {
-      const theirs = await this.call<{ installed: boolean; signedIn: boolean }>(to.id, "GET", "/api/composio").catch(() => null);
+      let theirs = await this.call<{ installed: boolean; signedIn: boolean }>(to.id, "GET", "/api/composio").catch(() => null);
+      // Not there yet: installed with Composio's own installer, so only signing in is left.
+      if (theirs && !theirs.installed) {
+        await this.call(to.id, "POST", "/api/composio/install", {}, 330_000).catch((err) => console.error(`installing the composio CLI on ${to.label}: ${err}`));
+        theirs = await this.call<{ installed: boolean; signedIn: boolean }>(to.id, "GET", "/api/composio").catch(() => theirs);
+      }
       if (theirs && !(theirs.installed && theirs.signedIn)) moved.needs = ["composio"];
     }
     this.lastMove.set(to?.id ?? "local", { at: new Date().toISOString(), from: from?.label ?? "this machine", moved });

@@ -763,6 +763,15 @@ export async function getLive(): Promise<LiveStatus> {
   });
 }
 
+/** Install the composio CLI on the home (Composio's own installer). */
+export async function liveInstall(): Promise<{ installed: boolean } | { error: string }> {
+  try {
+    return await daemon<{ installed: boolean }>("/api/composio/install", { method: "POST", timeoutMs: 330_000 });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function liveLogin(): Promise<{ url: string } | { error: string }> {
   try {
     return await daemon<{ url: string }>("/api/composio/login", { method: "POST" });

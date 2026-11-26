@@ -1,7 +1,7 @@
 "use client";
 import { Check, ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getLive, liveConnect, liveLinearTeams, liveListener, liveLogin, liveProjects, liveSetEvent, liveUseProject } from "@/lib/actions";
+import { getLive, liveConnect, liveInstall, liveLinearTeams, liveListener, liveLogin, liveProjects, liveSetEvent, liveUseProject } from "@/lib/actions";
 import type { LiveStatus } from "@/lib/daemon";
 
 const NAME: Record<string, string> = { slack: "Slack", linear: "Linear", notion: "Notion", gmail: "Gmail", github: "GitHub" };
@@ -28,6 +28,15 @@ function Account({ s, refresh }: { s: LiveStatus; refresh: () => void }) {
     else open(r.url);
     refresh();
   };
+  const [installing, setInstalling] = useState(false);
+  const install = async () => {
+    setInstalling(true);
+    setError(null);
+    const r = await liveInstall();
+    setInstalling(false);
+    if ("error" in r) setError(r.error);
+    refresh();
+  };
   const choose = async () => {
     const r = await liveProjects();
     if ("error" in r) setError(r.error);
@@ -50,8 +59,13 @@ function Account({ s, refresh }: { s: LiveStatus; refresh: () => void }) {
             <Dot tone={s.signedIn ? "ok" : s.login.state === "waiting" ? "busy" : "idle"} />
             <div className="machine-auth-name">
               <span className="machine-auth-tool">Sign-in</span>
-              <span className="meta machine-auth-state">{s.signedIn ? "signed in" : s.login.state === "waiting" ? "waiting for you in the browser…" : s.installed ? "not signed in" : "composio CLI is not installed on the home"}</span>
+              <span className="meta machine-auth-state">{s.signedIn ? "signed in" : s.login.state === "waiting" ? "waiting for you in the browser…" : s.installed ? "not signed in" : installing ? "installing the composio CLI…" : "composio CLI is not installed on the home"}</span>
             </div>
+            {!s.installed && (
+              <button type="button" className="button small" disabled={installing} onClick={() => void install()} title="Runs Composio's installer on the home (curl -fsSL https://composio.dev/install | bash)">
+                {installing ? <LoaderCircle size={12} className="spin" /> : null} Install
+              </button>
+            )}
             {!s.signedIn && s.installed && (
               <button type="button" className="button small" disabled={busy} onClick={() => void signIn()}>
                 {s.login.state === "waiting" ? "Open again" : "Sign in"}
