@@ -279,7 +279,7 @@ export class Composio {
 
   constructor(
     private config: Config,
-    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; watched?: (threadKey: string, channel: string) => boolean; slackThreads?: SlackThreads; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
+    private deps: { feed: Feed; workspaces: WorkspaceConfig[]; watched?: (threadKey: string, channel: string) => boolean; slackThreads?: SlackThreads; notify: (n: Notice) => void; onEvent?: (e: LiveEvent) => void; shouldNotify?: (e: LiveEvent) => boolean; holdsDesk?: () => boolean; github?: { start: () => void; stop: () => void; state: { watching: number; lastCheck: string | null; error: string | null } } },
     private spawn: Spawn = defaultSpawn,
     private bin = process.env.JIN_COMPOSIO_BIN ?? (Bun.which("composio") || join(homedir(), ".local", "bin", "composio")),
   ) {
@@ -430,6 +430,8 @@ export class Composio {
       if (this.login.proc !== proc) return;
       this.login = { url: null, state: code === 0 ? "done" : "failed", error: code === 0 ? null : "the sign-in did not complete (it expires after 10 minutes)", proc: null };
       this.forgetRemote();
+      // Signed in: the desk's events start now (a home that moved in before the CLI was there waited for this).
+      if (code === 0) this.restartListener();
     });
     return url;
   }
@@ -582,7 +584,8 @@ export class Composio {
     l.stopped = false;
     if (l.timer) return;
     const composioOn = (Object.keys(this.settings.events) as EventKind[]).some((k) => this.settings.events[k] && EVENTS[k] && !("native" in EVENTS[k]));
-    if (!this.installed || !this.project() || !composioOn) {
+    // Only where the desk runs: the home, or a jin without one (never a machine that gave the home up).
+    if (!this.installed || !this.project() || !composioOn || this.deps.holdsDesk?.() === false) {
       l.state = "off";
       return;
     }

@@ -722,6 +722,7 @@ const composio = new Composio(config, {
   notify: (n) => void notifier.notify(n),
   onEvent: (e) => fireEvent({ event: "live.event", key: e.id, payload: { ...e } }),
   shouldNotify: (e) => liveNotifies(notifier.settings, e),
+  holdsDesk: () => holdsFeed(),
   github: githubWatch,
 });
 liveDeliver = (e) => composio.deliver(e);
