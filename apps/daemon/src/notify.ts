@@ -130,6 +130,11 @@ export class Notifier {
     this.file = join(config.home, "notifications.json");
   }
 
+  /** Read the settings again (the home moved here). */
+  reload() {
+    this.cached = null;
+  }
+
   get settings(): NotificationSettings {
     if (this.cached) return this.cached;
     try {

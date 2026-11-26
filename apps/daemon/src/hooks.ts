@@ -172,6 +172,15 @@ export class Hooks {
     writeFileSync(this.file, JSON.stringify(this.hooks, null, 2));
   }
 
+  /** Read the hooks again (the home moved here, with its file). */
+  reload() {
+    try {
+      if (existsSync(this.file)) this.hooks = JSON.parse(readFileSync(this.file, "utf8")) as Hook[];
+    } catch {
+      // a broken file: keep what is loaded
+    }
+  }
+
   list(): Hook[] {
     return this.hooks;
   }

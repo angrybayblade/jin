@@ -678,6 +678,19 @@ export class Composio {
     this.login.proc?.kill();
   }
 
+  /** The home moved here (or away): forget what was read from its files, and run the desk only if it is ours. */
+  reload(holdsDesk: boolean) {
+    this.cursor = null;
+    this.names = null;
+    this.notionNames = null;
+    this.remote = null;
+    this.stopListener();
+    if (!holdsDesk) return this.deps.github?.stop();
+    this.startListener();
+    if (this.settings.events.github_prs) this.deps.github?.start();
+    else this.deps.github?.stop();
+  }
+
   // ---------------------------------------------------------------- Slack names
 
   /** Slack user and channel names by id, looked up once through your Slack connection and kept. */

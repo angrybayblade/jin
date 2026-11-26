@@ -27,6 +27,11 @@ export class SlackThreads {
     return this.threads;
   }
 
+  /** Read the file again (the home moved here). */
+  reload() {
+    this.threads = null;
+  }
+
   has(key: string): boolean {
     return key in this.load();
   }

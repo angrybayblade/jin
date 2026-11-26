@@ -156,6 +156,18 @@ export class Watches {
     this.byMachine = read(this.file, {});
     this.owners = read(this.ownersFile, {});
   }
+  /** Read the files again (the home moved here). */
+  reload() {
+    const read = <T>(f: string, empty: T): T => {
+      try {
+        return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as T) : empty;
+      } catch {
+        return empty;
+      }
+    };
+    this.byMachine = read(this.file, {});
+    this.owners = read(this.ownersFile, {});
+  }
   set(machine: string, keys: string[], tasks?: { key: string; taskId: string; title: string }[]) {
     this.byMachine[machine] = [...new Set(keys)].filter((k) => k.startsWith("slack:") || k.startsWith("slack-channel:"));
     writeFileSync(this.file, JSON.stringify(this.byMachine, null, 1));

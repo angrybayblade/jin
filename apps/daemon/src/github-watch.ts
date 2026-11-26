@@ -185,6 +185,11 @@ export class GithubWatch {
     this.timer = null;
   }
 
+  /** Read what was seen again (the home moved here, with its file). */
+  reload() {
+    this.seen = null;
+  }
+
   get running() {
     return this.timer !== null;
   }
