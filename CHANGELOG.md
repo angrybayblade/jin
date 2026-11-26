@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Moving the home moves everything.** Making a machine jin's home moves what the home holds
+  from where it is now (the old home, not just this Mac): every chat, with Claude's memory of
+  it, approvals, the desk, docs, long-term memory, and the settings behind the desk (Composio,
+  the GitHub watch, Slack threads, event hooks, notifications, skills). The old home stops
+  running the desk first, even after a restart; if moving fails, it keeps the home. The new home
+  must be signed in to Claude Code and gh (it is refused until then); Composio events wait until
+  you sign in there, and catch up. **Stop** brings everything back to this machine. The machine
+  page says what moved. Machines jin sets up no longer run a desk of their own, and the home
+  always shows in the sidebar, workspace or not.
 - **Port forwarding.** A remote machine's page lists its forwarded ports (`localhost:3000 →
   d-jin:3000`), each with Open. **Forward** offers what listens on the machine (with its process
   and folder, e.g. `next-server · apollo`) in one click, or any port by number, optionally to

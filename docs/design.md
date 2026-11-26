@@ -226,8 +226,17 @@ Jin's rules apply to every agent it runs, whatever the workspace:
   hub reaches the Mac without dialling into it. With a home, chats, desks, the feed and approvals
   come from the hub; task pages follow their machine; the Mac collects notices only from the
   hub; the hub runs the always-on timers (feed every 10 minutes, PR sync) and reaches the other
-  machines with its own key (`POST /api/machines/key`, added once to exe.dev). "Move" copies the
-  Mac's chats and feed there and has the hub connect to the Mac's other machines.
+  machines with its own key (`POST /api/machines/key`, added once to exe.dev).
+- **Moving the home** (`home-move.ts`): making a machine the home (or Stop, back to the Mac)
+  moves everything the home holds from where it is now: chats with Claude's transcripts,
+  approvals, the feed, docs, long-term memory, and its files (Composio's settings, project and
+  log cursor, the GitHub watch, Slack threads, event hooks, notification settings, skills, the
+  chats' folders). The machine giving it up stops running the desk first (`not-home`, kept
+  across restarts), hands over (`GET /api/home/export`), and the new home takes it
+  (`POST /api/home/import`, the moved copy winning, then everything that read those files reads
+  them again); a failure leaves the old home in charge. The new home must have Claude Code and gh
+  signed in; the Composio CLI may follow (the moved log cursor catches up). A machine jin sets up
+  is marked `not-home` unless it is the home, so only the home (or a Mac without one) runs a desk.
 - **One orchestrator**: your Mac's jin (or, with a home, the hub) is the one you talk to; each machine's daemon owns its
   own tasks, sessions and approvals. jin's chat lists machines, lists tasks and catches you up
   across all of them, and starts tasks or Claude Code sessions on a chosen machine through its
