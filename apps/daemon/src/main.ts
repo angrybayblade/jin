@@ -23,7 +23,8 @@ import { linkRoutes, ownLinks, type TaskLink, TaskLinks, watchRoutes, Watches } 
 import { skillRoutes, Skills, tagsFor, writeTaskPlugin, type SkillBody } from "./skills";
 import { localVersion, machineId, machineRoutes, Machines } from "./machines";
 import { forwardRoutes, Forwards } from "./forwards";
-import { exportHistory, historyRoutes } from "./history";
+import { historyRoutes } from "./history";
+import { exportHome, gaveUpHome, type HomeBundle, importHome, setNotHome } from "./home-move";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
 import { subtaskRoutes } from "./subtasks";
@@ -40,7 +41,7 @@ import { OpencodeHarness } from "./harness/opencode";
 import { opencodeLaunch } from "./opencode-cli";
 import { piLaunch } from "./pi-cli";
 import { AgentTools, agentToolRoutes } from "./agent-tools";
-import { HttpError, json, Router } from "./http";
+import { body, HttpError, json, Router } from "./http";
 import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
@@ -438,7 +439,7 @@ setTimeout(() => void syncPrs(), 5_000);
 const machines = new Machines(config, app.workspaces);
 // Chats run with the first workspace's Claude profile (if it has one), so their transcripts are there.
 const chatClaudeDir = () => app.workspaces[0]?.profile.claudeConfigDir;
-machineRoutes(app.router, machines, () => exportHistory(db, { claudeDir: chatClaudeDir() }));
+machineRoutes(app.router, machines);
 // A machine's ports, reached on this machine's loopback, each over an ssh connection of its own.
 const forwards = new Forwards(config.home, (id) => {
   const m = machines.records().find((r) => r.id === id);
@@ -764,7 +765,8 @@ const staleChecker = new StaleChecker(feed, {
       .join("\n");
   },
 });
-const holdsFeed = () => !homeLink();
+// The desk runs where the home is: on the home, or here without one, unless this machine gave the home up.
+const holdsFeed = () => !homeLink() && !gaveUpHome(config.home);
 setInterval(() => holdsFeed() && void triager.run().catch(problems.catch("triaging the desk")), 20_000);
 setInterval(() => {
   if (!holdsFeed() || scripted || !composio.installed || !composio.settings.events.slack_dms && !composio.settings.events.slack_mentions) return;
@@ -833,12 +835,41 @@ lookupLinear = async (id) => {
   const i = ((d?.data as Record<string, unknown> | undefined)?.issue ?? null) as { title?: string; url?: string; state?: { name?: string }; assignee?: { displayName?: string } | null; team?: { name?: string } | null } | null;
   return i?.title ? { title: i.title, url: i.url ?? null, state: i.state?.name ?? null, assignee: i.assignee?.displayName ?? null, team: i.team?.name ?? null } : null;
 };
-composio.startListener();
-composio.resumeNative();
+// A machine that gave the home up does not run the desk again after a restart.
+if (!gaveUpHome(config.home)) {
+  composio.startListener();
+  composio.resumeNative();
+}
+
+// Moving the home: this machine gives it up (and stops running the desk), hands over what it
+// holds, or takes it over (rows and files in, then everything that read those files reads them again).
+const homeData = {
+  giveUp: () => {
+    setNotHome(config.home, true);
+    composio.reload(false);
+  },
+  keep: () => {
+    setNotHome(config.home, false);
+    composio.reload(holdsFeed());
+  },
+  export: () => exportHome(db, config.home, { claudeDir: chatClaudeDir() }),
+  import: (b: HomeBundle) => {
+    const moved = importHome(db, config.home, b, { claudeDir: chatClaudeDir() });
+    for (const r of [slackThreads, watches, notifier, hooks, githubWatch]) r.reload();
+    composio.reload(holdsFeed());
+    return moved;
+  },
+};
+machines.homeData = homeData;
+app.router
+  .on("POST", "/api/home/give-up", () => (homeData.giveUp(), json({ ok: true })))
+  .on("POST", "/api/home/keep", () => (homeData.keep(), json({ ok: true })))
+  .on("GET", "/api/home/export", () => json(homeData.export()))
+  .on("POST", "/api/home/import", async (req) => json(homeData.import(await body<HomeBundle>(req))));
 
 // Always on (vm mode, e.g. the hub): the GitHub feed refreshes on its own every 10 minutes.
 const feedTimer = config.mode === "vm" && !process.env.JIN_NO_TIMERS
-  ? setInterval(() => void collectGithub(app.workspaces).then((items) => feed.add(items)).catch(problems.catch("collecting GitHub")), 10 * 60_000)
+  ? setInterval(() => holdsFeed() && void collectGithub(app.workspaces).then((items) => feed.add(items)).catch(problems.catch("collecting GitHub")), 10 * 60_000)
   : null;
 
 function shutdown() {

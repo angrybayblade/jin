@@ -6,6 +6,7 @@ import { machineSetup, type MachineSetup } from "./config";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
 import type { ForwardView } from "./forwards";
+import type { HomeBundle, Moved } from "./home-move";
 
 /**
  * Remote machines: another computer you reach with `ssh <host>` (a dev VM) that runs its own
@@ -40,6 +41,16 @@ export interface MachineRecord {
   /** On the hub: a machine that connected to us (a laptop behind NAT), reached over its reverse tunnel. */
   attached?: boolean;
 }
+
+/** Whether the home being moved has Composio events on (its desk needs the composio CLI signed in). */
+const usesComposio = (b: HomeBundle) => {
+  try {
+    const s = JSON.parse(Buffer.from(b.files["composio.json"] ?? "", "base64").toString("utf8") || "{}") as { events?: Record<string, boolean> };
+    return Object.entries(s.events ?? {}).some(([k, on]) => on && k !== "github_prs");
+  } catch {
+    return false;
+  }
+};
 
 export type StepId = "connect" | "tools" | "jin" | "daemon" | "tunnel";
 export interface Step {
@@ -80,6 +91,8 @@ export interface MachineView extends Omit<MachineRecord, "token"> {
   auth: AuthState[];
   /** Its ports reached here (`localhost:<local>` → its `localhost:<remote>`). */
   forwards: ForwardView[];
+  /** What moved over when it last became the home. */
+  lastMove: { at: string; from: string; moved: Moved } | null;
 }
 
 const STEPS: { id: StepId; label: string }[] = [
@@ -442,6 +455,10 @@ export class Machines {
   private relay: ReturnType<typeof setInterval> | null = null;
   /** This jin, as a hub sees it when this machine attaches to its home. */
   identity: { id: string; label: string; port: number; token: string } | null = null;
+  /** This machine's side of moving the home: give it up, keep it, hand it over, take it over. */
+  homeData: { giveUp(): void; keep(): void; export(): HomeBundle; import(b: HomeBundle): Moved } | null = null;
+  /** What the last home move brought over, for the machine's page. */
+  private lastMove = new Map<string, { at: string; from: string; moved: Moved }>();
   /** The machines' port forwards (shown in each one's view, dropped with it). */
   forwards: { list(machine: string): ForwardView[]; forget(machine: string): void } | null = null;
 
@@ -500,6 +517,7 @@ export class Machines {
       providers: providerViews(),
       auth: authTools().map((t) => ({ ...this.authOf(id, t), ...describeTool(t) })),
       forwards: this.forwards?.list(id) ?? [],
+      lastMove: this.lastMove.get(id) ?? null,
     };
   }
 
@@ -772,17 +790,41 @@ export class Machines {
    * reverse line, and this returns only once it is up and this jin is attached there, so the
    * app does not switch to a home it cannot reach yet.
    */
-  async setHome(id: string, home: boolean) {
+  async setHome(id: string, home: boolean): Promise<Moved | null> {
     const m = this.record(id);
     if (m.attached) throw new HttpError(400, "an attached machine cannot be a home");
+    const current = this.records().find((r) => r.home && r.id !== id) ?? null;
     if (home) {
+      if (m.home) return null;
       if (!m.token || this.tunnels.get(id)?.state !== "up") throw new HttpError(409, `${m.label} is not connected`);
-      // A home must accept this jin attaching itself: an older jin there cannot.
+      // A home must accept this jin attaching itself, and take the home over: an older jin there cannot.
       const theirs = await fetch(`http://127.0.0.1:${m.localPort}/api/machines/attach`, { method: "POST", headers: { authorization: `Bearer ${m.token}`, "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5000) })
         .then((r) => r.status)
         .catch(() => 0);
-      if (theirs === 404 || theirs === 0) throw new HttpError(409, `${m.label} runs a jin too old to be a home (${m.version ?? "unknown"}); update jin there first`);
+      const takes = await fetch(`http://127.0.0.1:${m.localPort}/api/home/import`, { method: "POST", headers: { authorization: `Bearer ${m.token}`, "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5000) })
+        .then((r) => r.status)
+        .catch(() => 0);
+      if (theirs === 404 || theirs === 0 || takes === 404 || takes === 0) throw new HttpError(409, `${m.label} runs a jin too old to be a home (${m.version ?? "unknown"}); update jin there first`);
+      if (current && this.tunnels.get(current.id)?.state !== "up") throw new HttpError(409, `${current.label}, the home now, is not answering: its chats and desk would be left behind. Try again once it is connected.`);
+      // Chats and the desk's GitHub feed run on the home: it needs Claude Code and gh signed in.
+      await this.checkAuth(id).catch(() => {});
+      const missing = ["claude", "gh"].filter((t) => this.authOf(id, t).state !== "signed-in").map((t) => describeTool(t).label);
+      if (missing.length) throw new HttpError(409, `sign in to ${missing.join(" and ")} on ${m.label} first (its Sign-ins, above): jin's chats and the desk run on the home`);
+    } else if (!m.home) return null;
+    else if (this.tunnels.get(id)?.state !== "up") throw new HttpError(409, `${m.label} is not answering: its chats and desk would be left behind. Try again once it is connected.`);
+    // What the home holds moves first, so the app never switches to an empty one: the machine
+    // giving it up stops running the desk, hands everything over, and the one taking it over
+    // brings it in. If that fails, the old one keeps the home and runs the desk again.
+    const from = home ? current : m;
+    const to = home ? m : null;
+    const moved = await this.moveHome(from?.id ?? null, to?.id ?? null);
+    // The desk's Composio events need the composio CLI signed in there; until then they wait
+    // (Composio keeps them, and the moved log cursor picks up where the old home left off).
+    if (to && moved.composio) {
+      const theirs = await this.call<{ installed: boolean; signedIn: boolean }>(to.id, "GET", "/api/composio").catch(() => null);
+      if (theirs && !(theirs.installed && theirs.signedIn)) moved.needs = ["composio"];
     }
+    this.lastMove.set(to?.id ?? "local", { at: new Date().toISOString(), from: from?.label ?? "this machine", moved });
     // Only one home: the old one loses its reverse line.
     for (const other of this.records()) {
       if (other.id === id || !other.home) continue;
@@ -795,7 +837,7 @@ export class Machines {
     this.update(id, { home: false, reversePort });
     this.closeTunnel(id);
     await this.openTunnel(id);
-    if (!home) return;
+    if (!home) return moved;
     for (let i = 0; i < 60 && this.tunnels.get(id)?.state !== "up"; i++) await Bun.sleep(250);
     if (this.tunnels.get(id)?.state !== "up") throw new HttpError(504, `the line to ${m.label} did not come back up; try again`);
     try {
@@ -805,16 +847,30 @@ export class Machines {
     }
     // Only now is it the home (the app switches to it).
     this.update(id, { home: true });
+    return moved;
   }
 
-  /**
-   * Move to the home: this jin's chats and feed are copied there, and the home is asked to
-   * reach this jin's other machines itself (with its own key, which must be on them first).
-   */
-  async moveToHome(id: string, history: unknown): Promise<{ history: unknown; machines: { id: string; ok: boolean; error?: string }[] }> {
+  /** Move what the home holds from one machine to another (null: this one). */
+  private async moveHome(from: string | null, to: string | null): Promise<Moved> {
+    const here = this.homeData;
+    if (!here) throw new HttpError(500, "this jin cannot move its home");
+    const giveUp = () => (from ? this.call(from, "POST", "/api/home/give-up", {}) : Promise.resolve(here.giveUp()));
+    const keep = () => (from ? this.call(from, "POST", "/api/home/keep", {}) : Promise.resolve(here.keep()));
+    await giveUp();
+    try {
+      const bundle = from ? await this.call<HomeBundle>(from, "GET", "/api/home/export", undefined, 300_000) : here.export();
+      const moved = to ? await this.call<Moved>(to, "POST", "/api/home/import", bundle, 300_000) : here.import(bundle);
+      return { ...moved, composio: usesComposio(bundle) };
+    } catch (err) {
+      await keep().catch(() => {});
+      throw new HttpError(502, `moving the home failed, so ${from ? this.record(from).label : "this machine"} keeps it: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Ask the home to reach this jin's other machines itself (with its own key, which must be on them first). */
+  async connectHomeToMachines(id: string): Promise<{ machines: { id: string; ok: boolean; error?: string }[] }> {
     const m = this.record(id);
     if (!m.home) throw new HttpError(400, `${m.label} is not this jin's home`);
-    const moved = await this.call(id, "POST", "/api/history/import", history);
     const results: { id: string; ok: boolean; error?: string }[] = [];
     for (const other of this.records()) {
       if (other.id === id || other.attached || !other.token) continue;
@@ -825,7 +881,7 @@ export class Machines {
         results.push({ id: other.id, ok: false, error: err instanceof Error ? err.message : String(err) });
       }
     }
-    return { history: moved, machines: results };
+    return { machines: results };
   }
 
   /** Tell the home how to reach this jin back over the reverse line (the hub records it as an attached machine). */
@@ -928,14 +984,14 @@ export class Machines {
   }
 
   /** Call a connected machine's daemon through its tunnel (jin's chat acts on other machines this way). */
-  async call<T>(id: string, method: string, path: string, payload?: unknown): Promise<T> {
+  async call<T>(id: string, method: string, path: string, payload?: unknown, timeoutMs = 30_000): Promise<T> {
     const m = this.record(id);
     if (!m.token || !m.localPort || this.tunnels.get(id)?.state !== "up") throw new HttpError(409, `${m.label} is not connected`);
     const res = await fetch(`http://127.0.0.1:${m.localPort}${path}`, {
       method,
       headers: { authorization: `Bearer ${m.token}`, ...(payload !== undefined ? { "content-type": "application/json" } : {}) },
       body: payload !== undefined ? JSON.stringify(payload) : undefined,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await res.text();
     if (!res.ok) throw new HttpError(res.status, `${m.label}: ${(JSON.parse(text || "{}") as { error?: string }).error ?? `answered ${res.status}`}`);
@@ -1135,7 +1191,7 @@ const tool = (t: string | undefined): AuthTool => {
   return t;
 };
 
-export function machineRoutes(router: Router, machines: Machines, exportHistory?: () => unknown) {
+export function machineRoutes(router: Router, machines: Machines) {
   router
     .on("GET", "/api/machines", () => json(machines.list()))
     .on("POST", "/api/machines", async (req) => {
@@ -1184,11 +1240,11 @@ export function machineRoutes(router: Router, machines: Machines, exportHistory?
     .on("POST", "/api/machines/key", async () => json(await machines.sshKey()))
     // The hub's own key, asked of the hub through its tunnel.
     .on("POST", "/api/machines/:id/hub-key", async (_req, p) => json(await machines.call(p.id!, "POST", "/api/machines/key")))
-    .on("POST", "/api/machines/:id/move", async (_req, p) => json(await machines.moveToHome(p.id!, exportHistory?.() ?? { sessions: [], events: [], approvals: [], feed: [] })))
+    .on("POST", "/api/machines/:id/move", async (_req, p) => json(await machines.connectHomeToMachines(p.id!)))
     .on("POST", "/api/machines/:id/home", async (req, p) => {
       const { home } = await body<{ home?: boolean }>(req);
-      await machines.setHome(p.id!, home !== false);
-      return json(machines.view(p.id!));
+      const moved = await machines.setHome(p.id!, home !== false);
+      return json({ ...machines.view(p.id!), moved });
     })
     .on("POST", "/api/machines/:id/workspaces/detect", async (_req, p) => {
       await machines.detectWorkspaces(p.id!);

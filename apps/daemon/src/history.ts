@@ -84,17 +84,20 @@ export const defaultClaudeDir = () => process.env.CLAUDE_CONFIG_DIR ?? join(home
  * without one it reads as before but starts a fresh conversation. One that was running is
  * idle, and an approval that was waiting has expired.
  */
-export function importHistory(db: Database, h: History, opts: { home?: string; claudeDir?: string } = {}): { sessions: number; events: number; approvals: number; feed: number; transcripts: number } {
+export function importHistory(db: Database, h: History, opts: { home?: string; claudeDir?: string; replace?: boolean } = {}): { sessions: number; events: number; approvals: number; feed: number; transcripts: number } {
   // A row from a newer jin may carry columns this one does not have yet: those are left out.
   const known = new Map<string, Set<string>>();
   const columns = (table: string) => {
     if (!known.has(table)) known.set(table, new Set((db.query(`pragma table_info(${table})`).all() as { name: string }[]).map((c) => c.name)));
     return known.get(table)!;
   };
+  // With `replace` (the home moving here), the moved copy wins over a row already here; else it is kept.
   const insert = (table: string, row: Record<string, unknown>) => {
     const have = columns(table);
     const cols = Object.keys(row).filter((c) => have.has(c));
-    return db.query(`insert or ignore into ${table} (${cols.join(",")}) values (${cols.map(() => "?").join(",")})`).run(...(cols.map((c) => row[c]) as never[])).changes;
+    const rest = cols.filter((c) => c !== "id");
+    const upsert = opts.replace && table !== "events" && cols.includes("id") && rest.length ? ` on conflict (id) do update set ${rest.map((c) => `${c} = excluded.${c}`).join(", ")}` : "";
+    return db.query(`insert ${upsert ? "" : "or ignore "}into ${table} (${cols.join(",")}) values (${cols.map(() => "?").join(",")})${upsert}`).run(...(cols.map((c) => row[c]) as never[])).changes;
   };
   const counts = { sessions: 0, events: 0, approvals: 0, feed: 0, transcripts: 0 };
   const byId = new Map((h.transcripts ?? []).map((t) => [t.sessionId, t]));
@@ -113,7 +116,7 @@ export function importHistory(db: Database, h: History, opts: { home?: string; c
           if (rel.includes("..")) continue;
           const dest = join(base, rel);
           mkdirSync(dirname(dest), { recursive: true });
-          if (!existsSync(dest)) writeFileSync(dest, Buffer.from(b64, "base64"), { mode: 0o600 });
+          if (opts.replace || !existsSync(dest)) writeFileSync(dest, Buffer.from(b64, "base64"), { mode: 0o600 });
         }
         resumable = true;
       }
@@ -123,10 +126,20 @@ export function importHistory(db: Database, h: History, opts: { home?: string; c
         fresh.add(s.id as string);
       }
     }
+    // Replacing: a chat moved here before gets all its events again, as they are now.
+    if (opts.replace && fresh.size) {
+      const ids = [...fresh];
+      db.query(`delete from events where session_id in (${ids.map(() => "?").join(",")})`).run(...ids);
+    }
     // Events only for chats that are new here, so moving twice does not double them.
     for (const e of h.events ?? []) if (fresh.has(e.session_id as string)) counts.events += insert("events", e);
     for (const a of h.approvals ?? []) counts.approvals += insert("approvals", { ...a, state: a.state === "pending" ? "expired" : a.state });
-    for (const f of h.feed ?? []) counts.feed += insert("feed_items", f);
+    // The same item already here under another id (this machine read the same PR or message itself): the moved one wins.
+    const sameItem = opts.replace ? db.query("delete from feed_items where workspace = ? and source = ? and kind = ? and external_ref = ? and id != ?") : null;
+    for (const f of h.feed ?? []) {
+      sameItem?.run(f.workspace as string, f.source as string, f.kind as string, f.external_ref as string, f.id as string);
+      counts.feed += insert("feed_items", f);
+    }
   })();
   return counts;
 }
