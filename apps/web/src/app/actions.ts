@@ -772,9 +772,19 @@ export async function liveInstall(): Promise<{ installed: boolean } | { error: s
   }
 }
 
-export async function liveLogin(): Promise<{ url: string } | { error: string }> {
+/** Sign in to Composio on the home; `switchAccount` replaces the account signed in now. */
+export async function liveLogin(switchAccount = false): Promise<{ url: string } | { error: string }> {
   try {
-    return await daemon<{ url: string }>("/api/composio/login", { method: "POST" });
+    return await daemon<{ url: string }>("/api/composio/login", { method: "POST", json: switchAccount ? { switch: true } : {} });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Stop waiting for a Composio sign-in (when switching accounts, the old one comes back). */
+export async function liveCancelLogin(): Promise<{ ok: true } | { error: string }> {
+  try {
+    return await daemon<{ ok: true }>("/api/composio/login/cancel", { method: "POST" });
   } catch (err) {
     return fail(err);
   }

@@ -1,7 +1,7 @@
 "use client";
 import { Check, ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getLive, liveConnect, liveInstall, liveLinearTeams, liveListener, liveLogin, liveProjects, liveSetEvent, liveUseProject } from "@/lib/actions";
+import { getLive, liveConnect, liveInstall, liveCancelLogin, liveLinearTeams, liveListener, liveLogin, liveProjects, liveSetEvent, liveUseProject } from "@/lib/actions";
 import type { LiveStatus } from "@/lib/daemon";
 
 const NAME: Record<string, string> = { slack: "Slack", linear: "Linear", notion: "Notion", gmail: "Gmail", github: "GitHub" };
@@ -20,14 +20,23 @@ function Account({ s, refresh }: { s: LiveStatus; refresh: () => void }) {
   const [projects, setProjects] = useState<{ orgId: string; org: string; projects: { id: string; name: string }[] }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const signIn = async () => {
+  const signIn = async (switchAccount = false) => {
     setBusy(true);
-    const r = await liveLogin();
+    setError(null);
+    const r = await liveLogin(switchAccount);
     setBusy(false);
     if ("error" in r) setError(r.error);
     else open(r.url);
     refresh();
   };
+  const cancel = async () => {
+    setBusy(true);
+    const r = await liveCancelLogin();
+    setBusy(false);
+    if ("error" in r) setError(r.error);
+    refresh();
+  };
+  const waiting = s.login.state === "waiting";
   const [installing, setInstalling] = useState(false);
   const install = async () => {
     setInstalling(true);
@@ -56,19 +65,29 @@ function Account({ s, refresh }: { s: LiveStatus; refresh: () => void }) {
       <ul className="machine-auths">
         <li className="machine-auth">
           <div className="machine-auth-head">
-            <Dot tone={s.signedIn ? "ok" : s.login.state === "waiting" ? "busy" : "idle"} />
+            <Dot tone={s.signedIn ? "ok" : waiting ? "busy" : "idle"} />
             <div className="machine-auth-name">
               <span className="machine-auth-tool">Sign-in</span>
-              <span className="meta machine-auth-state">{s.signedIn ? "signed in" : s.login.state === "waiting" ? "waiting for you in the browser…" : s.installed ? "not signed in" : installing ? "installing the composio CLI…" : "composio CLI is not installed on the home"}</span>
+              <span className="meta machine-auth-state">{s.signedIn ? "signed in" : waiting ? (s.login.switching ? "switching accounts: sign in with the other one in the browser…" : "waiting for you in the browser…") : s.installed ? "not signed in" : installing ? "installing the composio CLI…" : "composio CLI is not installed on the home"}</span>
             </div>
             {!s.installed && (
               <button type="button" className="button small" disabled={installing} onClick={() => void install()} title="Runs Composio's installer on the home (curl -fsSL https://composio.dev/install | bash)">
                 {installing ? <LoaderCircle size={12} className="spin" /> : null} Install
               </button>
             )}
+            {s.signedIn && !waiting && (
+              <button type="button" className="button small quiet" disabled={busy} onClick={() => void signIn(true)} title="Sign in with another Composio account; the one you have comes back if you cancel">
+                Switch account
+              </button>
+            )}
+            {waiting && (
+              <button type="button" className="button small quiet" disabled={busy} onClick={() => void cancel()}>
+                Cancel
+              </button>
+            )}
             {!s.signedIn && s.installed && (
               <button type="button" className="button small" disabled={busy} onClick={() => void signIn()}>
-                {s.login.state === "waiting" ? "Open again" : "Sign in"}
+                {waiting ? "Open again" : "Sign in"}
               </button>
             )}
           </div>

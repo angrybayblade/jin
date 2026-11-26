@@ -603,7 +603,7 @@ export interface LiveStatus {
   signedIn: boolean;
   email: string | null;
   org: string | null;
-  login: { url: string | null; state: "idle" | "waiting" | "done" | "failed"; error: string | null };
+  login: { url: string | null; state: "idle" | "waiting" | "done" | "failed"; error: string | null; switching?: boolean };
   project: { id: string; name: string; orgId: string } | null;
   userId: string;
   accounts: { toolkit: string; id: string | null; status: string | null }[];

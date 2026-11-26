@@ -371,7 +371,7 @@ export class Composio {
       signedIn: Boolean(who?.email),
       email: who?.email ?? null,
       org: who?.current_org_name ?? null,
-      login: { url: this.login.url, state: this.login.state, error: this.login.error },
+      login: { url: this.login.url, state: this.login.state, error: this.login.error, switching: this.previous !== null },
       project: project ? { id: project.project_id, name: project.project_name, orgId: project.org_id } : null,
       userId: s.userId,
       accounts: TOOLKITS.map((t) => {
@@ -416,24 +416,63 @@ export class Composio {
   }
   private installing: Promise<void> | null = null;
 
-  /** Start a sign-in: a link for your browser; jin waits for it to complete. */
-  async startLogin(): Promise<string> {
-    this.login.proc?.kill();
+  /**
+   * Start a sign-in: a link for your browser; jin waits for it to complete. With `switchAccount`,
+   * the current sign-in is set aside first (the CLI does nothing while one is there) and comes
+   * back if the new one is cancelled or does not complete.
+   */
+  async startLogin(opts: { switchAccount?: boolean } = {}): Promise<string> {
+    const old = this.login.proc;
+    this.login.proc = null;
+    old?.kill();
     this.forgetRemote();
-    const out = await this.cli<string>(["login", "--no-browser", "--no-wait", "--no-skill-install"], { raw: true });
-    const url = out.match(/https:\/\/\S+/)?.[0] ?? null;
-    if (!url) throw new HttpError(502, "composio did not give a sign-in link");
+    if (opts.switchAccount && this.previous === null && existsSync(this.userData())) {
+      this.previous = readFileSync(this.userData(), "utf8");
+      await this.cli(["logout"], { raw: true }).catch(() => {});
+    }
+    let url: string | null;
+    try {
+      const out = await this.cli<string>(["login", "--no-browser", "--no-wait", "--no-skill-install"], { raw: true });
+      url = out.match(/https:\/\/\S+/)?.[0] ?? null;
+      if (!url) throw new HttpError(502, "composio did not give a sign-in link");
+    } catch (err) {
+      this.restorePrevious();
+      throw err;
+    }
     this.login = { url, state: "waiting", error: null, proc: null };
     const proc = this.spawn([this.bin, "login", "--poll", "--no-skill-install"]);
     this.login.proc = proc;
     void proc.exited.then((code) => {
       if (this.login.proc !== proc) return;
       this.login = { url: null, state: code === 0 ? "done" : "failed", error: code === 0 ? null : "the sign-in did not complete (it expires after 10 minutes)", proc: null };
+      if (code === 0) this.previous = null;
+      else this.restorePrevious();
       this.forgetRemote();
       // Signed in: the desk's events start now (a home that moved in before the CLI was there waited for this).
       if (code === 0) this.restartListener();
     });
     return url;
+  }
+
+  /** Stop waiting for a sign-in; when switching accounts, the one you had comes back. */
+  cancelLogin() {
+    const proc = this.login.proc;
+    this.login = { url: null, state: "idle", error: null, proc: null };
+    proc?.kill();
+    this.restorePrevious();
+    this.forgetRemote();
+  }
+
+  /** The sign-in set aside while switching accounts (the CLI's session file), until the new one completes. */
+  private previous: string | null = null;
+  private userData = () => join(process.env.JIN_COMPOSIO_CONFIG_DIR ?? join(homedir(), ".composio"), "user_data.json");
+
+  private restorePrevious() {
+    if (this.previous === null) return;
+    writeFileSync(this.userData(), this.previous, { mode: 0o600 });
+    this.previous = null;
+    this.forgetRemote();
+    this.restartListener();
   }
 
   /** Your orgs and their projects, to choose where jin's triggers live. */
@@ -699,7 +738,12 @@ export class Composio {
 
   stopAll() {
     this.stopListener();
-    this.login.proc?.kill();
+    const proc = this.login.proc;
+    this.login.proc = null;
+    proc?.kill();
+    // Shutting down mid-switch: keep the account you had rather than none.
+    if (this.previous !== null) writeFileSync(this.userData(), this.previous, { mode: 0o600 });
+    this.previous = null;
   }
 
   /** The home moved here (or away): forget what was read from its files, and run the desk only if it is ours. */
@@ -1058,7 +1102,11 @@ export function composioRoutes(router: Router, c: Composio) {
   router
     .on("GET", "/api/composio", async () => json(await c.status()))
     .on("POST", "/api/composio/install", async () => json(await c.install()))
-    .on("POST", "/api/composio/login", async () => json({ url: await c.startLogin() }))
+    .on("POST", "/api/composio/login", async (req) => json({ url: await c.startLogin({ switchAccount: Boolean((await body<{ switch?: boolean }>(req)).switch) }) }))
+    .on("POST", "/api/composio/login/cancel", () => {
+      c.cancelLogin();
+      return json({ ok: true });
+    })
     .on("GET", "/api/composio/projects", async () => json(await c.projects()))
     .on("POST", "/api/composio/project", async (req) => {
       const b = await body<{ orgId?: string; projectId?: string; name?: string; userId?: string }>(req);
