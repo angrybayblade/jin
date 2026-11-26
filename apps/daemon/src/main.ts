@@ -22,6 +22,7 @@ import { reviewRoutes } from "./reviews";
 import { linkRoutes, ownLinks, type TaskLink, TaskLinks, watchRoutes, Watches } from "./links";
 import { skillRoutes, Skills, tagsFor, writeTaskPlugin, type SkillBody } from "./skills";
 import { localVersion, machineId, machineRoutes, Machines } from "./machines";
+import { forwardRoutes, Forwards } from "./forwards";
 import { exportHistory, historyRoutes } from "./history";
 import { LocalSetup, setupRoutes } from "./setup";
 import { Desks, deskRoutes } from "./desks";
@@ -438,6 +439,13 @@ const machines = new Machines(config, app.workspaces);
 // Chats run with the first workspace's Claude profile (if it has one), so their transcripts are there.
 const chatClaudeDir = () => app.workspaces[0]?.profile.claudeConfigDir;
 machineRoutes(app.router, machines, () => exportHistory(db, { claudeDir: chatClaudeDir() }));
+// A machine's ports, reached on this machine's loopback, each over an ssh connection of its own.
+const forwards = new Forwards(config.home, (id) => {
+  const m = machines.records().find((r) => r.id === id);
+  return m?.token && !m.attached ? { host: m.host, reserved: [m.remotePort, ...(m.reversePort ? [m.reversePort] : [])] } : null;
+});
+machines.forwards = forwards;
+forwardRoutes(app.router, forwards);
 
 // Hooks: an event (a PR merged, a task's PRs all merged, a live event) starts a jin chat with
 // the hook's instructions. They run where chats do: with a home, this machine sends its events
@@ -598,6 +606,7 @@ console.log(`jin daemon on http://${HOST}:${server.port} (${config.mode} mode, m
 }
 // Tunnels reopen once this jin knows itself (the one to a home carries the reverse line).
 machines.resume();
+forwards.resume();
 
 // Live events through Composio (on the always-on home): the listener runs while any event is on.
 // GitHub activity on your PRs is watched with gh here (one call every two minutes), not with triggers.
@@ -837,6 +846,7 @@ function shutdown() {
   clearInterval(watchTimer);
   if (feedTimer) clearInterval(feedTimer);
   machines.stopAll();
+  forwards.stopAll();
   composio.stopAll();
   githubWatch.stop();
   setup.stopAll();

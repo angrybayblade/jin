@@ -5,6 +5,7 @@ import { type Detected, detectionScript, installPlan, provider, PROVIDERS, provi
 import { machineSetup, type MachineSetup } from "./config";
 import type { Config, WorkspaceConfig } from "./config";
 import { body, HttpError, json, type Router } from "./http";
+import type { ForwardView } from "./forwards";
 
 /**
  * Remote machines: another computer you reach with `ssh <host>` (a dev VM) that runs its own
@@ -77,6 +78,8 @@ export interface MachineView extends Omit<MachineRecord, "token"> {
   /** The kinds of workspace jin can set up there. */
   providers: ProviderView[];
   auth: AuthState[];
+  /** Its ports reached here (`localhost:<local>` → its `localhost:<remote>`). */
+  forwards: ForwardView[];
 }
 
 const STEPS: { id: StepId; label: string }[] = [
@@ -439,6 +442,8 @@ export class Machines {
   private relay: ReturnType<typeof setInterval> | null = null;
   /** This jin, as a hub sees it when this machine attaches to its home. */
   identity: { id: string; label: string; port: number; token: string } | null = null;
+  /** The machines' port forwards (shown in each one's view, dropped with it). */
+  forwards: { list(machine: string): ForwardView[]; forget(machine: string): void } | null = null;
 
   constructor(
     private config: Config,
@@ -494,6 +499,7 @@ export class Machines {
       workspaceCandidates: this.candidates.get(id) ?? null,
       providers: providerViews(),
       auth: authTools().map((t) => ({ ...this.authOf(id, t), ...describeTool(t) })),
+      forwards: this.forwards?.list(id) ?? [],
     };
   }
 
@@ -967,6 +973,7 @@ pkill -f "$HOME/${this.config.machines.home}/app/apps/daemon/src/main.ts" 2>/dev
     }
     for (const t of authTools()) this.signIns.get(`${id}:${t}`)?.proc.kill();
     rmSync(this.file(id), { force: true });
+    this.forwards?.forget(id);
     this.steps.delete(id);
     this.auth.delete(id);
   }
