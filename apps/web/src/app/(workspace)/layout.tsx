@@ -7,7 +7,7 @@ import { Palette } from "@/components/Palette";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
-import { currentMachine, daemon, DaemonUnavailable, homeMachine, type MachineTasks, type Machine, type Approval, type DocSummary, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
+import { currentMachine, daemon, DaemonUnavailable, homeMachine, view, type MachineTasks, type Machine, type Approval, type DocSummary, type NotificationSettings, type TaskPR, type Session, type Status, type Task, type TaskJob, type TerminalInfo } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +22,21 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
   const tasksOf = async (m: { id: string; label: string }, required: boolean): Promise<MachineTasks> => {
     const o = { machine: m.id, ...(required ? {} : { timeoutMs: 2500 }) };
     try {
-      const [tasks, terminals, jobs, prs, status] = await Promise.all([
-        daemon<Task[]>("/api/tasks", o),
-        daemon<TerminalInfo[]>("/api/terminals", o),
-        daemon<TaskJob[]>("/api/task-jobs", o).catch(() => [] as TaskJob[]),
-        daemon<TaskPR[]>("/api/prs", o).catch(() => [] as TaskPR[]),
-        daemon<Status>("/api/status", o).catch(() => null),
-      ]);
+      // One call per machine (each call to another machine is a round trip through its tunnel).
+      const { tasks, terminals, jobs, prs, status } = await view<{ tasks: Task[]; terminals: TerminalInfo[]; jobs: TaskJob[]; prs: TaskPR[]; status: Status | null }>(
+        "/api/views/sidebar",
+        async () => {
+          const [tasks, terminals, jobs, prs, status] = await Promise.all([
+            daemon<Task[]>("/api/tasks", o),
+            daemon<TerminalInfo[]>("/api/terminals", o),
+            daemon<TaskJob[]>("/api/task-jobs", o).catch(() => [] as TaskJob[]),
+            daemon<TaskPR[]>("/api/prs", o).catch(() => [] as TaskPR[]),
+            daemon<Status>("/api/status", o).catch(() => null),
+          ]);
+          return { tasks, terminals, jobs, prs, status };
+        },
+        o,
+      );
       return { ...m, tasks, terminals, jobs, prs, hasWorkspace: (status?.workspaces.length ?? 0) > 0 };
     } catch (err) {
       if (required) throw err;
@@ -49,15 +57,24 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         });
   let shell: { status: Status; sessions: Session[]; approvals: Approval[]; notifications: NotificationSettings; groups: MachineTasks[]; docs: DocSummary[]; problems: number };
   try {
-    const [status, sessions, approvals, notifications, groups, docs, problems] = await Promise.all([
+    // The home's part in one call: chats, approvals, docs and notification settings.
+    const fromHomeView = view<{ sessions: Session[]; approvals: Approval[]; docs: DocSummary[]; notifications: NotificationSettings | null }>("/api/views/shell", async () => {
+      const [sessions, approvals, docs, notifications] = await Promise.all([
+        daemon<Session[]>("/api/sessions"),
+        daemon<Approval[]>("/api/approvals?state=pending"),
+        daemon<DocSummary[]>("/api/docs").catch(() => [] as DocSummary[]),
+        daemon<NotificationSettings>("/api/notifications").catch(() => null),
+      ]);
+      return { sessions, approvals, docs, notifications };
+    });
+    const [status, homeView, groups, problems] = await Promise.all([
       daemon<Status>("/api/status", { local: true }),
-      fromHome(daemon<Session[]>("/api/sessions"), [] as Session[]),
-      fromHome(daemon<Approval[]>("/api/approvals?state=pending"), [] as Approval[]),
-      daemon<NotificationSettings>("/api/notifications").catch(() => ({ enabled: true, sound: true })),
+      fromHome(fromHomeView, { sessions: [] as Session[], approvals: [] as Approval[], docs: [] as DocSummary[], notifications: null }),
       Promise.all([tasksOf({ id: "local", label: "This machine" }, true), ...remote.map((m) => tasksOf(m, false))]),
-      fromHome(daemon<DocSummary[]>("/api/docs"), [] as DocSummary[]).catch(() => [] as DocSummary[]),
       daemon<unknown[]>("/api/problems", { local: true }).then((l) => l.length).catch(() => 0),
     ]);
+    const { sessions, approvals, docs } = homeView;
+    const notifications = homeView.notifications ?? { enabled: true, sound: true };
     shell = { status, sessions, approvals, notifications, groups, docs, problems };
   } catch (err) {
     if (!(err instanceof DaemonUnavailable)) throw err;
