@@ -94,6 +94,37 @@ test("a machine removed while its tunnel opens stays gone, and its health check 
   rmSync(home, { recursive: true, force: true });
 });
 
+test("a machine forgotten while its line back fails is not dialled again (no throw from the retry)", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { Machines } = await import("../src/machines");
+  const home = mkdtempSync(join(tmpdir(), "jin-mach-"));
+  mkdirSync(join(home, "machines"));
+  const record = { id: "hub", host: "hub.example", label: "hub", remotePort: 7317, localPort: null, token: "t", createdAt: new Date().toISOString(), version: null, workspace: null, system: null, home: true, reversePort: 24000 };
+  writeFileSync(join(home, "machines", "hub.json"), JSON.stringify(record));
+  // The line back (-R) fails at once; what ssh says comes only when the test lets it.
+  let say: (s: string) => void = () => {};
+  const reverse: string[][] = [];
+  const spawn = ((cmd: string[]) => {
+    const back = cmd.includes("-R");
+    if (back) reverse.push(cmd);
+    const stderr = new ReadableStream({ start: (c) => void (say = (s) => (c.enqueue(new TextEncoder().encode(s)), c.close())) });
+    return { exited: back ? Promise.resolve(255) : new Promise<number>(() => {}), kill() {}, stdout: new ReadableStream(), stderr: back ? stderr : new ReadableStream() };
+  }) as never;
+  const m = new Machines({ home } as never, [], spawn);
+  m.identity = { id: "laptop", label: "laptop", port: 7417, token: "x" };
+  await m.openTunnel("hub");
+  expect(reverse.length).toBe(1);
+  await Bun.sleep(10);
+  await m.remove("hub");
+  say("Error: remote port forwarding failed for listen port 24000");
+  await Bun.sleep(700);
+  expect(reverse.length).toBe(1);
+  m.stopAll();
+  rmSync(home, { recursive: true, force: true });
+});
+
 test("Codex signs in with a device code: the link and the code are read from what it prints", () => {
   const out = [
     "Welcome to Codex [v0.169.0]",

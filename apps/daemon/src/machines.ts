@@ -716,8 +716,10 @@ export class Machines {
    * for a long time), only this fails, and it moves to another port and tells the home.
    */
   private openReverse(id: string, t: Tunnel) {
+    // Runs from timers: a machine forgotten meanwhile ends here, never throws.
+    if (t.stopped || this.tunnels.get(id) !== t || !existsSync(this.file(id))) return;
     const m = this.record(id);
-    if (!m.reversePort || !this.identity || t.stopped) return;
+    if (!m.reversePort || !this.identity) return;
     const rev = (t.rev ??= { proc: null, backoff: 1000, timer: null, tries: 0 });
     if (rev.proc) return;
     const port = m.reversePort;
@@ -737,6 +739,8 @@ export class Machines {
       rev.proc = null;
       if (t.stopped || this.tunnels.get(id) !== t) return;
       const why = (await err).trim();
+      // Forgotten while ssh said why: nothing to reopen.
+      if (t.stopped || this.tunnels.get(id) !== t) return;
       if (/remote port forwarding failed/i.test(why)) {
         // The home still holds this port: take the next one (and tell the home once it is up).
         rev.tries += 1;
