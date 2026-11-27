@@ -3,7 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db";
-import { Feed, githubItems } from "../src/feed";
+import { Feed, feedRoutes, githubItems } from "../src/feed";
+import { Router } from "../src/http";
 
 const ws = (id: string, owners: string[]) => ({ id, adapter: "composio" as const, root: "/x", github: { owners }, profile: { claudeConfigDir: "/c" } });
 const node = (repo: string, n: number, ci?: string) => ({
@@ -34,4 +35,21 @@ test("a name learned for a Slack id shows on past items of that person", () => {
   expect(by.a).toMatchObject({ actor: "Cat Lee", thread: { title: "DM with Cat Lee" } });
   expect(by.b).toMatchObject({ actor: "U0BOB00001", summary: "ask @Cat Lee" });
   expect(by.c!.title).toBe("U0CAT00001"); // another source keeps its text
+});
+
+test("the feed route keeps to the states asked for (the desk asks for what is open)", async () => {
+  const feed = new Feed(openDb(mkdtempSync(join(tmpdir(), "jin-feed-"))));
+  feed.add(["a", "b", "c"].map((r) => ({ workspace: "w", source: "github", kind: "c", externalRef: r, title: r, summary: "", receivedAt: "t" })));
+  const [a, b] = feed.list().sort((x, y) => x.externalRef.localeCompare(y.externalRef));
+  feed.setState(a!.id, "done");
+  feed.setState(b!.id, "stale");
+  const router = new Router();
+  feedRoutes(router, feed, {} as never, []);
+  const get = async (q: string) => {
+    const url = new URL(`http://x/api/feed${q}`);
+    const items = (await (await router.match("GET", url.pathname)!.handler(new Request(url), {}, url)).json()) as { externalRef: string }[];
+    return items.map((i) => i.externalRef).sort();
+  };
+  expect(await get("")).toEqual(["a", "b", "c"]);
+  expect(await get("?state=new,stale")).toEqual(["b", "c"]);
 });

@@ -90,10 +90,12 @@ const SEVERITY = { high: 0.3, medium: 0.2, low: 0.1 } as const;
 export class Feed {
   constructor(private db: Database) {}
 
-  list(): FeedItem[] {
+  /** Every item, newest first; with `states`, only those (read in the query: most items are done). */
+  list(states?: string[]): FeedItem[] {
     // A snooze that has run out: the item is back.
     // Back from snooze: not read at its source as far as jin knows (snoozing stamped seen_at).
     this.db.query("update feed_items set state = 'new', seen_at = null where state = 'snoozed' and snoozed_until <= ?").run(now());
+    if (states?.length) return this.db.query(`select * from feed_items where state in (${states.map(() => "?").join(",")}) order by received_at desc, id`).all(...states).map(toItem);
     return this.db.query("select * from feed_items order by received_at desc, id").all().map(toItem);
   }
 
@@ -308,7 +310,12 @@ export async function collectGithub(workspaces: WorkspaceConfig[]): Promise<NewI
 export function feedRoutes(router: Router, feed: Feed, tasks: Tasks, workspaces: WorkspaceConfig[], annotate?: (item: FeedItem) => Pick<FeedItem, "owner" | "hint">) {
   router
     // Each item with the task it belongs to (as tasks follow things now), and the one triage suggests.
-    .on("GET", "/api/feed", () => json(annotate ? feed.list().map((i) => ({ ...i, ...annotate(i) })) : feed.list()))
+    // `?state=new,stale` keeps to those states (the desk shows only what is open).
+    .on("GET", "/api/feed", (_req, _p, url) => {
+      const states = url.searchParams.get("state")?.split(",").filter(Boolean);
+      const items = feed.list(states);
+      return json(annotate ? items.map((i) => ({ ...i, ...annotate(i) })) : items);
+    })
     .on("POST", "/api/feed/:id/reopen", (_req, p) => json(feed.reopen(p.id!)))
     .on("POST", "/api/collect/github", async () => {
       const items = await collectGithub(workspaces);
