@@ -3,13 +3,13 @@ import { Empty } from "@/components/States";
 import { ArrowRight, Check, ChevronRight, Clock, Crosshair, ExternalLink, MessageSquareText, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { collectGithub, feedSet, sweepFeed } from "@/lib/actions";
+import { useCallback, useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
+import { collectGithub, feedAction, feedSet, sweepFeed } from "@/lib/actions";
 import type { FeedItem } from "@/lib/daemon";
 import { COMPOSE_EVENT } from "@/lib/desk-events";
 import { rowWhat } from "@/lib/feed-groups";
 import { desk, waited, type DeskSection, type Triaged } from "@/lib/triage";
-import { Group, SOURCE } from "./TodayPanel";
+import { FeedAct, Group, SOURCE } from "./TodayPanel";
 
 /**
  * The desk's main view, built to keep focus: what is waiting on you first (a few at a time,
@@ -18,6 +18,8 @@ import { Group, SOURCE } from "./TodayPanel";
  */
 
 const SHOWN = 6;
+/** What a row's button makes of its items, shown before the home answers. */
+const AFTER: Record<string, FeedItem["state"]> = { done: "done", snooze: "snoozed", dismiss: "dismissed", reopen: "new" };
 const OLD_DAYS = 3;
 const LAST_LOOK = "jin.desk.lastLook";
 
@@ -208,8 +210,18 @@ function Focus({ queue, onExit }: { queue: Triaged[]; onExit: () => void }) {
   );
 }
 
-export function ActivityDesk({ items }: { items: FeedItem[] }) {
+export function ActivityDesk({ items: given }: { items: FeedItem[] }) {
   const router = useRouter();
+  // Done, later, reopen: the row moves at once; the page's reload after the action confirms it.
+  const [items, settle] = useOptimistic(given, (cur: FeedItem[], to: { ids: string[]; state: FeedItem["state"] }) => cur.map((i) => (to.ids.includes(i.id) ? { ...i, state: to.state } : i)));
+  const act = useCallback(
+    async (form: FormData) => {
+      const state = AFTER[String(form.get("action"))];
+      if (state) settle({ ids: form.getAll("itemId").map(String), state });
+      await feedAction(form);
+    },
+    [settle],
+  );
   const view = useMemo(() => desk(items), [items]);
   // Focus goes through everything open, most pressing first.
   const queue = useMemo(() => [...view.now, ...view.tasks.flatMap((t) => t.open), ...view.work.open, ...view.personal.open], [view]);
@@ -233,6 +245,7 @@ export function ActivityDesk({ items }: { items: FeedItem[] }) {
   const old = items.filter((i) => i.state === "new" && i.receivedAt < before).length;
 
   return (
+    <FeedAct.Provider value={act}>
     <section className="side-panel is-main activity-desk" aria-labelledby="activity-heading">
       <header className="pane-header">
         <div className="pane-title">
@@ -313,5 +326,6 @@ export function ActivityDesk({ items }: { items: FeedItem[] }) {
         )}
       </div>
     </section>
+    </FeedAct.Provider>
   );
 }

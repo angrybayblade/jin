@@ -1,3 +1,5 @@
+"use client";
+import { useOptimistic } from "react";
 import { decideApproval } from "@/lib/actions";
 import type { Approval } from "@/lib/daemon";
 import { ActionMark } from "./ThermalMark";
@@ -18,7 +20,13 @@ function describe(a: Approval): string {
  * Pending decisions, one compact row each (Zero's approval pattern): action mark, title,
  * the exact action, decision controls. As a drawer it sits directly above the composer.
  */
-export function Approvals({ approvals, drawer = false }: { approvals: Approval[]; drawer?: boolean }) {
+export function Approvals({ approvals: given, drawer = false }: { approvals: Approval[]; drawer?: boolean }) {
+  // A decision takes the row away at once; the page's reload after it confirms (or brings it back).
+  const [approvals, decided] = useOptimistic(given, (cur: Approval[], id: string) => cur.filter((a) => a.id !== id));
+  const decide = async (form: FormData) => {
+    decided(String(form.get("approvalId")));
+    await decideApproval(form);
+  };
   if (!approvals.length) return null;
   return (
     <section className={drawer ? "approvals approval-drawer" : "approvals"} aria-labelledby="approvals-heading">
@@ -33,7 +41,7 @@ export function Approvals({ approvals, drawer = false }: { approvals: Approval[]
               <div className="approval-title">{title(a)}</div>
               <code className="approval-command">{describe(a)}</code>
             </div>
-            <form action={decideApproval} className="approval-actions">
+            <form action={decide} className="approval-actions">
               <input type="hidden" name="approvalId" value={a.id} />
               <button type="submit" name="decision" value="reject" data-decision="reject" className="button quiet">
                 Decline

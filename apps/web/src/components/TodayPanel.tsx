@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+"use client";
+import { createContext, useContext, type ReactNode } from "react";
 import { Empty } from "@/components/States";
 import { Check, ChevronRight, CircleDot, Clock, ExternalLink, FileText, GitPullRequest, Link2, Mail, MessageSquare, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { collectGithub, feedAction, linkFeedThread } from "@/lib/actions";
@@ -28,11 +29,15 @@ const ago = (iso: string) => {
 
 type TaskRef = { taskId: string; machine: string; title: string };
 
+/** What a row's buttons do with their form: the desk passes one that takes the row away at once. */
+export const FeedAct = createContext<(form: FormData) => Promise<void>>(feedAction);
+
 function Actions({ g, stale, hint }: { g: FeedGroup; stale?: boolean; hint?: TaskRef | null }) {
+  const act = useContext(FeedAct);
   const label = g.ids.length > 1 ? "this thread" : "this";
   if (stale)
     return (
-      <form action={feedAction} className="fg-actions">
+      <form action={act} className="fg-actions">
         {g.ids.map((id) => (
           <input key={id} type="hidden" name="itemId" value={id} />
         ))}
@@ -53,7 +58,7 @@ function Actions({ g, stale, hint }: { g: FeedGroup; stale?: boolean; hint?: Tas
         </button>
       </form>
     )}
-    <form action={feedAction} className="fg-actions">
+    <form action={act} className="fg-actions">
       {g.ids.map((id) => (
         <input key={id} type="hidden" name="itemId" value={id} />
       ))}
