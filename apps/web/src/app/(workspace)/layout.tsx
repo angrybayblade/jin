@@ -4,6 +4,7 @@ import { AutoRefresh, RetrySoon } from "@/components/AutoRefresh";
 import { ContextMenuHost } from "@/components/ContextMenu";
 import { Notices } from "@/components/Notices";
 import { Palette } from "@/components/Palette";
+import { HoverPrefetch } from "@/components/HoverPrefetch";
 import { PendingLinks } from "@/components/PendingLinks";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
@@ -92,6 +93,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
       <AutoRefresh />
       <Suspense fallback={null}>
         <PendingLinks />
+        <HoverPrefetch />
       </Suspense>
       {homeDown && (
         <div className="home-down" role="status">
