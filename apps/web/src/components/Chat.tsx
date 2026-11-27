@@ -42,12 +42,15 @@ export function Chat(props: ChatProps) {
   // Text of the message being written right now (live deltas, replaced by the recorded message).
   const [streaming, setStreaming] = useState("");
   const [busySending, setBusySending] = useState(false);
+  // The message just sent, shown at once until the home records it (a round trip away).
+  const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const lastSeq = useRef(props.initialEvents.at(-1)?.seq ?? 0);
 
-  const state = stateFrom(events, props.session?.state ?? "idle");
-  const items = useMemo(() => toItems(events), [events]);
+  const shown = useMemo(() => (sent === null ? events : [...events, { seq: Number.MAX_SAFE_INTEGER, kind: "prompt", payload: { text: sent }, at: new Date().toISOString() }]), [events, sent]);
+  const state = stateFrom(shown, props.session?.state ?? "idle");
+  const items = useMemo(() => toItems(shown), [shown]);
   const turns = useMemo(() => toTurns(items), [items]);
   const working = state === "running" || state === "waiting_approval";
 
@@ -71,6 +74,8 @@ export function Chat(props: ChatProps) {
           const e = data;
           if (e.seq <= lastSeq.current) return;
           lastSeq.current = e.seq;
+          // The message sent is recorded: it shows from the log now.
+          if (e.kind === "prompt") setSent(null);
           // The recorded message (or the end of the turn) replaces the live text.
           if (e.kind === "message" || e.kind === "session.idle" || e.kind === "session.failed" || e.kind === "tool.requested") setStreaming("");
           setEvents((prev) => [...prev, e]);
@@ -109,6 +114,9 @@ export function Chat(props: ChatProps) {
       if (!prompt || busySending) return;
       setBusySending(true);
       setError(null);
+      // Shown and out of the box at once; back in the box if it could not be sent.
+      setSent(prompt);
+      setDraft("");
       try {
         if (!sessionId) {
           const s = props.start ? await props.start(prompt, choice) : props.taskId ? await startTaskSession(props.taskId, prompt, choice) : await createChat(props.kind as ChatKind, prompt, choice);
@@ -120,8 +128,9 @@ export function Chat(props: ChatProps) {
         } else {
           await sendMessage(sessionId, prompt, choice);
         }
-        setDraft("");
       } catch (err) {
+        setSent(null);
+        setDraft((d) => d || prompt);
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setBusySending(false);
