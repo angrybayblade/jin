@@ -69,7 +69,6 @@ export function SidebarDocs({ docs }: { docs: DocSummary[] }) {
                 setNames((n) => ({ ...n, [d.id]: v.trim() || "Untitled" }));
                 const r = await renameDoc(d.id, v);
                 if ("error" in r) setError(r.error);
-                router.refresh();
               }}
             />
           </div>

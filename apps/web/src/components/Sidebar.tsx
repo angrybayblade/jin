@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Fragment, Suspense, useEffect, useState } from "react";
+import { Fragment, Suspense, useEffect, useOptimistic, useState, useTransition } from "react";
 import { openTerminal, removeTask, revealTask, updateTask, wrapUpTask } from "@/lib/actions";
 import type { DocSummary, Machine, MachineTasks, NotificationSettings, Session, Task } from "@/lib/daemon";
 import { splitPath, taskHref } from "@/lib/paths";
@@ -83,6 +83,9 @@ export function Sidebar({
   const path = usePathname();
   const router = useRouter();
   const [renaming, setRenaming] = useState<string | null>(null);
+  // A task's new name shows at once; the reload after the rename confirms it.
+  const [names, named] = useOptimistic<Record<string, string>, { key: string; title: string }>({}, (cur, n) => ({ ...cur, [n.key]: n.title }));
+  const [, startRename] = useTransition();
   const [showArchived, setShowArchived] = useState<Set<string>>(new Set());
   // Tasks whose removal was just asked for (until the daemon reports them removing, or failed).
   const [removing, setRemoving] = useState<Set<string>>(new Set());
@@ -179,7 +182,7 @@ export function Sidebar({
     const cli = terminals.filter((x) => x.taskId === t.id && x.kind === "agent").at(-1);
     const s = latest((x) => x.taskId === t.id);
     const mark = cli ? fromTerminal(cli.status) : s ? fromSession(s.state) : null;
-    const title = t.title ?? t.slug;
+    const title = names[`${g.id}:${t.id}`] ?? t.title ?? t.slug;
     // Open PRs: a quiet mark, red when one needs you (failing checks, changes requested).
     const open = prs.filter((p) => p.taskId === t.id && p.state === "OPEN");
     const needsYou = open.filter((p) => p.checks === "failing" || p.review === "CHANGES_REQUESTED");
@@ -203,7 +206,10 @@ export function Sidebar({
               onCancel={() => setRenaming(null)}
               onSave={(v) => {
                 setRenaming(null);
-                void updateTask(t.id, { title: v }, g.id).then(() => router.refresh());
+                startRename(async () => {
+                  named({ key: `${g.id}:${t.id}`, title: v });
+                  await updateTask(t.id, { title: v }, g.id).catch(() => {});
+                });
               }}
             />
           ) : t.removeError ? (

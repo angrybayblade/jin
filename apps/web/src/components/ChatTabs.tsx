@@ -4,7 +4,7 @@ import { act } from "@/lib/notices";
 import { Archive, ArchiveRestore, MessageSquarePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { archivedChats, deleteSession, updateSession } from "@/lib/actions";
 import type { ChatKind, Session, SessionState } from "@/lib/daemon";
 import { useTabShortcuts } from "@/lib/shortcuts";
@@ -42,6 +42,15 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
   const path = base ?? current;
   const [renaming, setRenaming] = useState<string | null>(null);
   const [gone, setGone] = useState<Set<string>>(new Set());
+  // A new name shows at once; the reload after the rename confirms it.
+  const [names, named] = useOptimistic<Record<string, string>, { id: string; title: string }>({}, (cur, n) => ({ ...cur, [n.id]: n.title }));
+  const [, startRename] = useTransition();
+  const name = (s: Session) => names[s.id] ?? label(s);
+  const rename = (s: Session, title: string) =>
+    startRename(async () => {
+      named({ id: s.id, title });
+      await updateSession(s.id, { title }).catch(() => {});
+    });
   const bar = useRef<HTMLDivElement>(null);
   // The bar: oldest left; the list: newest on top.
   const live = [...chats].filter((s) => !gone.has(s.id));
@@ -154,11 +163,11 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
                   onCancel={() => setRenaming(null)}
                   onSave={(v) => {
                     setRenaming(null);
-                    void updateSession(s.id, { title: v }).then(() => router.refresh());
+                    rename(s, v);
                   }}
                 />
               ) : (
-                <span className="nav-label">{label(s)}</span>
+                <span className="nav-label">{name(s)}</span>
               )}
             </Link>
           );
@@ -194,11 +203,11 @@ function ChatList({ kind, chats, activeId, activeState, layout, base, pending = 
                 onCancel={() => setRenaming(null)}
                 onSave={(v) => {
                   setRenaming(null);
-                  void updateSession(s.id, { title: v }).then(() => router.refresh());
+                  rename(s, v);
                 }}
               />
             ) : (
-              <span className="chat-tab-name">{label(s)}</span>
+              <span className="chat-tab-name">{name(s)}</span>
             )}
             <button
               type="button"
