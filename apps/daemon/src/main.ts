@@ -42,6 +42,7 @@ import { opencodeLaunch } from "./opencode-cli";
 import { piLaunch } from "./pi-cli";
 import { AgentTools, agentToolRoutes } from "./agent-tools";
 import { body, HttpError, json, Router } from "./http";
+import { viewRoutes } from "./views";
 import { join } from "node:path";
 import { coreRoutes, guard, handle, type App } from "./server";
 import { Sessions, sessionRoutes, type StreamSocket } from "./sessions";
@@ -279,6 +280,8 @@ const hooks = new Hooks(config.home, {
   notify: (n) => void notifier.notify(n),
 });
 hookRoutes(app.router, hooks);
+// What one page shows, in one call (each call to the home is a round trip through its tunnel).
+viewRoutes(app.router);
 // Wrap up, asked from a machine whose task it is: the home's jin keeps what the task learned.
 app.router.on("POST", "/api/memory/wrap-up", async (req) => {
   const b = (await req.json().catch(() => ({}))) as { task?: { id: string; title: string | null }; machine?: string | null };
