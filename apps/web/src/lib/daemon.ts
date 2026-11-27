@@ -4,6 +4,12 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { headers } from "next/headers";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Agent, fetch as undiciFetch } from "undici";
+
+// Connections to the daemons stay open between clicks. Another machine (the home included) is
+// reached through an SSH tunnel, where a new connection costs a round trip more than a reused one;
+// fetch's default pool drops a connection after 4 s idle, so a click after reading paid it again.
+const pool = new Agent({ keepAliveTimeout: 120_000, keepAliveMaxTimeout: 240_000, connections: 16 });
 
 export interface FeedItem {
   id: string;
@@ -399,15 +405,15 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
   const { url, token } = connection(machine);
   let res: Response;
   try {
-    res = await fetch(url + path, {
+    res = (await undiciFetch(url + path, {
+      dispatcher: pool,
       method: init.method ?? "GET",
       headers: { authorization: `Bearer ${token}`, ...(init.json !== undefined ? { "content-type": "application/json" } : {}) },
       body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
-      cache: "no-store",
       // Another machine (the home included) gets a limit: a tunnel that is open here while the far
       // end is not answering yet (after a restart, sleep or a network change) would hang the page.
       signal: init.timeoutMs ? AbortSignal.timeout(init.timeoutMs) : machine === "local" ? undefined : AbortSignal.timeout(15_000),
-    });
+    })) as unknown as Response;
   } catch {
     throw new DaemonUnavailable(machine === "local" ? `the jin daemon at ${url} is not answering` : `jin on ${machine} is not answering: its tunnel is down or the machine is off`);
   }
