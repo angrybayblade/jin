@@ -3,9 +3,11 @@ import { Chat } from "@/components/Chat";
 import { ChatRefs } from "@/components/ChatRefs";
 import { Panes } from "@/components/Panes";
 import { redirect } from "next/navigation";
-import { currentMachine, daemon, daemonWsBase, type Status, type Approval, type Session, type SessionEvent } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, view, type Status, type Approval, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
+
+type ChatView = { sessions: Session[]; approvals: Approval[]; session: Session | null; events: SessionEvent[] };
 
 const greeting = () => {
   const h = new Date().getHours();
@@ -14,17 +16,19 @@ const greeting = () => {
 
 /** Home: a chat with jin, with what it has talked about on the right (the desk has what is waiting). */
 export default async function Home({ searchParams }: { searchParams: Promise<{ chat?: string }> }) {
-  const [sessions, approvals, status] = await Promise.all([
-    daemon<Session[]>("/api/sessions?kind=jin"),
-    daemon<Approval[]>("/api/approvals?state=pending"),
+  // The open tab: ?chat=<id>, ?chat=new for a fresh one, else the newest chat.
+  const want = (await searchParams).chat;
+  // The chats, the open one and its events in one call to the home.
+  const [{ sessions, approvals, session, events }, status] = await Promise.all([
+    view<ChatView>(`/api/views/chat?kind=jin${want ? `&chat=${encodeURIComponent(want)}` : ""}`, async () => {
+      const [sessions, approvals] = await Promise.all([daemon<Session[]>("/api/sessions?kind=jin"), daemon<Approval[]>("/api/approvals?state=pending")]);
+      const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
+      return { sessions, approvals, session, events: session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [] };
+    }),
     daemon<Status>("/api/status"),
   ]);
   // First run on this machine (no workspace, no chats yet): set jin up first.
   if (status.workspaces.length === 0 && sessions.length === 0 && (await currentMachine()) === "local") redirect("/setup");
-  // The open tab: ?chat=<id>, ?chat=new for a fresh one, else the newest chat.
-  const want = (await searchParams).chat;
-  const session = want === "new" ? null : (sessions.find((s) => s.id === want) ?? sessions[0] ?? null);
-  const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
   return (
     <Panes id="home" defaultSplit={70} labels={["Chat", "In this chat"]} left={<Boundary label="The chat" resetKey={session?.id ?? "new"}>
       <Chat

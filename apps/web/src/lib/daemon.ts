@@ -362,7 +362,7 @@ export async function currentMachine(): Promise<string> {
 }
 
 /** What lives on the home (hub) rather than on the machine a task page shows. */
-const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|chat-skills|mentions|models|docs|memory)(\/|\?|$)/;
+const HOME_PATH = /^\/api\/(sessions|chats|approvals|feed|collect|desks|presence|notifications|composio|event-hooks|skills|chat-skills|mentions|models|docs|memory|views\/chat|views\/doc|views\/shell)(\/|\?|$)/;
 function machineFor(path: string, init: { json?: unknown }): string | null {
   if (HOME_PATH.test(path)) return homeMachine();
   // A websocket ticket goes where its socket is: a chat's stream to the home.
@@ -423,9 +423,32 @@ export async function daemon<T>(path: string, init: { method?: string; json?: un
     try {
       message = (JSON.parse(detail) as { error?: string }).error ?? detail;
     } catch {}
-    throw new Error(`${init.method ?? "GET"} ${path}: ${message}`);
+    throw new DaemonError(res.status, `${init.method ?? "GET"} ${path}: ${message}`);
   }
   return (await res.json()) as T;
+}
+
+/** A daemon's answer that is not a success, with its status. */
+export class DaemonError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * A page's data in one call (`/api/views/...`): every call to another machine is a round trip.
+ * A daemon from before views answers 404, and the page asks the way it used to.
+ */
+export async function view<T>(path: string, before: () => Promise<T>, init: { machine?: string; timeoutMs?: number } = {}): Promise<T> {
+  try {
+    return await daemon<T>(path, init);
+  } catch (err) {
+    if (err instanceof DaemonError && err.status === 404 && /: not found$/.test(err.message)) return before();
+    throw err;
+  }
 }
 
 /** One machine's tasks, for the sidebar: every connected machine is listed the same way. */

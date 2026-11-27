@@ -3,9 +3,12 @@ import { Boundary } from "@/components/Boundary";
 import { Chat } from "@/components/Chat";
 import { Panes } from "@/components/Panes";
 import { ActivityDesk } from "@/components/ActivityDesk";
-import { daemon, daemonWsBase, type Approval, type DeskStatus, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
+import { daemon, daemonWsBase, view, type Approval, type DeskStatus, type FeedItem, type Session, type SessionEvent } from "@/lib/daemon";
 
 export const dynamic = "force-dynamic";
+
+/** The feed states the desk shows: open, and what jin thinks was handled since. */
+const OPEN = "new,stale";
 
 const LABEL: Record<string, string> = { github: "GitHub", slack: "Slack", linear: "Linear", notion: "Notion", gmail: "Gmail" };
 
@@ -16,9 +19,8 @@ function missing(desks: DeskStatus[] | null): string | undefined {
 }
 
 /** The notice, once the desks answer: checking them can take seconds (Claude's connectors), so it streams in after the page. */
-async function DeskNotice() {
-  const desks = await daemon<DeskStatus[]>("/api/desks", { timeoutMs: 8000 }).catch(() => null);
-  const text = missing(desks);
+async function DeskNotice({ desks }: { desks: Promise<DeskStatus[] | null> }) {
+  const text = missing(await desks);
   return text ? <p className="welcome-notice">{text}</p> : null;
 }
 
@@ -27,10 +29,15 @@ async function DeskNotice() {
  * desk agent on the right to catch up, prioritise and summarise it.
  */
 export default async function DeskPage() {
-  const [sessions, approvals, feed] = await Promise.all([daemon<Session[]>("/api/sessions?kind=desk"), daemon<Approval[]>("/api/approvals?state=pending"), daemon<FeedItem[]>("/api/feed")]);
-  // One desk agent: the newest desk chat continues; the first message starts it.
-  const session = sessions[0] ?? null;
-  const events = session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [];
+  // Asked alongside the page's data, not after it (each is a round trip to the home).
+  const desks = daemon<DeskStatus[]>("/api/desks", { timeoutMs: 8000 }).catch(() => null);
+  // One desk agent: the newest desk chat continues; the first message starts it. With the feed's
+  // open items (the desk shows nothing else), in one call to the home.
+  const { session, approvals, events, feed } = await view<{ session: Session | null; approvals: Approval[]; events: SessionEvent[]; feed: FeedItem[] }>(`/api/views/chat?kind=desk&feed=${OPEN}`, async () => {
+    const [sessions, approvals, feed] = await Promise.all([daemon<Session[]>("/api/sessions?kind=desk"), daemon<Approval[]>("/api/approvals?state=pending"), daemon<FeedItem[]>(`/api/feed?state=${OPEN}`)]);
+    const session = sessions[0] ?? null;
+    return { session, approvals, feed, events: session ? await daemon<SessionEvent[]>(`/api/sessions/${session.id}/events`) : [] };
+  });
   return (
     <Panes
       id="desk"
@@ -51,9 +58,10 @@ export default async function DeskPage() {
             heading: "Your desk",
             body: "I keep you on top of GitHub, Slack, Linear, Notion and Gmail: catch up, prioritise, summarise, draft replies. This is one conversation that carries on, so I remember what you have seen.",
             suggestions: ["Catch me up", "What should I do first?", "Summarise what came in since this morning"],
-            notice: (
+            // Only on a new desk (the welcome shows then): a desk with a history never shows it.
+            notice: events.length ? undefined : (
               <Suspense fallback={null}>
-                <DeskNotice />
+                <DeskNotice desks={desks} />
               </Suspense>
             ),
           }}
