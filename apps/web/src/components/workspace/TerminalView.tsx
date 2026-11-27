@@ -2,6 +2,7 @@
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { attachTicket } from "@/lib/actions";
+import { writeClipboard } from "@/lib/clipboard";
 import { isPhone } from "@/lib/phone";
 import { useResolvedTheme } from "@/lib/theme";
 
@@ -125,7 +126,14 @@ export function TerminalView({
       term.loadAddon(new Unicode11Addon());
       term.unicode.activeVersion = "11";
       term.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, "_blank", "noopener")));
-      term.loadAddon(new ClipboardAddon());
+      // OSC 52 from programs in the terminal (Claude Code's selection copy). The clipboard is one
+      // system clipboard here, whichever selection (c, p, s) a program names.
+      term.loadAddon(
+        new ClipboardAddon(undefined, {
+          readText: () => navigator.clipboard.readText().catch(() => ""),
+          writeText: (_sel, text) => writeClipboard(text).catch((err) => console.warn("terminal copy failed:", err)),
+        }),
+      );
       term.open(host.current);
       termRef.current = term;
       try {
@@ -149,7 +157,7 @@ export function TerminalView({
         }
         // Copy a selection with Cmd/Ctrl+C; without a selection Ctrl+C still interrupts.
         if (e.key === "c" && (e.metaKey || (e.ctrlKey && e.shiftKey)) && term.hasSelection()) {
-          void navigator.clipboard.writeText(term.getSelection());
+          void writeClipboard(term.getSelection()).catch(() => {});
           return false;
         }
         return true;

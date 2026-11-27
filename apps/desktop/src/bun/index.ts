@@ -7,7 +7,7 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import Electrobun, { ApplicationMenu, BrowserWindow } from "electrobun/main";
+import Electrobun, { ApplicationMenu, BrowserWindow, Utils } from "electrobun/main";
 
 const HOME = process.env["JIN_HOME"] ?? join(homedir(), ".jin");
 const APP = process.env["JIN_APP_DIR"] ?? join(HOME, "release", "app");
@@ -168,6 +168,12 @@ onWebview("host-message", (e: any) => {
     }
   }
   if (typeof m === "object" && m?.type === "jin:open-external") return openExternal((m as { url?: string }).url);
+  // A copy from the page (a terminal program's OSC 52): the webview may not write the clipboard itself then.
+  if (typeof m === "object" && m?.type === "jin:clipboard-write") {
+    const text = (m as { text?: unknown }).text;
+    if (typeof text === "string" && text.length <= 16 * 1024 * 1024) Utils.clipboardWriteText(text);
+    return;
+  }
   if (typeof m === "object" && m?.type === "jin:window-buttons") return showWindowButtons((m as { visible?: boolean }).visible !== false);
   if (typeof m !== "object" || m?.type !== "jin:title-bar-double-click" || win.isFullScreen()) return;
   const action = doubleClickAction();
