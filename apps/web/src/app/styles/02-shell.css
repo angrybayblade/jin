@@ -262,3 +262,16 @@ html[data-aside-task="hidden"] [data-panes="task"] .aside-toggle {
   font-weight: var(--weight-primary);
   white-space: nowrap;
 }
+
+/* A link just clicked, its page on the way (components/PendingLinks), after a moment with no new page. */
+.nav-item[data-pending] {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+.nav-section-link[data-pending] {
+  color: var(--ink);
+}
+.button[data-pending] {
+  background: var(--hover);
+  color: var(--ink);
+}

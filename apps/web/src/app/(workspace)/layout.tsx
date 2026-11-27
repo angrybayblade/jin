@@ -4,6 +4,7 @@ import { AutoRefresh, RetrySoon } from "@/components/AutoRefresh";
 import { ContextMenuHost } from "@/components/ContextMenu";
 import { Notices } from "@/components/Notices";
 import { Palette } from "@/components/Palette";
+import { PendingLinks } from "@/components/PendingLinks";
 import { SidebarResizer } from "@/components/ShellControls";
 import { Sidebar } from "@/components/Sidebar";
 import { ThermalMark } from "@/components/ThermalMark";
@@ -89,6 +90,9 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
   return (
     <div className="app-shell">
       <AutoRefresh />
+      <Suspense fallback={null}>
+        <PendingLinks />
+      </Suspense>
       {homeDown && (
         <div className="home-down" role="status">
           jin&apos;s home ({homeDown}) is not answering; your chats and approvals come back when it does.
