@@ -33,6 +33,7 @@ import { ClaudeSettings, claudeSettingsRoutes } from "./claude-settings";
 import { harnessSettings, harnessSettingsRoutes } from "./harness-settings";
 import { ChatSkills, chatSkillRoutes } from "./chat-skills";
 import { Composio, composioRoutes, type LiveEvent } from "./composio";
+import { NotionSync, notionSyncRoutes } from "./notion-sync";
 import { GithubWatch } from "./github-watch";
 import { claudeHarness, type Harness } from "./harness";
 import { CodexHarness } from "./harness/codex";
@@ -730,6 +731,8 @@ const composio = new Composio(config, {
 });
 liveDeliver = (e) => composio.deliver(e);
 composioRoutes(app.router, composio);
+// A doc synced to Notion only when you ask, through the Notion connection you pick.
+notionSyncRoutes(app.router, new NotionSync(db, docs, { tool: (slug, input, opts) => composio.tool(slug, input, opts), accounts: (t) => composio.accounts(t) }));
 
 // The desk's life cycle, where the feed is (the home, or this machine without one): triage of
 // new items, the Slack read check, and the context check that marks handled items stale.

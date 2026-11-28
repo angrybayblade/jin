@@ -358,6 +358,9 @@ export const MIGRATIONS: string[] = [
   alter table feed_items add column checked_at text;
   alter table feed_items add column meta text;
   `,
+  // 26: a doc synced to Notion, by hand: the page it went to, through which connection, and at
+  // which version of the doc.
+  `create table doc_notion (doc_id text primary key references docs (id) on delete cascade, account text not null, page_id text not null, url text, parent_id text, synced_at text not null, synced_version integer not null);`,
 ];
 
 export function openDb(home: string): Database {
