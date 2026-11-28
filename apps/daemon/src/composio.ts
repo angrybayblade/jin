@@ -519,6 +519,14 @@ export class Composio {
     return lists.flat();
   }
 
+  /** The connections of a toolkit (several Notion workspaces, say), active ones first. */
+  async accounts(toolkit: Toolkit): Promise<{ id: string; status: string; alias: string | null; word_id: string | null }[]> {
+    const list = await this.cli<{ id: string; toolkit_slug: string; status: string; alias?: string | null; word_id?: string | null }[]>(["dev", "connected-accounts", "list", "--user-id", this.settings.userId, "--toolkits", toolkit, "--limit", "50"]);
+    return list
+      .map((a) => ({ id: a.id, status: a.status, alias: a.alias ?? null, word_id: a.word_id ?? null }))
+      .sort((a, b) => Number(b.status === "ACTIVE") - Number(a.status === "ACTIVE"));
+  }
+
   private async account(toolkit: Toolkit): Promise<string> {
     const list = await this.cli<{ id: string; toolkit_slug: string; status: string }[]>(["dev", "connected-accounts", "list", "--user-id", this.settings.userId, "--toolkits", toolkit, "--limit", "20"]);
     const a = list.find((x) => x.status === "ACTIVE");
@@ -828,10 +836,16 @@ export class Composio {
     }
     return v;
   }
-  /** Run one Composio tool as the user (null when it reports no success). */
-  async tool(slug: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
-    const r = await this.cli<{ successful?: boolean; data?: Record<string, unknown>; outputFilePath?: string }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, "-d", JSON.stringify(input)]);
-    if (r.successful === false) return null;
+  /**
+   * Run one Composio tool as the user (null when it reports no success; with `strict`, its error
+   * is thrown instead). `account` picks one of several connections of the toolkit.
+   */
+  async tool(slug: string, input: Record<string, unknown>, opts: { account?: string; strict?: boolean } = {}): Promise<Record<string, unknown> | null> {
+    const r = await this.cli<{ successful?: boolean; error?: string | null; data?: Record<string, unknown>; outputFilePath?: string }>(["dev", "playground-execute", slug, "--user-id", this.settings.userId, ...(opts.account ? ["--account", opts.account] : []), "-d", JSON.stringify(input)]);
+    if (r.successful === false) {
+      if (opts.strict) throw new HttpError(502, String(r.error || `${slug} failed`).slice(0, 300));
+      return null;
+    }
     if (r.data) return r.data;
     // A large answer is stored in a file instead (a Slack search, a long list); read it from there.
     if (r.outputFilePath && existsSync(r.outputFilePath)) {
