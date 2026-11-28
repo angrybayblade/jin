@@ -535,6 +535,34 @@ export interface HomeMoved {
   needs?: string[];
 }
 
+/** A Notion connection a doc can be synced through. */
+export interface NotionConnection {
+  id: string;
+  workspace: string | null;
+  email: string | null;
+  label: string;
+  active: boolean;
+}
+
+/** A Notion page a doc can go under. */
+export interface NotionTarget {
+  id: string;
+  title: string;
+  icon: string | null;
+  url: string | null;
+}
+
+/** Where a doc was synced to in Notion, and at which version. */
+export interface NotionLink {
+  docId: string;
+  account: string;
+  pageId: string;
+  url: string | null;
+  parentId: string | null;
+  syncedAt: string;
+  syncedVersion: number;
+}
+
 /** A port of a remote machine, reached on this machine's loopback over ssh. */
 export interface PortForward {
   id: string;

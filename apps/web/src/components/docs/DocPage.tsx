@@ -1,13 +1,14 @@
 "use client";
-import { Archive, Check, Clipboard, Download, FileText, History, MessageSquare, MoreHorizontal, PanelRightClose, PanelRightOpen, RotateCcw, Sparkles, X } from "lucide-react";
+import { Archive, Check, Clipboard, Download, FileText, History, MessageSquare, MoreHorizontal, NotebookPen, PanelRightClose, PanelRightOpen, RotateCcw, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { archiveDoc, askDoc, commentDoc, decideDocSuggestion, docChat, docVersion, docVersions, getDoc, replyDoc, resolveDocThread, restoreDocVersion, saveDoc } from "@/lib/actions";
+import { archiveDoc, askDoc, commentDoc, decideDocSuggestion, docChat, docNotionLink, docVersion, docVersions, getDoc, replyDoc, resolveDocThread, restoreDocVersion, saveDoc } from "@/lib/actions";
 import { Chat } from "@/components/Chat";
 import { openContextMenu } from "@/components/ContextMenu";
 import { Panes } from "@/components/Panes";
-import type { Doc, DocAnchor, DocFull, DocSuggestion, DocThread, DocVersion, Session, SessionEvent } from "@/lib/daemon";
+import type { Doc, DocAnchor, DocFull, DocSuggestion, DocThread, DocVersion, NotionLink, Session, SessionEvent } from "@/lib/daemon";
+import { NotionPanel } from "./DocNotion";
 import { type Annotation, DocEditor, type DocEditorHandle, displayText } from "./DocEditor";
 
 /**
@@ -16,7 +17,7 @@ import { type Annotation, DocEditor, type DocEditorHandle, displayText } from ".
  * versions. It saves as you type; a version saved elsewhere meanwhile is never overwritten.
  */
 
-type Panel = "comments" | "suggestions" | "chat" | "history";
+type Panel = "comments" | "suggestions" | "chat" | "history" | "notion";
 type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
 
 const ago = (iso: string) => {
@@ -54,6 +55,11 @@ export function DocPage({
   const [draft, setDraft] = useState<DocAnchor | "doc" | null>(null);
   const [chatState, setChatState] = useState(chat);
   const [sideOpen, setSideOpen] = useState(!embedded);
+  // Where the doc went in Notion, if you synced it (undefined: not read yet).
+  const [notion, setNotion] = useState<NotionLink | null | undefined>(undefined);
+  useEffect(() => {
+    void docNotionLink(initial.id).then((r) => setNotion(r && "error" in r ? null : r));
+  }, [initial.id]);
 
   // What is saved, and what is waiting to be.
   const version = useRef(initial.version);
@@ -208,6 +214,7 @@ export function DocPage({
         },
       },
       { label: "Copy link for a task", icon: FileText, hint: `doc:${doc.id}`, run: () => void copy(`doc:${doc.id}`) },
+      { label: notion ? "Notion" : "Sync to Notion…", icon: NotebookPen, run: () => show("notion") },
       { divider: true },
       {
         label: "Archive",
@@ -246,6 +253,12 @@ export function DocPage({
           <Sparkles size={15} />
           {open.length > 0 && <span className="doc-count">{open.length}</span>}
         </button>
+        {notion && (
+          <button type="button" className={`button quiet icon-only doc-header-button ${doc.version > notion.syncedVersion ? "is-notion-behind" : ""}`} onClick={() => show("notion")} title={doc.version > notion.syncedVersion ? "In Notion; changed since the last sync" : "In Notion, up to date"} aria-label="Notion">
+            <NotebookPen size={15} />
+            {doc.version > notion.syncedVersion && <span className="doc-notion-badge" />}
+          </button>
+        )}
         {embedded && (
           <button type="button" className="button quiet icon-only" onClick={() => setSideOpen((v) => !v)} title={sideOpen ? "Hide comments and jin" : "Comments, suggestions and jin"} aria-label="Toggle the side panel">
             {sideOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
@@ -322,6 +335,7 @@ export function DocPage({
             ["suggestions", "Suggestions", open.length],
             ["chat", "jin", 0],
             ["history", "History", 0],
+            ...(notion || panel === "notion" ? ([["notion", "Notion", 0]] as const) : []),
           ] as const
         ).map(([k, label, n]) => (
           <button key={k} type="button" role="tab" aria-selected={panel === k} className={panel === k ? "is-active" : ""} onClick={() => setPanel(k)}>
@@ -374,6 +388,7 @@ export function DocPage({
             />
           </div>
         )}
+        {panel === "notion" && <NotionPanel docId={doc.id} version={doc.version} link={notion} flush={flush} onLink={setNotion} />}
         {panel === "history" && (
           <Versions
             docId={doc.id}

@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type HomeMoved, type ListeningPort, type PortForward, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
+import { currentMachine, daemon, daemonWsBase, homeMachine, type Hook, type HooksStatus, type LiveStatus, type Machine, type HomeMoved, type ListeningPort, type PortForward, type NotionConnection, type NotionLink, type NotionTarget, type SetupState, type ChatKind, type FileEntry, type JournalView, type JournalEntry, type PreContextPick, type NotificationKinds, type NotificationSettings, type TaskPR, type Mention, type ChatRef, type ClaudeSettingsFile, type HarnessSettingsFile, type ChatSkill, type Doc, type DocAnchor, type DocFull, type DocSuggestion, type DocSummary, type DocThread, type DocVersion, type SessionEvent, type ModelChoices, type RunChoice, type Repo, type RepoDiff, type TaskKindSpec, type Session, type TaskJob, type TaskActivity, type TaskLink, type TerminalInfo, type AgentId, type MachineAgents, type RoomAgent, type RoomMessage, type RoomProfile, type RoomState, type Problem, type TrackerView } from "@/lib/daemon";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -1156,6 +1156,50 @@ export async function renameDoc(id: string, title: string): Promise<Doc | { erro
     const d = await daemon<Doc>(docPath(id), { method: "PATCH", json: { title } });
     revalidatePath("/", "layout");
     return d;
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Your Notion connections (through Composio), to sync a doc through. */
+export async function notionConnections(): Promise<NotionConnection[] | { error: string }> {
+  try {
+    return await daemon<NotionConnection[]>("/api/composio/notion/connections", { timeoutMs: 30_000 });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Notion pages a doc can go under, found by title. */
+export async function notionPages(account: string, q: string): Promise<NotionTarget[] | { error: string }> {
+  try {
+    return await daemon<NotionTarget[]>(`/api/composio/notion/pages?account=${encodeURIComponent(account)}&q=${encodeURIComponent(q)}`, { timeoutMs: 30_000 });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function docNotionLink(id: string): Promise<NotionLink | null | { error: string }> {
+  try {
+    return await daemon<NotionLink | null>(`${docPath(id)}/notion`);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Sync a doc to Notion: its page when it has one, else a new page under `parentId` through `account`. */
+export async function syncDocToNotion(id: string, o: { account?: string; parentId?: string } = {}): Promise<NotionLink | { error: string }> {
+  try {
+    return await daemon<NotionLink>(`${docPath(id)}/notion`, { method: "POST", json: o, timeoutMs: 120_000 });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function unlinkDocFromNotion(id: string): Promise<{ error: string } | null> {
+  try {
+    await daemon(`${docPath(id)}/notion`, { method: "DELETE" });
+    return null;
   } catch (err) {
     return fail(err);
   }
